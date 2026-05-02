@@ -61,6 +61,7 @@ async function fetchLiveShelf(
   const dbRows = await db
     .select({
       bookTitle: bookwyrmObjects.bookTitle,
+      bookAuthor: bookwyrmObjects.bookAuthor,
       startDate: bookwyrmObjects.startDate,
       finishDate: bookwyrmObjects.finishDate,
       rating: bookwyrmObjects.rating,
@@ -94,7 +95,7 @@ async function fetchLiveShelf(
     const dbRow = dbByTitle.get(key)
     return {
       title: item.bookTitle,
-      authors: item.bookAuthor,
+      authors: item.bookAuthor ?? dbRow?.bookAuthor ?? null,
       shelf: item.shelf,
       started_date: dbRow?.startDate ?? null,
       finished_date: dbRow?.finishDate ?? null,
