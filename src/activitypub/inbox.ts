@@ -17,7 +17,7 @@ type AnyObject = Record<string, unknown>
 
 const app = new Hono()
 
-async function processActivity(activity: AnyObject): Promise<void> {
+export async function processActivity(activity: AnyObject): Promise<void> {
   const type = activity.type as string
   switch (type) {
     case 'Create':
