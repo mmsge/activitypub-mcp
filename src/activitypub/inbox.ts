@@ -44,6 +44,28 @@ export async function processActivity(activity: AnyObject): Promise<void> {
     case 'Undo':
       // Undo of Follow, Like, etc. — just log it for now
       break
+    case 'Note':
+    case 'Article':
+    case 'Image':
+    case 'Video':
+    case 'Audio':
+    case 'Page':
+    case 'Event':
+    case 'Review':
+    case 'Rating':
+    case 'ReadThrough':
+    case 'Edition':
+    case 'Work':
+    case 'ShelfBook':
+    case 'Comment':
+    case 'GeneratedNote':
+      // Bare object from BookWyrm outbox — wrap in synthetic Create
+      await handleCreate({
+        type: 'Create',
+        actor: (activity.attributedTo ?? activity.actor) as string,
+        object: activity,
+      })
+      break
     default:
       logger.debug({ type }, 'Unhandled activity type')
   }

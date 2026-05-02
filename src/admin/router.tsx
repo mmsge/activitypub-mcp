@@ -19,6 +19,8 @@ import {
   crawlOutbox,
   processActivityBatch,
   ensureActor,
+  reprocessActivitiesByType,
+  BARE_OBJECT_TYPES,
 } from './import.js'
 import { resolveActorByHandle } from '../lib/fetch-actor.js'
 import { logger } from '../lib/logger.js'
@@ -289,6 +291,20 @@ app.post('/import/crawl', async (c) => {
 
   const params = new URLSearchParams({
     actor: handle,
+    total: String(result.total),
+    imported: String(result.imported),
+    skipped: String(result.skipped),
+    errorCount: String(result.errors.length),
+  })
+  return c.redirect(`/admin/import/result?${params}`)
+})
+
+app.post('/import/reprocess', async (c) => {
+  const result = await reprocessActivitiesByType(BARE_OBJECT_TYPES, (n) => {
+    logger.info({ n }, 'Reprocess progress')
+  })
+  const params = new URLSearchParams({
+    actor: 'stored bare objects',
     total: String(result.total),
     imported: String(result.imported),
     skipped: String(result.skipped),
