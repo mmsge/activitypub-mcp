@@ -16,16 +16,15 @@ const AP_HEADERS = {
 }
 
 function extractShelfItem(obj: AnyObject): ShelfItem {
-  const book = (obj.book as AnyObject) ?? null
-  const bookTitle = (book?.title as string) ?? (book?.name as string) ?? null
-  const authors = book?.authors as AnyObject[] | string[] | null
-  let bookAuthor: string | null = null
-  if (Array.isArray(authors) && authors.length > 0) {
-    const a = authors[0]
-    bookAuthor = typeof a === 'string' ? a : (a as AnyObject).name as string ?? null
-  }
-  const bookIsbn = (book?.isbn13 as string) ?? (book?.isbn10 as string) ?? null
-  const bookUrl = (book?.url as string) ?? null
+  // BookWyrm shelf orderedItems are Edition objects directly (not ShelfBook wrappers).
+  // title, isbn*, and id are top-level; authors is an array of AP URL strings.
+  const bookTitle = (obj.title as string) ?? (obj.name as string) ?? null
+  const bookIsbn = (obj.isbn13 as string) ?? (obj.isbn10 as string) ?? null
+  // The Edition's AP id is its canonical book URL
+  const bookUrl = (obj.id as string) ?? (obj.url as string) ?? null
+  // authors is a list of URL strings — names require dereferencing; leave null here
+  // and let the caller enrich from the local DB if needed
+  const bookAuthor: string | null = null
   const shelvedDate = (obj.shelvedDate as string) ?? null
 
   return { bookTitle, bookAuthor, bookIsbn, bookUrl, shelvedDate, raw: obj }
