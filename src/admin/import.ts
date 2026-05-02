@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { activities, actors } from '../db/schema.js'
 import { processActivity } from '../activitypub/inbox.js'
@@ -179,4 +179,38 @@ export async function crawlOutbox(actorUrl: string): Promise<unknown[]> {
 
 export async function ensureActor(actorUrl: string): Promise<void> {
   await fetchActor(actorUrl)
+}
+
+export const BARE_OBJECT_TYPES = [
+  'Note', 'Article', 'Image', 'Video', 'Audio', 'Page', 'Event',
+  'Review', 'Rating', 'ReadThrough', 'Edition', 'Work', 'ShelfBook', 'Comment', 'GeneratedNote',
+]
+
+export async function reprocessActivitiesByType(
+  types: string[],
+  onProgress?: (n: number) => void,
+): Promise<ImportResult> {
+  const db = getDb()
+  const rows = await db.select().from(activities).where(inArray(activities.type, types))
+  const result: ImportResult = { total: rows.length, imported: 0, skipped: 0, errors: [] }
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]
+    try {
+      await processActivity(row.raw as AnyObject)
+      await db.update(activities)
+        .set({ processed: true, processingError: null })
+        .where(eq(activities.apId, row.apId))
+      result.imported++
+    } catch (e) {
+      const msg = String(e)
+      await db.update(activities)
+        .set({ processingError: msg })
+        .where(eq(activities.apId, row.apId))
+      if (result.errors.length < 50) result.errors.push(`${row.apId}: ${msg}`)
+    }
+    if (onProgress && (i + 1) % 50 === 0) onProgress(i + 1)
+  }
+
+  return result
 }

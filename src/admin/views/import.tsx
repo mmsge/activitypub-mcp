@@ -42,6 +42,19 @@ export const ImportPage: FC<{ error?: string }> = ({ error }) => (
         </div>
       </form>
     </div>
+    <div class="section">
+      <h2>Re-process Stored Bare Objects</h2>
+      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
+        Re-runs processing on activities stored as bare Note/Review/etc. objects
+        (e.g. from a BookWyrm outbox crawl) so they appear as queryable posts.
+        Safe to run multiple times.
+      </p>
+      <form method="post" action="/admin/import/reprocess">
+        <div class="filters">
+          <button type="submit">Re-process Bare Objects</button>
+        </div>
+      </form>
+    </div>
   </Layout>
 )
 
