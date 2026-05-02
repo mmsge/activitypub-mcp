@@ -17,6 +17,13 @@ export interface ImportResult {
 const MAX_OUTBOX_PAGES = 200
 const OUTBOX_PAGE_DELAY_MS = 300
 
+function resolveActorId(activity: AnyObject): string | null {
+  const raw = activity.actor ?? activity.attributedTo
+  if (typeof raw === 'string') return raw
+  if (raw && typeof (raw as AnyObject).id === 'string') return (raw as AnyObject).id as string
+  return null
+}
+
 export async function storeAndProcessImported(
   activity: AnyObject,
 ): Promise<{ skipped: boolean; error?: string }> {
@@ -24,6 +31,9 @@ export async function storeAndProcessImported(
   const type = activity.type as string | undefined
 
   if (!apId || !type) return { skipped: true }
+
+  const actorApId = resolveActorId(activity)
+  if (!actorApId) return { skipped: true }
 
   const db = getDb()
   const obj = activity.object as AnyObject | string | null
@@ -39,7 +49,7 @@ export async function storeAndProcessImported(
     .values({
       apId,
       type,
-      actorApId: activity.actor as string,
+      actorApId,
       objectApId,
       objectType,
       raw: activity,
