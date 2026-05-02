@@ -94,6 +94,7 @@ export const bookwyrmObjects = pgTable('bookwyrm_objects', {
   bookTitle: text('book_title'),
   bookAuthor: text('book_author'),
   bookIsbn: text('book_isbn'),
+  bookUrl: text('book_url'),
   rating: numeric('rating', { precision: 3, scale: 1 }),
   readingStatus: text('reading_status'),
   startDate: date('start_date'),
