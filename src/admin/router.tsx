@@ -1,6 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { Hono } from 'hono'
 import { setCookie, getCookie, deleteCookie } from 'hono/cookie'
+import { bodyLimit } from 'hono/body-limit'
 import { requireAuth } from './middleware.js'
 import { verifyAdminPassword, createSession, deleteSession } from './auth.js'
 import { getDb } from '../db/client.js'
@@ -12,6 +13,15 @@ import { ActivitiesPage } from './views/activities.js'
 import { FollowsPage } from './views/follows.js'
 import { LogsPage } from './views/logs.js'
 import { ObjectsPage } from './views/objects.js'
+import { ImportPage, ImportResultPage } from './views/import.js'
+import {
+  parseMastodonArchive,
+  crawlOutbox,
+  processActivityBatch,
+  ensureActor,
+} from './import.js'
+import { resolveActorByHandle } from '../lib/fetch-actor.js'
+import { logger } from '../lib/logger.js'
 
 const app = new Hono()
 
@@ -198,6 +208,106 @@ app.get('/logs', async (c) => {
       filters={{ direction, sigValid, actor }}
     />
   )
+})
+
+// Import
+app.get('/import', (c) => c.html(<ImportPage />))
+
+app.post(
+  '/import/archive',
+  bodyLimit({ maxSize: 50 * 1024 * 1024 }),
+  async (c) => {
+    const body = await c.req.parseBody()
+    const file = body['archive']
+    if (!file || typeof file === 'string') {
+      return c.html(<ImportPage error="No file uploaded" />)
+    }
+    let text: string
+    try {
+      text = await (file as File).text()
+    } catch {
+      return c.html(<ImportPage error="Could not read file" />)
+    }
+
+    let items: unknown[]
+    try {
+      items = parseMastodonArchive(text)
+    } catch (e) {
+      return c.html(<ImportPage error={String(e)} />)
+    }
+
+    const firstActivity = items[0] as Record<string, unknown> | undefined
+    const actorUrl =
+      firstActivity && typeof firstActivity.actor === 'string'
+        ? firstActivity.actor
+        : null
+    if (!actorUrl) {
+      return c.html(<ImportPage error="Could not determine actor from archive" />)
+    }
+
+    try {
+      await ensureActor(actorUrl)
+    } catch (e) {
+      return c.html(<ImportPage error={`Failed to fetch actor: ${e}`} />)
+    }
+
+    const result = await processActivityBatch(items, (n) => {
+      logger.info({ n, total: items.length }, 'Archive import progress')
+    })
+
+    const params = new URLSearchParams({
+      actor: actorUrl,
+      total: String(result.total),
+      imported: String(result.imported),
+      skipped: String(result.skipped),
+      errorCount: String(result.errors.length),
+    })
+    return c.redirect(`/admin/import/result?${params}`)
+  },
+)
+
+app.post('/import/crawl', async (c) => {
+  const body = await c.req.parseBody()
+  const handle = (body['handle'] as string | undefined)?.trim()
+  if (!handle) return c.html(<ImportPage error="Handle is required" />)
+
+  const actor = await resolveActorByHandle(handle)
+  if (!actor) {
+    return c.html(<ImportPage error={`Actor not found: ${handle}`} />)
+  }
+
+  let items: unknown[]
+  try {
+    items = await crawlOutbox(actor.apId)
+  } catch (e) {
+    return c.html(<ImportPage error={`Outbox crawl failed: ${e}`} />)
+  }
+
+  const result = await processActivityBatch(items, (n) => {
+    logger.info({ n, total: items.length }, 'Outbox import progress')
+  })
+
+  const params = new URLSearchParams({
+    actor: handle,
+    total: String(result.total),
+    imported: String(result.imported),
+    skipped: String(result.skipped),
+    errorCount: String(result.errors.length),
+  })
+  return c.redirect(`/admin/import/result?${params}`)
+})
+
+app.get('/import/result', (c) => {
+  const actor = c.req.query('actor') ?? ''
+  const result = {
+    total: Number(c.req.query('total') ?? '0'),
+    imported: Number(c.req.query('imported') ?? '0'),
+    skipped: Number(c.req.query('skipped') ?? '0'),
+    errors: Number(c.req.query('errorCount') ?? '0') > 0
+      ? [`${c.req.query('errorCount')} error(s) — see server logs for details`]
+      : [],
+  }
+  return c.html(<ImportResultPage result={result} actor={actor} />)
 })
 
 export { app as adminRouter }
