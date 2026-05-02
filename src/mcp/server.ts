@@ -5,6 +5,7 @@ import { getActorMediaSchema, getActorMedia } from './tools/actor-media.js'
 import { searchActorContentSchema, searchActorContent } from './tools/actor-search.js'
 import { getFollowsSchema, getFollows } from './tools/follows.js'
 import { getActivityStatsSchema, getActivityStats, getRecentActivitiesSchema, getRecentActivities } from './tools/activity-stats.js'
+import { getReadingEventsSchema, getReadingEvents } from './tools/reading-events.js'
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -24,7 +25,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_actor_reading_status',
-    'Get BookWyrm reading activity for an actor (current reads, recent finishes, ratings)',
+    'Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. Returns title, authors, shelf, started_date, finished_date, rating, and bookwyrm_book_url per book.',
     getActorReadingStatusSchema.shape,
     async (input) => {
       const result = await getActorReadingStatus(input as any)
@@ -78,6 +79,16 @@ export function createMcpServer(): McpServer {
     getRecentActivitiesSchema.shape,
     async (input) => {
       const result = await getRecentActivities(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_reading_events',
+    'Get BookWyrm reading events from locally stored activities with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved. Useful for building a reading timeline or finding when a book was started vs finished.',
+    getReadingEventsSchema.shape,
+    async (input) => {
+      const result = await getReadingEvents(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

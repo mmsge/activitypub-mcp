@@ -69,6 +69,7 @@ async function handleBookwyrm(
     const bookTitle = extractBookTitle(obj)
     const bookAuthor = extractBookAuthor(obj)
     const bookIsbn = (obj.isbn13 as string) ?? (obj.isbn10 as string) ?? null
+    const bookUrl = (obj.url as string) ?? ((obj.book as AnyObject)?.url as string) ?? null
     const rating = extractRating(obj)
     const readingStatus = extractReadingStatus(obj, bwType)
     const startDate = extractDate(obj, 'startedDate')
@@ -85,6 +86,7 @@ async function handleBookwyrm(
       bookTitle,
       bookAuthor,
       bookIsbn,
+      bookUrl,
       rating: rating !== null ? String(rating) : null,
       readingStatus,
       startDate,
@@ -99,6 +101,7 @@ async function handleBookwyrm(
         readingStatus,
         progress,
         finishDate,
+        bookUrl,
         rating: rating !== null ? String(rating) : null,
         reviewContent,
         raw: obj,
