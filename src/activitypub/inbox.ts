@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { eq } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
-import { activities, activityLog } from '../db/schema.js'
+import { activities, activityLog, follows } from '../db/schema.js'
 import { verifySignature } from '../crypto/signatures.js'
 import { logger } from '../lib/logger.js'
 import { handleCreate } from './handlers/create.js'
@@ -120,6 +120,29 @@ async function handleInbox(c: Context) {
   const obj = activity.object as AnyObject | string | null
   const objectApId = typeof obj === 'string' ? obj : (obj as AnyObject)?.id as string ?? null
   const objectType = typeof obj === 'object' && obj ? (obj as AnyObject).type as string ?? null : null
+
+  // Only process content from followed accounts.
+  // Control-plane types bypass the check:
+  //   Accept/Reject — responses to our outgoing follows (still 'pending' at receipt time)
+  //   Follow        — inbound follow requests we auto-reject regardless of sender
+  const CONTROL_TYPES = new Set(['Accept', 'Reject', 'Follow'])
+  if (!CONTROL_TYPES.has(type)) {
+    // For bare objects (Note, Article, …) the actor lives in attributedTo, not actor
+    const contentActor = (activity.actor as string)
+      ?? (activity.attributedTo as string)
+      ?? actorApId
+
+    const [follow] = await db
+      .select()
+      .from(follows)
+      .where(eq(follows.actorApId, contentActor))
+      .limit(1)
+
+    if (!follow || follow.status !== 'accepted') {
+      logger.debug({ actorApId: contentActor, type }, 'Ignoring activity from unfollowed actor')
+      return c.json({ status: 'accepted' }, 202)
+    }
+  }
 
   // Store raw activity
   await db.insert(activities).values({
