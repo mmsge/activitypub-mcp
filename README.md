@@ -2,7 +2,7 @@
 
 A personal ActivityPub actor that follows other accounts, archives their posts in PostgreSQL, and exposes an MCP server so AI agents can query the data.
 
-Works with **Mastodon**, **BookWyrm**, **Pixelfed**, and **Loops**.
+Works with **Mastodon**, **BookWyrm**, **Pixelfed**, **Loops**, and **LinkedIn**.
 
 ## How it works
 
@@ -237,15 +237,91 @@ Connect to it from any MCP-compatible AI client (Claude Desktop, Claude Code, et
 
 | Tool | Example question it answers |
 |---|---|
-| `get_actor_posts` | "What did @alice@mastodon.social post today?" |
+| `get_actor_posts` | "What did @alice@mastodon.social post today?" / "Show my LinkedIn posts this week" |
 | `get_actor_reading_status` | "What book is @bob@bookwyrm.social currently reading?" |
-| `get_actor_media` | "How many videos has @carol@loop.me posted?" |
-| `search_actor_content` | "Has @alice ever talked about climate change?" |
+| `get_actor_media` | "Show images from my LinkedIn posts" / "Videos from @carol@loop.me" |
+| `search_actor_content` | "Has @alice ever talked about climate change?" / "Find my LinkedIn posts about TypeScript" |
 | `get_activity_stats` | "How many posts did @carol make this month?" |
 | `get_follows` | "Which accounts are being followed?" |
 | `get_recent_activities` | "What has come in recently?" |
 
+All tools accept an optional `source` parameter (`"activitypub"`, `"linkedin"`, or `"all"`) to filter by platform.
+
 All tools are read-only queries against the local database — no requests go out to remote servers when you query the MCP server.
+
+---
+
+## LinkedIn integration
+
+The server can archive your personal LinkedIn posts — text and attachments — and make them queryable through the same MCP tools as ActivityPub content.
+
+LinkedIn images and documents are downloaded and hosted locally at `/media/<id>`, so an AI client can fetch them directly.
+
+### Prerequisites
+
+LinkedIn post access requires an approved LinkedIn Developer app with the **Member Data Portability** product. The **Self-Serve** variant is designed for personal use and has a lower approval bar than the 3rd-party variant.
+
+1. Go to [https://developer.linkedin.com](https://developer.linkedin.com) and create an app.
+2. Under **Products**, request **Member Data Portability (Self-Serve)** and **Sign In with LinkedIn using OpenID Connect**.
+3. Under **Auth**, add an OAuth 2.0 Redirect URL:
+   ```
+   https://yourdomain.com/admin/linkedin/callback
+   ```
+4. Copy the **Client ID** and **Client Secret**.
+
+### Configuration
+
+Add these to your `.env`:
+
+```env
+LINKEDIN_CLIENT_ID=your-client-id
+LINKEDIN_CLIENT_SECRET=your-client-secret
+# Optional — defaults to https://${APP_DOMAIN}/admin/linkedin/callback
+# LINKEDIN_REDIRECT_URI=https://yourdomain.com/admin/linkedin/callback
+```
+
+Restart the server:
+
+```bash
+docker compose restart app
+```
+
+### Connecting your account
+
+1. Open `https://yourdomain.com/admin/linkedin`.
+2. Click **Connect LinkedIn** and complete the OAuth flow.
+3. The server immediately runs an initial poll to import your post history.
+4. Subsequent polls run automatically every 6 hours.
+
+You can also trigger a manual poll at any time from the LinkedIn admin page.
+
+### Token security
+
+OAuth tokens are encrypted at rest using AES-256-GCM with a key derived from `SESSION_SECRET`. They are never logged or sent anywhere other than LinkedIn's API endpoints.
+
+Tokens expire after approximately 60 days. The server will automatically refresh them using the refresh token if one is available; otherwise you will need to reconnect from the admin UI.
+
+### Querying LinkedIn posts via MCP
+
+```
+# All LinkedIn posts
+get_actor_posts(actor_handle="urn:li:person:<id>", source="linkedin")
+
+# Or use your vanity URL — the server resolves it to the stored actor
+get_actor_posts(actor_handle="https://www.linkedin.com/in/yourname", source="linkedin")
+
+# LinkedIn images
+get_actor_media(actor_handle="urn:li:person:<id>", media_type="image", source="linkedin")
+
+# Cross-platform search
+search_actor_content(query="TypeScript", source="all")
+```
+
+The member URN is shown on the LinkedIn admin page after connecting.
+
+### Media storage
+
+Downloaded media is stored in a Docker volume (`media_data`) mounted at `/data/media` inside the container. The files are served publicly at `https://yourdomain.com/media/<id>` with aggressive caching headers. No authentication is required to fetch a media file — do not store sensitive private images via this server.
 
 ---
 

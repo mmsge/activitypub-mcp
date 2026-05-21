@@ -6,17 +6,27 @@ import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 
 export const searchActorContentSchema = z.object({
   query: z.string().min(1).describe('Search terms'),
-  actor_handle: z.string().optional().describe('Scope to a specific actor; omit to search all followed actors'),
+  actor_handle: z.string().optional().describe(
+    'Scope to a specific actor; omit to search across all stored posts (ActivityPub + LinkedIn)',
+  ),
   limit: z.number().int().min(1).max(50).default(20),
   object_types: z.array(z.string()).optional(),
+  source: z.enum(['activitypub', 'linkedin', 'all']).default('all').describe(
+    'Limit to a specific source platform, or "all" for everything',
+  ),
 })
 
 export async function searchActorContent(input: z.infer<typeof searchActorContentSchema>) {
   const db = getDb()
   const conditions = [isNull(objects.deletedAt)]
 
+  if (input.source !== 'all') {
+    conditions.push(eq(objects.source, input.source))
+  }
+
   if (input.actor_handle) {
-    const actor = input.actor_handle.startsWith('http')
+    const isHttp = input.actor_handle.startsWith('http') && !input.actor_handle.includes('linkedin.com')
+    const actor = isHttp
       ? { apId: input.actor_handle }
       : await resolveActorByHandle(input.actor_handle)
     if (!actor) return { error: `Could not resolve actor: ${input.actor_handle}` }
@@ -34,6 +44,7 @@ export async function searchActorContent(input: z.infer<typeof searchActorConten
 
   const rows = await db.select({
     apId: objects.apId,
+    source: objects.source,
     type: objects.type,
     actorApId: objects.actorApId,
     content: objects.contentText,

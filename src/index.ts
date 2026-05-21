@@ -8,6 +8,7 @@ import { webfingerRouter } from './activitypub/webfinger.js'
 import { nodeinfoRouter } from './activitypub/nodeinfo.js'
 import { adminRouter } from './admin/router.js'
 import { mcpRouter } from './mcp/router.js'
+import { mediaRouter } from './media/router.js'
 import { startScheduler } from './jobs/scheduler.js'
 import { syncFollows } from './jobs/sync-follows.js'
 import { runDeliveryWorker } from './jobs/deliver.js'
@@ -24,6 +25,9 @@ app.route('', activityPubRouter)
 
 // MCP
 app.route('', mcpRouter)
+
+// Locally-hosted media (LinkedIn attachments etc.)
+app.route('/media', mediaRouter)
 
 // Admin UI
 app.route('/admin', adminRouter)

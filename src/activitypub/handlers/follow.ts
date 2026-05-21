@@ -16,7 +16,9 @@ export async function handleIncomingFollow(activity: AnyObject): Promise<void> {
   let inboxUrl: string
   try {
     const actor = await fetchActor(requesterActorId)
-    inboxUrl = actor.sharedInboxUrl ?? actor.inboxUrl
+    const resolved = actor.sharedInboxUrl ?? actor.inboxUrl
+    if (!resolved) throw new Error('Actor has no inbox URL')
+    inboxUrl = resolved
   } catch (e) {
     logger.warn({ requesterActorId, error: e }, 'Could not fetch requester actor for Reject delivery')
     return

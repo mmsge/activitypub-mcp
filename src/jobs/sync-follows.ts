@@ -31,6 +31,10 @@ export async function syncFollows(): Promise<void> {
         continue
       }
 
+      if (!actor.inboxUrl) {
+        logger.warn({ handle }, 'Actor has no inbox URL, skipping follow')
+        continue
+      }
       logger.info({ handle, actorApId: actor.apId }, 'Sending Follow request')
       await sendFollow(actor.apId, actor.inboxUrl, actor.sharedInboxUrl)
     } catch (e) {

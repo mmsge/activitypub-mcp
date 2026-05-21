@@ -4,6 +4,9 @@ import {
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 
+// source values used in actors and objects
+export type PostSource = 'activitypub' | 'linkedin'
+
 export const serverConfig = pgTable('server_config', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
@@ -12,15 +15,18 @@ export const serverConfig = pgTable('server_config', {
 
 export const actors = pgTable('actors', {
   id: uuid('id').primaryKey().defaultRandom(),
+  // For ActivityPub actors this is the AP URL; for LinkedIn actors this is the member URN (urn:li:person:…)
   apId: text('ap_id').notNull().unique(),
+  source: text('source').notNull().default('activitypub'),
   handle: text('handle'),
   username: text('username'),
-  domain: text('domain').notNull(),
+  domain: text('domain'),
   displayName: text('display_name'),
   summary: text('summary'),
   iconUrl: text('icon_url'),
-  publicKeyPem: text('public_key_pem').notNull(),
-  inboxUrl: text('inbox_url').notNull(),
+  profileUrl: text('profile_url'), // canonical public profile URL (e.g. linkedin.com/in/…)
+  publicKeyPem: text('public_key_pem'), // AP-only; null for LinkedIn actors
+  inboxUrl: text('inbox_url'), // AP-only; null for LinkedIn actors
   sharedInboxUrl: text('shared_inbox_url'),
   followersUrl: text('followers_url'),
   followingUrl: text('following_url'),
@@ -30,6 +36,7 @@ export const actors = pgTable('actors', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index('actors_domain_idx').on(t.domain),
+  index('actors_source_idx').on(t.source),
 ])
 
 export const follows = pgTable('follows', {
@@ -62,6 +69,9 @@ export const activities = pgTable('activities', {
 export const objects = pgTable('objects', {
   id: uuid('id').primaryKey().defaultRandom(),
   apId: text('ap_id').notNull().unique(),
+  // For LinkedIn objects, actorApId holds the member URN (urn:li:person:…)
+  source: text('source').notNull().default('activitypub'),
+  sourceExternalId: text('source_external_id'), // e.g. LinkedIn share URN (urn:li:share:…)
   type: text('type').notNull(),
   actorApId: text('actor_ap_id').notNull(),
   content: text('content'),
@@ -85,6 +95,7 @@ export const objects = pgTable('objects', {
   index('objects_type_idx').on(t.type),
   index('objects_published_idx').on(t.publishedAt),
   index('objects_actor_published_idx').on(t.actorApId, t.publishedAt),
+  index('objects_source_idx').on(t.source, t.actorApId, t.publishedAt),
 ])
 
 export const bookwyrmObjects = pgTable('bookwyrm_objects', {
@@ -146,3 +157,32 @@ export const adminSessions = pgTable('admin_sessions', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+// Stores the OAuth tokens for the single connected LinkedIn member account.
+// Tokens (accessToken, refreshToken) are encrypted with AES-256-GCM using a
+// key derived from SESSION_SECRET via PBKDF2.
+export const linkedinAuth = pgTable('linkedin_auth', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  memberUrn: text('member_urn').notNull().unique(), // urn:li:person:…
+  // Encrypted token blobs (base64 of iv:authTag:ciphertext)
+  accessTokenEnc: text('access_token_enc').notNull(),
+  accessTokenExpiresAt: timestamp('access_token_expires_at', { withTimezone: true }).notNull(),
+  refreshTokenEnc: text('refresh_token_enc'),
+  refreshTokenExpiresAt: timestamp('refresh_token_expires_at', { withTimezone: true }),
+  scopes: text('scopes').notNull().default(''),
+  lastPolledAt: timestamp('last_polled_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+// Tracks locally-hosted media files (images, videos, PDFs) downloaded from LinkedIn.
+export const media = pgTable('media', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  hash: text('hash').notNull().unique(), // sha256 of file bytes (hex)
+  mimeType: text('mime_type').notNull(),
+  bytes: integer('bytes').notNull(),
+  sourceUrl: text('source_url'), // original LinkedIn CDN URL
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('media_hash_idx').on(t.hash),
+])

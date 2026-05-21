@@ -15,7 +15,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_actor_posts',
-    'Get recent posts from a specific ActivityPub actor',
+    'Get recent posts from a specific actor. Supports ActivityPub actors (@user@domain) and LinkedIn (member URN or linkedin.com/in/ URL). Use the source filter to restrict to one platform.',
     getActorPostsSchema.shape,
     async (input) => {
       const result = await getActorPosts(input as any)
@@ -35,7 +35,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_actor_media',
-    'Get posts with image or video attachments from an actor',
+    'Get posts with image, video, or document attachments from an actor. Works for both ActivityPub and LinkedIn. LinkedIn images are hosted locally and returned as absolute URLs you can fetch.',
     getActorMediaSchema.shape,
     async (input) => {
       const result = await getActorMedia(input as any)
@@ -45,7 +45,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'search_actor_content',
-    'Full-text search across all stored posts from an actor or all followed actors',
+    'Full-text search across all stored posts — ActivityPub and LinkedIn. Scope to an actor or platform with optional filters.',
     searchActorContentSchema.shape,
     async (input) => {
       const result = await searchActorContent(input as any)

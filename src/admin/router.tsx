@@ -5,7 +5,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { requireAuth } from './middleware.js'
 import { verifyAdminPassword, createSession, deleteSession } from './auth.js'
 import { getDb } from '../db/client.js'
-import { activities, objects, follows, activityLog, actors } from '../db/schema.js'
+import { activities, objects, follows, activityLog, actors, linkedinAuth } from '../db/schema.js'
 import { and, desc, eq, gt, count, isNull, like, or } from 'drizzle-orm'
 import { LoginPage } from './views/login.js'
 import { DashboardPage } from './views/dashboard.js'
@@ -14,6 +14,7 @@ import { FollowsPage } from './views/follows.js'
 import { LogsPage } from './views/logs.js'
 import { ObjectsPage } from './views/objects.js'
 import { ImportPage, ImportResultPage } from './views/import.js'
+import { LinkedInPage } from './views/linkedin.js'
 import {
   parseMastodonArchive,
   crawlOutbox,
@@ -24,6 +25,10 @@ import {
 } from './import.js'
 import { resolveActorByHandle } from '../lib/fetch-actor.js'
 import { logger } from '../lib/logger.js'
+import { buildAuthUrl, exchangeCode } from '../linkedin/oauth.js'
+import { runLinkedInPoll } from '../jobs/linkedin-poll.js'
+import { isLinkedInConfigured } from '../config.js'
+import { randomBytes } from 'node:crypto'
 
 const app = new Hono()
 
@@ -135,11 +140,13 @@ app.get('/objects', async (c) => {
   const actor = c.req.query('actor')
   const type = c.req.query('type')
   const q = c.req.query('q')
+  const source = c.req.query('source')
   const limit = 25
 
   const conditions = [isNull(objects.deletedAt)]
   if (actor) conditions.push(eq(objects.actorApId, actor))
   if (type) conditions.push(eq(objects.type, type))
+  if (source) conditions.push(eq(objects.source, source))
   if (q) conditions.push(or(
     like(objects.contentText, `%${q}%`),
     like(objects.summary, `%${q}%`),
@@ -153,10 +160,10 @@ app.get('/objects', async (c) => {
 
   return c.html(
     <ObjectsPage
-      objects={rows.slice(0, limit)}
+      objects={rows.slice(0, limit) as any}
       page={page}
       hasMore={rows.length > limit}
-      filters={{ actor, type, q }}
+      filters={{ actor, type, q, source }}
     />
   )
 })
@@ -324,6 +331,118 @@ app.get('/import/result', (c) => {
       : [],
   }
   return c.html(<ImportResultPage result={result} actor={actor} />)
+})
+
+// ─── LinkedIn ──────────────────────────────────────────────────────────────
+
+app.get('/linkedin', async (c) => {
+  const configured = isLinkedInConfigured()
+  const db = getDb()
+  const authRows = await db.select().from(linkedinAuth).limit(1)
+  const auth = authRows[0] ?? null
+
+  let postCount = 0
+  if (auth) {
+    const [{ cnt }] = await db.select({ cnt: count() }).from(objects)
+      .where(eq(objects.source, 'linkedin'))
+    postCount = Number(cnt)
+  }
+
+  // Resolve display name from actors table
+  let displayName: string | undefined
+  if (auth) {
+    const actorRows = await db.select().from(actors)
+      .where(eq(actors.apId, auth.memberUrn))
+      .limit(1)
+    displayName = actorRows[0]?.displayName ?? undefined
+  }
+
+  return c.html(
+    <LinkedInPage data={{
+      configured,
+      connected: Boolean(auth),
+      memberUrn: auth?.memberUrn,
+      displayName,
+      accessTokenExpiresAt: auth?.accessTokenExpiresAt,
+      refreshTokenExpiresAt: auth?.refreshTokenExpiresAt ?? null,
+      lastPolledAt: auth?.lastPolledAt ?? null,
+      postCount,
+      scopes: auth?.scopes,
+    }} />
+  )
+})
+
+app.get('/linkedin/connect', (c) => {
+  if (!isLinkedInConfigured()) {
+    return c.html(<LinkedInPage data={{ configured: false, connected: false, postCount: 0 }} />)
+  }
+  const state = randomBytes(16).toString('hex')
+  setCookie(c, 'li_oauth_state', state, {
+    httpOnly: true, secure: true, sameSite: 'Lax', maxAge: 600, path: '/',
+  })
+  return c.redirect(buildAuthUrl(state))
+})
+
+app.get('/linkedin/callback', async (c) => {
+  const code = c.req.query('code')
+  const state = c.req.query('state')
+  const storedState = getCookie(c, 'li_oauth_state')
+
+  if (!code) {
+    const error = c.req.query('error_description') ?? c.req.query('error') ?? 'No code returned'
+    return c.html(<LinkedInPage data={{ configured: true, connected: false, postCount: 0 }} pollResult={{ memberUrn: '', total: 0, imported: 0, skipped: 0, errors: [error] }} />)
+  }
+  if (state !== storedState) {
+    return c.html(<LinkedInPage data={{ configured: true, connected: false, postCount: 0 }} pollResult={{ memberUrn: '', total: 0, imported: 0, skipped: 0, errors: ['OAuth state mismatch'] }} />)
+  }
+  deleteCookie(c, 'li_oauth_state')
+
+  let memberUrn: string
+  try {
+    memberUrn = await exchangeCode(code)
+  } catch (e) {
+    return c.html(<LinkedInPage data={{ configured: true, connected: false, postCount: 0 }} pollResult={{ memberUrn: '', total: 0, imported: 0, skipped: 0, errors: [String(e)] }} />)
+  }
+
+  // Run initial poll
+  const results = await runLinkedInPoll()
+  return c.redirect('/admin/linkedin')
+})
+
+app.post('/linkedin/poll', async (c) => {
+  const results = await runLinkedInPoll()
+  const result = results[0] ?? { memberUrn: '', total: 0, imported: 0, skipped: 0, errors: ['No connected account'] }
+
+  const db = getDb()
+  const authRows = await db.select().from(linkedinAuth).limit(1)
+  const auth = authRows[0] ?? null
+  const [{ cnt }] = await db.select({ cnt: count() }).from(objects).where(eq(objects.source, 'linkedin'))
+  const actorRows = auth
+    ? await db.select().from(actors).where(eq(actors.apId, auth.memberUrn)).limit(1)
+    : []
+
+  return c.html(
+    <LinkedInPage
+      data={{
+        configured: isLinkedInConfigured(),
+        connected: Boolean(auth),
+        memberUrn: auth?.memberUrn,
+        displayName: actorRows[0]?.displayName ?? undefined,
+        accessTokenExpiresAt: auth?.accessTokenExpiresAt,
+        refreshTokenExpiresAt: auth?.refreshTokenExpiresAt ?? null,
+        lastPolledAt: auth?.lastPolledAt ?? null,
+        postCount: Number(cnt),
+        scopes: auth?.scopes,
+      }}
+      pollResult={result}
+    />
+  )
+})
+
+app.post('/linkedin/disconnect', async (c) => {
+  const db = getDb()
+  await db.delete(linkedinAuth)
+  return c.redirect('/admin/linkedin')
 })
 
 export { app as adminRouter }

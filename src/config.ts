@@ -11,6 +11,11 @@ const schema = z.object({
   PORT: z.coerce.number().default(3000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.string().default('info'),
+  // LinkedIn OAuth — all optional; feature is dormant when unset
+  LINKEDIN_CLIENT_ID: z.string().optional(),
+  LINKEDIN_CLIENT_SECRET: z.string().optional(),
+  LINKEDIN_REDIRECT_URI: z.string().optional(),
+  MEDIA_DIR: z.string().default('/data/media'),
 })
 
 const parsed = schema.safeParse(process.env)
@@ -31,4 +36,13 @@ export function getFollowActors(): string[] {
     .split(',')
     .map(s => s.trim())
     .filter(Boolean)
+}
+
+export function getLinkedInRedirectUri(): string {
+  return config.LINKEDIN_REDIRECT_URI
+    ?? `https://${config.APP_DOMAIN}/admin/linkedin/callback`
+}
+
+export function isLinkedInConfigured(): boolean {
+  return Boolean(config.LINKEDIN_CLIENT_ID && config.LINKEDIN_CLIENT_SECRET)
 }

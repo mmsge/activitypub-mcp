@@ -19,16 +19,31 @@ interface ObjectsPageProps {
   objects: ObjectRow[]
   page: number
   hasMore: boolean
-  filters: { actor?: string; type?: string; q?: string }
+  filters: { actor?: string; type?: string; q?: string; source?: string }
 }
 
 export function ObjectsPage({ objects, page, hasMore, filters }: ObjectsPageProps) {
+  const buildPaginationHref = (p: number) => {
+    const params = new URLSearchParams()
+    params.set('page', String(p))
+    if (filters.actor) params.set('actor', filters.actor)
+    if (filters.type) params.set('type', filters.type)
+    if (filters.q) params.set('q', filters.q)
+    if (filters.source) params.set('source', filters.source)
+    return `/admin/objects?${params}`
+  }
+
   return (
     <Layout title="Posts">
       <h1>Posts</h1>
       <form class="filters" method="get" action="/admin/objects">
-        <input name="actor" placeholder="Actor URL" value={filters.actor ?? ''} style="width:280px" />
-        <input name="type" placeholder="Type (Note, Article...)" value={filters.type ?? ''} style="width:160px" />
+        <input name="actor" placeholder="Actor URL / URN" value={filters.actor ?? ''} style="width:280px" />
+        <input name="type" placeholder="Type (Note, LinkedInPost…)" value={filters.type ?? ''} style="width:160px" />
+        <select name="source" style="min-width:130px">
+          <option value="" selected={!filters.source}>All sources</option>
+          <option value="activitypub" selected={filters.source === 'activitypub'}>ActivityPub</option>
+          <option value="linkedin" selected={filters.source === 'linkedin'}>LinkedIn</option>
+        </select>
         <input name="q" placeholder="Search text" value={filters.q ?? ''} style="width:200px" />
         <button type="submit">Filter</button>
         <a href="/admin/objects" class="btn" style="background:#333">Clear</a>
@@ -49,6 +64,7 @@ export function ObjectsPage({ objects, page, hasMore, filters }: ObjectsPageProp
             <tr key={o.id} style={o.deletedAt ? 'opacity:0.5' : ''}>
               <td>
                 <span class="badge badge-blue">{o.type}</span>
+                {(o as any).source === 'linkedin' && <span class="badge badge-yellow" style="margin-left:4px">LinkedIn</span>}
                 {o.deletedAt && <span class="badge badge-red" style="margin-left:4px">Deleted</span>}
               </td>
               <td class="truncate mono">{o.actorApId}</td>
@@ -77,8 +93,8 @@ export function ObjectsPage({ objects, page, hasMore, filters }: ObjectsPageProp
         </tbody>
       </table>
       <div style="display:flex;gap:12px;margin-top:16px">
-        {page > 0 && <a href={`/admin/objects?page=${page - 1}&actor=${filters.actor ?? ''}&type=${filters.type ?? ''}&q=${filters.q ?? ''}`} class="btn">← Previous</a>}
-        {hasMore && <a href={`/admin/objects?page=${page + 1}&actor=${filters.actor ?? ''}&type=${filters.type ?? ''}&q=${filters.q ?? ''}`} class="btn">Next →</a>}
+        {page > 0 && <a href={buildPaginationHref(page - 1)} class="btn">← Previous</a>}
+        {hasMore && <a href={buildPaginationHref(page + 1)} class="btn">Next →</a>}
       </div>
     </Layout>
   )
