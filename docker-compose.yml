@@ -24,10 +24,11 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    # Bind only to localhost — TLS termination is handled by the central Caddy
-    # instance in hetzner-server/Caddyfile which reverse-proxies to this port.
+    # Bind to all interfaces so the central Caddy instance (running in Docker)
+    # can reach this via the bridge gateway (172.18.0.1:3000).
+    # External access is blocked by the Hetzner cloud firewall.
     ports:
-      - "127.0.0.1:3000:3000"
+      - "3000:3000"
 
 volumes:
   postgres_data:
