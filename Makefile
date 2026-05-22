@@ -28,3 +28,21 @@ status:
 
 ssh:
 	ssh -i $(SSH_KEY) root@$(SERVER_IP)
+
+# ── Jump to a service (run on the server) ─────────────────────────────────────
+.PHONY: msge markescence skjenelangs daggerheart hetzner
+
+msge:
+	cd /var/www/msge-no && exec $$SHELL
+
+markescence:
+	cd /var/www/markescence && exec $$SHELL
+
+skjenelangs:
+	cd /var/www/skjenelangs.no && exec $$SHELL
+
+daggerheart:
+	cd /var/www/daggerheart-app/river-sky && exec $$SHELL
+
+hetzner:
+	cd /root/hetzner-server && exec $$SHELL
