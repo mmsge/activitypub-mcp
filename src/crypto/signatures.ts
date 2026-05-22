@@ -87,6 +87,7 @@ export async function verifySignature(
 
   let publicKey: CryptoKey
   try {
+    if (!actor.publicKeyPem) return { valid: false, error: 'Actor has no public key (non-AP actor)' }
     publicKey = await importPublicKeyFromPem(actor.publicKeyPem)
   } catch (e) {
     return { valid: false, error: `Could not import public key: ${e}` }

@@ -21,6 +21,7 @@ services:
     environment:
       DATABASE_URL: postgres://apuser:${DB_PASSWORD:-changepassword}@db:5432/activitypub
       NODE_ENV: production
+      MEDIA_DIR: /data/media
     depends_on:
       db:
         condition: service_healthy
@@ -28,6 +29,9 @@ services:
     # instance in hetzner-server/Caddyfile which reverse-proxies to this port.
     ports:
       - "127.0.0.1:3000:3000"
+    volumes:
+      - media_data:/data/media
 
 volumes:
   postgres_data:
+  media_data:

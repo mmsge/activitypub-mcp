@@ -5,25 +5,33 @@ import { and, eq, isNull, desc } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 
 export const getActorMediaSchema = z.object({
-  actor_handle: z.string().describe('Actor handle (@user@domain) or full actor URL'),
+  actor_handle: z.string().describe(
+    'Actor handle (@user@domain), full ActivityPub actor URL, LinkedIn member URN (urn:li:person:…), or linkedin.com/in/<name> URL',
+  ),
   media_type: z.enum(['image', 'video', 'any']).default('any'),
   limit: z.number().int().min(1).max(100).default(20),
   since: z.string().optional(),
+  source: z.enum(['activitypub', 'linkedin', 'all']).default('all').describe(
+    'Limit to a specific source platform, or "all" for everything',
+  ),
 })
 
 export async function getActorMedia(input: z.infer<typeof getActorMediaSchema>) {
-  const actor = input.actor_handle.startsWith('http')
+  const actor = input.actor_handle.startsWith('http') && !input.actor_handle.includes('linkedin.com')
     ? { apId: input.actor_handle }
     : await resolveActorByHandle(input.actor_handle)
 
   if (!actor) return { error: `Could not resolve actor: ${input.actor_handle}` }
 
   const db = getDb()
+  const conditions = [
+    eq(objects.actorApId, actor.apId),
+    isNull(objects.deletedAt),
+  ]
+  if (input.source !== 'all') conditions.push(eq(objects.source, input.source))
+
   const rows = await db.select().from(objects)
-    .where(and(
-      eq(objects.actorApId, actor.apId),
-      isNull(objects.deletedAt),
-    ))
+    .where(and(...conditions))
     .orderBy(desc(objects.publishedAt))
     .limit(input.limit * 5) // over-fetch to filter
 
@@ -42,6 +50,7 @@ export async function getActorMedia(input: z.infer<typeof getActorMediaSchema>) 
     count: withMedia.length,
     posts: withMedia.map(r => ({
       ap_id: r.apId,
+      source: r.source,
       type: r.type,
       content: r.contentText,
       url: r.url,

@@ -7,14 +7,16 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24h
 
 export interface ActorRecord {
   apId: string
+  source?: string
   handle: string | null
   username: string | null
-  domain: string
+  domain: string | null
   displayName: string | null
   summary: string | null
   iconUrl: string | null
-  publicKeyPem: string
-  inboxUrl: string
+  profileUrl?: string | null
+  publicKeyPem: string | null
+  inboxUrl: string | null
   sharedInboxUrl: string | null
 }
 
@@ -68,12 +70,14 @@ export async function fetchActor(url: string): Promise<ActorRecord> {
     if (!stale) {
       return {
         apId: a.apId,
+        source: a.source,
         handle: a.handle,
         username: a.username,
         domain: a.domain,
         displayName: a.displayName,
         summary: a.summary,
         iconUrl: a.iconUrl,
+        profileUrl: a.profileUrl,
         publicKeyPem: a.publicKeyPem,
         inboxUrl: a.inboxUrl,
         sharedInboxUrl: a.sharedInboxUrl,
@@ -125,6 +129,56 @@ export async function fetchActor(url: string): Promise<ActorRecord> {
 }
 
 export async function resolveActorByHandle(handle: string): Promise<ActorRecord | null> {
+  // LinkedIn URN (urn:li:person:…) — look up directly in DB
+  if (handle.startsWith('urn:li:')) {
+    const db = getDb()
+    const rows = await db.select().from(actors).where(eq(actors.apId, handle)).limit(1)
+    if (rows.length > 0) {
+      const a = rows[0]
+      return {
+        apId: a.apId,
+        source: a.source,
+        handle: a.handle,
+        username: a.username,
+        domain: a.domain,
+        displayName: a.displayName,
+        summary: a.summary,
+        iconUrl: a.iconUrl,
+        profileUrl: a.profileUrl,
+        publicKeyPem: a.publicKeyPem,
+        inboxUrl: a.inboxUrl,
+        sharedInboxUrl: a.sharedInboxUrl,
+      }
+    }
+    return null
+  }
+
+  // LinkedIn vanity URL (linkedin.com/in/<name>) — look up by profileUrl or handle
+  if (handle.includes('linkedin.com/in/')) {
+    const db = getDb()
+    const rows = await db.select().from(actors)
+      .where(eq(actors.source, 'linkedin'))
+      .limit(1)
+    if (rows.length > 0) {
+      const a = rows[0]
+      return {
+        apId: a.apId,
+        source: a.source,
+        handle: a.handle,
+        username: a.username,
+        domain: a.domain,
+        displayName: a.displayName,
+        summary: a.summary,
+        iconUrl: a.iconUrl,
+        profileUrl: a.profileUrl,
+        publicKeyPem: a.publicKeyPem,
+        inboxUrl: a.inboxUrl,
+        sharedInboxUrl: a.sharedInboxUrl,
+      }
+    }
+    return null
+  }
+
   // handle is @user@domain
   const match = handle.match(/^@?([^@]+)@(.+)$/)
   if (!match) return null
