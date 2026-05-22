@@ -24,23 +24,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    expose:
-      - "3000"
-
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
+    # Bind only to localhost — TLS termination is handled by the central Caddy
+    # instance in hetzner-server/Caddyfile which reverse-proxies to this port.
     ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - app
+      - "127.0.0.1:3000:3000"
 
 volumes:
   postgres_data:
-  caddy_data:
-  caddy_config:

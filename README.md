@@ -119,29 +119,32 @@ NODE_ENV=production
 
 The `DATABASE_URL` is constructed automatically from `DB_PASSWORD` inside `docker-compose.yml` — you do not need to set it manually.
 
-### 5. Configure Caddy
+### 5. Configure TLS (external Caddy)
 
-Edit the `Caddyfile` and replace the two placeholder values:
+TLS termination is handled by a **central Caddy instance** running outside this project (e.g. `hetzner-server/Caddyfile`). The app binds only to `127.0.0.1:3000` and is not reachable directly from the internet.
 
-```bash
-nano Caddyfile
-```
-
-Change:
-- `your-email@example.com` → your real email address (used by Let's Encrypt for certificate expiry notices)
-- `yourdomain.com` → your actual domain, matching `APP_DOMAIN` in `.env`
+Add a reverse-proxy block for your domain to that central Caddyfile:
 
 ```
-{
-    email you@example.com
-}
-
 bot.example.com {
-    reverse_proxy app:3000
+    reverse_proxy 127.0.0.1:3000
+
     encode gzip
-    ...
+
+    log {
+        output stdout
+        format json
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+    }
 }
 ```
+
+A starting-point template is kept at [`docs/Caddyfile.example`](docs/Caddyfile.example) for reference.
 
 ### 6. Start the server
 
@@ -153,8 +156,7 @@ This will:
 1. Build the application image
 2. Start PostgreSQL and wait until it is healthy
 3. Run database migrations automatically
-4. Start the application
-5. Start Caddy, which obtains a TLS certificate from Let's Encrypt on first boot
+4. Start the application (listening on `127.0.0.1:3000`)
 
 Check that everything is running:
 
@@ -262,7 +264,7 @@ Database migrations run automatically on startup.
 
 **The actor is not discoverable / WebFinger returns 404**
 - Confirm your DNS A record points to the VPS IP: `dig A bot.example.com`
-- Confirm Caddy has obtained a certificate: `docker compose logs caddy`
+- Confirm the central Caddy instance is running and has obtained a TLS certificate for your domain
 - Confirm `APP_DOMAIN` in `.env` exactly matches your domain
 
 **Follows stay in `pending` forever**
