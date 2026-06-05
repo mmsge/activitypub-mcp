@@ -40,6 +40,9 @@ export async function searchActorContent(input: z.infer<typeof searchActorConten
     summary: objects.summary,
     url: objects.url,
     publishedAt: objects.publishedAt,
+    likes: objects.likesCount,
+    boosts: objects.boostsCount,
+    replies: objects.repliesCount,
   }).from(objects)
     .where(and(...conditions))
     .orderBy(desc(objects.publishedAt))

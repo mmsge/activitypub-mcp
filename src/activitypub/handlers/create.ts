@@ -1,6 +1,7 @@
 import { getDb } from '../../db/client.js'
 import { objects, bookwyrmObjects } from '../../db/schema.js'
 import { stripHtml } from '../../lib/strip-html.js'
+import { extractEngagementCounts } from '../../lib/extract-engagement.js'
 import { logger } from '../../lib/logger.js'
 
 type AnyObject = Record<string, unknown>
@@ -30,6 +31,7 @@ export async function handleCreate(activity: AnyObject): Promise<void> {
   const language = extractLanguage(obj)
   const attachments = extractAttachments(obj)
   const tags = extractTags(obj)
+  const engagement = extractEngagementCounts(obj)
 
   const db = getDb()
   await db.insert(objects).values({
@@ -46,10 +48,18 @@ export async function handleCreate(activity: AnyObject): Promise<void> {
     tags,
     sensitive,
     language,
+    likesCount: engagement.likes,
+    boostsCount: engagement.boosts,
+    repliesCount: engagement.replies,
     raw: obj,
   }).onConflictDoUpdate({
     target: objects.apId,
-    set: { content, contentText, summary, updatedAt: new Date(), raw: obj },
+    set: {
+      content, contentText, summary, updatedAt: new Date(), raw: obj,
+      likesCount: engagement.likes,
+      boostsCount: engagement.boosts,
+      repliesCount: engagement.replies,
+    },
   })
 
   // BookWyrm-specific extra data

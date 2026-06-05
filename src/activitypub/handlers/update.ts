@@ -2,6 +2,7 @@ import { getDb } from '../../db/client.js'
 import { objects } from '../../db/schema.js'
 import { eq } from 'drizzle-orm'
 import { stripHtml } from '../../lib/strip-html.js'
+import { extractEngagementCounts } from '../../lib/extract-engagement.js'
 
 type AnyObject = Record<string, unknown>
 
@@ -13,12 +14,16 @@ export async function handleUpdate(activity: AnyObject): Promise<void> {
   if (!apId) return
 
   const content = (obj.content as string) ?? null
+  const engagement = extractEngagementCounts(obj)
   const db = getDb()
   await db.update(objects).set({
     content,
     contentText: content ? stripHtml(content) : null,
     summary: (obj.summary as string) ?? null,
     updatedAtAp: obj.updated ? new Date(obj.updated as string) : new Date(),
+    likesCount: engagement.likes,
+    boostsCount: engagement.boosts,
+    repliesCount: engagement.replies,
     raw: obj,
     updatedAt: new Date(),
   }).where(eq(objects.apId, apId))
