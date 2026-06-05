@@ -75,6 +75,9 @@ export const objects = pgTable('objects', {
   tags: jsonb('tags'),
   sensitive: boolean('sensitive').default(false),
   language: text('language'),
+  likesCount: integer('likes_count'),
+  boostsCount: integer('boosts_count'),
+  repliesCount: integer('replies_count'),
   raw: jsonb('raw').notNull(),
   searchVector: text('search_vector'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -85,6 +88,9 @@ export const objects = pgTable('objects', {
   index('objects_type_idx').on(t.type),
   index('objects_published_idx').on(t.publishedAt),
   index('objects_actor_published_idx').on(t.actorApId, t.publishedAt),
+  index('objects_likes_count_idx').on(t.likesCount),
+  index('objects_boosts_count_idx').on(t.boostsCount),
+  index('objects_replies_count_idx').on(t.repliesCount),
 ])
 
 export const bookwyrmObjects = pgTable('bookwyrm_objects', {

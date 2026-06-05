@@ -46,5 +46,8 @@ export async function getActorPosts(input: z.infer<typeof getActorPostsSchema>) 
     published_at: r.publishedAt,
     attachments: r.attachments,
     tags: r.tags,
+    likes: r.likesCount,
+    boosts: r.boostsCount,
+    replies: r.repliesCount,
   }))
 }

@@ -1,5 +1,6 @@
 import { getDb } from '../../db/client.js'
 import { objects } from '../../db/schema.js'
+import { extractEngagementCounts } from '../../lib/extract-engagement.js'
 import { logger } from '../../lib/logger.js'
 
 type AnyObject = Record<string, unknown>
@@ -31,6 +32,7 @@ async function storeAnnouncedObject(obj: AnyObject, actorApId: string): Promise<
   const apId = (obj.id ?? obj['@id']) as string
   if (!apId) return
   const type = (obj.type as string) ?? 'Note'
+  const engagement = extractEngagementCounts(obj)
   const db = getDb()
   await db.insert(objects).values({
     apId,
@@ -44,6 +46,9 @@ async function storeAnnouncedObject(obj: AnyObject, actorApId: string): Promise<
     publishedAt: obj.published ? new Date(obj.published as string) : null,
     attachments: extractAttachments(obj),
     tags: extractTags(obj),
+    likesCount: engagement.likes,
+    boostsCount: engagement.boosts,
+    repliesCount: engagement.replies,
     raw: obj,
   }).onConflictDoNothing()
 }

@@ -6,6 +6,7 @@ import { searchActorContentSchema, searchActorContent } from './tools/actor-sear
 import { getFollowsSchema, getFollows } from './tools/follows.js'
 import { getActivityStatsSchema, getActivityStats, getRecentActivitiesSchema, getRecentActivities } from './tools/activity-stats.js'
 import { getReadingEventsSchema, getReadingEvents } from './tools/reading-events.js'
+import { searchPostsByStatsSchema, searchPostsByStats, getActorEngagementSchema, getActorEngagement } from './tools/post-stats.js'
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -65,10 +66,30 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_activity_stats',
-    'Get aggregate statistics about stored posts — counts by type, with attachments, etc.',
+    'Get aggregate statistics about stored posts: counts by type and with attachments, plus engagement totals/averages/max (likes, boosts, replies, observed boosts) and content metrics (avg length, attachment counts, reply ratio, top hashtags). Optionally scope to an actor and/or a since timestamp.',
     getActivityStatsSchema.shape,
     async (input) => {
       const result = await getActivityStats(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'search_posts_by_stats',
+    'Find and rank stored posts by engagement: sort by likes, boosts, replies, or observed_boosts (Announce activities this server received), with optional min thresholds, text query, actor, type, and time range. Use this to analyse top/most-engaging content rather than paging through everything.',
+    searchPostsByStatsSchema.shape,
+    async (input) => {
+      const result = await searchPostsByStats(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_actor_engagement',
+    'Per-actor engagement leaderboard: totals, averages, and maxima of likes/boosts/replies per actor across stored posts, ranked by a chosen metric. Use this to compare which followed actors get the most engagement.',
+    getActorEngagementSchema.shape,
+    async (input) => {
+      const result = await getActorEngagement(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )
