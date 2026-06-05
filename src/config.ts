@@ -11,6 +11,25 @@ const schema = z.object({
   PORT: z.coerce.number().default(3000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.string().default('info'),
+
+  // Semantic search (pgvector + local transformers.js embedding model).
+  // When disabled, search_actor_content falls back to keyword (ILIKE) matching
+  // and no embedding model is ever loaded — a memory escape hatch.
+  EMBEDDING_ENABLED: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+  // HuggingFace model id understood by @huggingface/transformers. The default
+  // is a 384-dimension sentence-transformer (all-MiniLM-L6-v2).
+  EMBEDDING_MODEL: z.string().default('Xenova/all-MiniLM-L6-v2'),
+  // Must match the chosen model's output dimension AND the vector(N) column in
+  // the migration. Changing this requires a new migration for a new column.
+  EMBEDDING_DIMENSIONS: z.coerce.number().int().positive().default(384),
+  // onnxruntime weight quantization: q8 keeps memory low; fp32 is more accurate.
+  EMBEDDING_DTYPE: z.string().default('q8'),
+  // Where the model weights are cached on disk (mount a volume here so the
+  // ~25 MB download only happens once, not on every container restart).
+  EMBEDDING_CACHE_DIR: z.string().default('/app/.cache/embeddings'),
 })
 
 const parsed = schema.safeParse(process.env)

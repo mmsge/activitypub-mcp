@@ -3,10 +3,13 @@ SSH_KEY   = ~/.ssh/ap-mcp
 
 .PHONY: deploy build run stop restart logs status ssh
 
-# Pull latest code, rebuild app image, restart
+# Pull latest code, rebuild app image, restart.
+# Note: `up -d --build` (no service arg) so the db service also picks up the
+# pgvector image when it changes — `... app` alone would leave the old db
+# container running and the `CREATE EXTENSION vector` migration would fail.
 deploy:
 	git pull --ff-only
-	docker compose up -d --build app
+	docker compose up -d --build
 
 build:
 	docker compose build app

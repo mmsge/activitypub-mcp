@@ -37,6 +37,8 @@ This repo previously had its own bundled Caddy service in `docker-compose.yml` â
 
 Hono + TypeScript, PostgreSQL. The `db` service (postgres) is internal-only and not exposed to the host. The `app` service exposes port 3000 to the host so central Caddy can reach it.
 
+The `db` service uses the `pgvector/pgvector:pg16` image (Postgres 16 + pgvector) for semantic search. Embeddings are generated in-process by a local transformers.js model (no external API, no extra container); see the Semantic search section of the README. `make deploy` runs a full `docker compose up -d --build` so the db image swap and the `CREATE EXTENSION vector` migration apply â€” do not narrow it back to `... --build app`.
+
 ## Environment
 
 Requires `.env` on the server at `/opt/activitypub-mcp/.env`.
