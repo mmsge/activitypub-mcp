@@ -1,6 +1,8 @@
+import { eq } from 'drizzle-orm'
 import { getDb } from '../../db/client.js'
 import { objects, bookwyrmObjects } from '../../db/schema.js'
 import { stripHtml } from '../../lib/strip-html.js'
+import { embedText, embeddingsEnabled } from '../../lib/embeddings.js'
 import { logger } from '../../lib/logger.js'
 
 type AnyObject = Record<string, unknown>
@@ -55,6 +57,29 @@ export async function handleCreate(activity: AnyObject): Promise<void> {
   // BookWyrm-specific extra data
   if (BOOKWYRM_TYPES.has(type)) {
     await handleBookwyrm(apId, type, obj, actorApId)
+  }
+
+  // Best-effort semantic embedding. This runs off the inbox request path
+  // (processActivity is invoked via setImmediate), and never throws: any
+  // failure just leaves the row without a vector, reachable via keyword search
+  // or a later backfill.
+  await embedObject(apId, summary, contentText)
+}
+
+async function embedObject(
+  apId: string,
+  summary: string | null,
+  contentText: string,
+): Promise<void> {
+  if (!embeddingsEnabled()) return
+  const text = [summary, contentText].filter(Boolean).join('. ').trim()
+  if (!text) return
+  try {
+    const vector = await embedText(text)
+    if (!vector) return
+    await getDb().update(objects).set({ embedding: vector }).where(eq(objects.apId, apId))
+  } catch (e) {
+    logger.warn({ apId, error: e }, 'Failed to embed object content')
   }
 }
 

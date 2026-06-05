@@ -1,6 +1,9 @@
 services:
   db:
-    image: postgres:16-alpine
+    # pgvector/pgvector:pg16 == the official postgres:16 image plus the pgvector
+    # extension. Same major version, same data dir layout — an in-place swap for
+    # an existing postgres:16-alpine volume. (Note: Debian-based, not Alpine.)
+    image: pgvector/pgvector:pg16
     restart: unless-stopped
     environment:
       POSTGRES_DB: activitypub
@@ -29,6 +32,11 @@ services:
     # External access is blocked by the Hetzner cloud firewall.
     ports:
       - "3000:3000"
+    # Persist the downloaded embedding model weights (~25 MB) so they are
+    # fetched once, not on every container restart.
+    volumes:
+      - embedding_cache:/app/.cache/embeddings
 
 volumes:
   postgres_data:
+  embedding_cache:

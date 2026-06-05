@@ -7,12 +7,14 @@
     "start": "node --import tsx/esm src/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
+    "db:backfill-embeddings": "tsx scripts/backfill-embeddings.ts",
     "create-admin": "tsx scripts/create-admin.ts"
   },
   "license": "ISC",
   "type": "module",
   "dependencies": {
     "@hono/node-server": "^2.0.1",
+    "@huggingface/transformers": "^3.3.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "bcryptjs": "^3.0.3",
     "drizzle-orm": "^0.45.2",

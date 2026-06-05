@@ -1,8 +1,23 @@
 import {
   pgTable, text, uuid, timestamp, boolean, jsonb,
-  bigserial, numeric, date, integer, index,
+  bigserial, numeric, date, integer, index, customType,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
+
+// pgvector column type. The dimension is fixed at the SQL level (it must be a
+// literal in `vector(N)`); it matches the default embedding model
+// (all-MiniLM-L6-v2 → 384). Changing models/dimensions needs a new migration.
+const vector = customType<{ data: number[]; driverData: string; config: { dimensions: number } }>({
+  dataType(config) {
+    return `vector(${config?.dimensions ?? 384})`
+  },
+  toDriver(value: number[]): string {
+    return `[${value.join(',')}]`
+  },
+  fromDriver(value: string): number[] {
+    return value.slice(1, -1).split(',').map(Number)
+  },
+})
 
 export const serverConfig = pgTable('server_config', {
   key: text('key').primaryKey(),
@@ -77,6 +92,11 @@ export const objects = pgTable('objects', {
   language: text('language'),
   raw: jsonb('raw').notNull(),
   searchVector: text('search_vector'),
+  // Semantic-search embedding of (summary + content_text). Nullable: rows
+  // ingested before embeddings were enabled, or while the model is unavailable,
+  // simply have no vector and are reached via the keyword fallback / backfill.
+  // The HNSW index (vector_cosine_ops) is created in the migration.
+  embedding: vector('embedding', { dimensions: 384 }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),

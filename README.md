@@ -240,12 +240,78 @@ Connect to it from any MCP-compatible AI client (Claude Desktop, Claude Code, et
 | `get_actor_posts` | "What did @alice@mastodon.social post today?" |
 | `get_actor_reading_status` | "What book is @bob@bookwyrm.social currently reading?" |
 | `get_actor_media` | "How many videos has @carol@loop.me posted?" |
-| `search_actor_content` | "Has @alice ever talked about climate change?" |
+| `search_actor_content` | "Has @alice ever talked about climate change?" (semantic — see below) |
 | `get_activity_stats` | "How many posts did @carol make this month?" |
 | `get_follows` | "Which accounts are being followed?" |
 | `get_recent_activities` | "What has come in recently?" |
 
 All tools are read-only queries against the local database — no requests go out to remote servers when you query the MCP server.
+
+---
+
+## Semantic search
+
+`search_actor_content` does **semantic** (meaning-based) search over stored posts,
+not just keyword matching. "Has anyone written about feeling burned out?" will
+surface relevant posts even if none contain the words "burned out".
+
+### How it works
+
+- Posts (the `objects` table — Mastodon/Pixelfed/Loops notes and BookWyrm
+  reviews/comments) are embedded into a vector and stored in an `embedding`
+  column using the [pgvector](https://github.com/pgvector/pgvector) extension.
+- Embeddings are generated **in-process** by a small
+  [transformers.js](https://github.com/huggingface/transformers.js) model —
+  there is **no external API, no API key, and no extra container**. The model
+  runs on CPU inside the app process.
+- Default model: **`Xenova/all-MiniLM-L6-v2`** → **384-dimension** vectors.
+  Weights (~25 MB, quantized) download once on first use and are cached in a
+  Docker volume.
+- A query is embedded the same way and matched by cosine distance
+  (`<=>`) against an HNSW index.
+- **Graceful fallback:** if embeddings are disabled, the model can't load, or a
+  post has no vector yet, the tool transparently falls back to the original
+  keyword (`ILIKE`) search. The response includes a `mode` field
+  (`semantic` or `keyword`) so you can tell which ran.
+
+### Why a local model
+
+The server already runs Postgres, so pgvector is a near-zero-cost extension
+rather than a new service. For embeddings we chose a small **local** model over
+an external embedding API: it keeps the bot fully self-contained (no API keys,
+no per-request cost, no data leaving the box). The trade-off is memory — the
+model adds roughly **150–300 MB RAM** while loaded. On a memory-constrained host
+you can turn it off entirely with `EMBEDDING_ENABLED=false`, which falls back to
+keyword search and never loads the model.
+
+> **Note:** the model downloads from `huggingface.co` on first use. The host must
+> be able to reach it once (the weights are then cached in the `embedding_cache`
+> volume). If it can't, search silently stays on keyword mode until weights are
+> available.
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `EMBEDDING_ENABLED` | `true` | `false` disables the model entirely (keyword-only search, no memory cost) |
+| `EMBEDDING_MODEL` | `Xenova/all-MiniLM-L6-v2` | HuggingFace model id |
+| `EMBEDDING_DIMENSIONS` | `384` | Must match the model **and** the `vector(N)` column in the migration |
+| `EMBEDDING_DTYPE` | `q8` | Weight quantization: `q8` (low memory) or `fp32` (more accurate) |
+| `EMBEDDING_CACHE_DIR` | `/app/.cache/embeddings` | Where model weights are cached (backed by the `embedding_cache` volume) |
+
+Changing the model or dimension requires a new migration that recreates the
+`embedding` column with the matching `vector(N)` size.
+
+### Backfilling existing posts
+
+New posts are embedded automatically as they arrive. Posts stored **before**
+semantic search was enabled have no vector and are only reachable via keyword
+fallback until backfilled. Run this once after deploying (safe to re-run — it
+only touches rows without an embedding and never blocks startup):
+
+```bash
+docker compose exec app npm run db:backfill-embeddings
+```
 
 ---
 
@@ -257,6 +323,28 @@ docker compose up -d --build
 ```
 
 Database migrations run automatically on startup.
+
+> Use `docker compose up -d --build` (no service name), **not** `... --build app`.
+> The `db` service image changed to `pgvector/pgvector:pg16`, and the app's
+> startup migration runs `CREATE EXTENSION vector` — which fails unless the db
+> container has actually been recreated on the pgvector image. `make deploy`
+> already does the full `up -d --build`.
+
+### One-time pgvector upgrade (existing deployments)
+
+The `db` image moved from `postgres:16-alpine` to `pgvector/pgvector:pg16` (same
+Postgres 16, same on-disk data layout — your data volume is preserved). After
+the first deploy that recreates the db container, the pgvector extension and
+`embedding` column are created automatically by the migration.
+
+Two notes for an **existing** volume:
+
+- The base image changed from Alpine (musl) to Debian (glibc). Postgres may log a
+  collation-version-mismatch warning the first time. It's harmless for this
+  schema (indexes are on ASCII URLs/handles); to clear it, optionally run
+  `docker compose exec db psql -U apuser -d activitypub -c 'REINDEX DATABASE activitypub;'`.
+- Existing posts have no embedding yet — run the
+  [backfill](#backfilling-existing-posts) once.
 
 ---
 
