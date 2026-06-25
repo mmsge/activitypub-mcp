@@ -1,6 +1,6 @@
 import {
   pgTable, text, uuid, timestamp, boolean, jsonb,
-  bigserial, numeric, date, integer, index,
+  bigserial, bigint, numeric, date, integer, index, uniqueIndex,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 
@@ -138,6 +138,31 @@ export const activityLog = pgTable('activity_log', {
   index('activity_log_created_idx').on(t.createdAt),
   index('activity_log_actor_idx').on(t.actorApId),
   index('activity_log_direction_idx').on(t.direction),
+])
+
+export const scrobbles = pgTable('scrobbles', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  trackName: text('track_name').notNull(),
+  artistName: text('artist_name').notNull(),
+  artistMbid: text('artist_mbid'),
+  albumName: text('album_name'),
+  albumMbid: text('album_mbid'),
+  trackMbid: text('track_mbid'),
+  trackUrl: text('track_url'),
+  imageUrl: text('image_url'),
+  playedAt: timestamp('played_at', { withTimezone: true }).notNull(),
+  uts: bigint('uts', { mode: 'number' }).notNull(),
+  loved: boolean('loved').notNull().default(false),
+  raw: jsonb('raw').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('scrobbles_played_idx').on(t.playedAt),
+  index('scrobbles_artist_idx').on(t.artistName),
+  index('scrobbles_album_idx').on(t.albumName),
+  index('scrobbles_track_idx').on(t.trackName),
+  index('scrobbles_uts_idx').on(t.uts),
+  // Last.fm has no stable scrobble id; this composite is the dedupe key.
+  uniqueIndex('scrobbles_dedupe_idx').on(t.playedAt, t.trackName, t.artistName),
 ])
 
 export const adminSessions = pgTable('admin_sessions', {

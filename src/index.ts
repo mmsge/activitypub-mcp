@@ -10,6 +10,7 @@ import { adminRouter } from './admin/router.js'
 import { mcpRouter } from './mcp/router.js'
 import { startScheduler } from './jobs/scheduler.js'
 import { syncFollows } from './jobs/sync-follows.js'
+import { syncScrobbles } from './jobs/sync-scrobbles.js'
 import { runDeliveryWorker } from './jobs/deliver.js'
 import { getDb } from './db/client.js'
 
@@ -44,6 +45,13 @@ async function main() {
     await syncFollows()
   } catch (e) {
     logger.error(e, 'Follow sync failed on startup')
+  }
+
+  // Ingest Last.fm scrobbles (backfill on first run, incremental after)
+  try {
+    await syncScrobbles()
+  } catch (e) {
+    logger.error(e, 'Scrobble sync failed on startup')
   }
 
   // Run delivery worker once immediately

@@ -6,6 +6,7 @@ import { searchActorContentSchema, searchActorContent } from './tools/actor-sear
 import { getFollowsSchema, getFollows } from './tools/follows.js'
 import { getActivityStatsSchema, getActivityStats, getRecentActivitiesSchema, getRecentActivities } from './tools/activity-stats.js'
 import { getReadingEventsSchema, getReadingEvents } from './tools/reading-events.js'
+import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleStats } from './tools/scrobbles.js'
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -89,6 +90,26 @@ export function createMcpServer(): McpServer {
     getReadingEventsSchema.shape,
     async (input) => {
       const result = await getReadingEvents(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_scrobbles',
+    "Query the locally-stored Last.fm scrobble history. Filter by artist, album, or track (case-insensitive partial match) and/or a played-at time window (from/to/since, ISO datetimes). Returns scrobbles newest-first with pagination.",
+    getScrobblesSchema.shape,
+    async (input) => {
+      const result = await getScrobbles(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_scrobble_stats',
+    "Aggregate metrics over the stored Last.fm scrobbles: total play count, listening span (first/last played), and top artists, albums, or tracks by play count. Optionally bounded by a from/to time window.",
+    getScrobbleStatsSchema.shape,
+    async (input) => {
+      const result = await getScrobbleStats(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

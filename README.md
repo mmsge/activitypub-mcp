@@ -90,6 +90,8 @@ Here is what each variable means:
 | `FOLLOW_ACTORS` | Yes | Comma-separated list of handles to follow (see below) |
 | `ADMIN_PASSWORD_HASH` | Yes | The bcrypt hash you generated in step 3 |
 | `SESSION_SECRET` | Yes | A random 32-byte hex string (generate with the command below) |
+| `LASTFM_API_KEY` | No | Last.fm API key ([create one](https://www.last.fm/api/account/create)). Enables scrobble ingestion. |
+| `LASTFM_USERNAME` | No | The Last.fm username whose scrobbles are ingested. Required alongside `LASTFM_API_KEY`. |
 | `LOG_LEVEL` | No | `info` is fine for production. Use `debug` to see more. |
 
 Generate a session secret:
@@ -244,8 +246,18 @@ Connect to it from any MCP-compatible AI client (Claude Desktop, Claude Code, et
 | `get_activity_stats` | "How many posts did @carol make this month?" |
 | `get_follows` | "Which accounts are being followed?" |
 | `get_recent_activities` | "What has come in recently?" |
+| `get_scrobbles` | "What did I listen to yesterday? Show my Aphex Twin scrobbles." |
+| `get_scrobble_stats` | "Who are my top artists this month? How many tracks have I scrobbled?" |
 
 All tools are read-only queries against the local database — no requests go out to remote servers when you query the MCP server.
+
+### Last.fm scrobbles
+
+When `LASTFM_API_KEY` and `LASTFM_USERNAME` are set, the server ingests the user's Last.fm
+listening history into the local database — backfilling the full history on first run and
+syncing new scrobbles every 5 minutes thereafter. The stored scrobbles are queryable by
+timestamp, artist, album, and track via `get_scrobbles`, with aggregate metrics (totals,
+listening span, top artists/albums/tracks) via `get_scrobble_stats`.
 
 ---
 
