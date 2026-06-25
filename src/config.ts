@@ -8,6 +8,7 @@ const schema = z.object({
   FOLLOW_ACTORS: z.string().default(''),
   ADMIN_PASSWORD_HASH: z.string().min(1),
   SESSION_SECRET: z.string().min(32),
+  REST_API_KEY: z.string().default(''),
   LASTFM_API_KEY: z.string().default(''),
   LASTFM_USERNAME: z.string().default(''),
   PORT: z.coerce.number().default(3000),
