@@ -8,6 +8,7 @@ import { webfingerRouter } from './activitypub/webfinger.js'
 import { nodeinfoRouter } from './activitypub/nodeinfo.js'
 import { adminRouter } from './admin/router.js'
 import { mcpRouter } from './mcp/router.js'
+import { restRouter } from './rest/router.js'
 import { startScheduler } from './jobs/scheduler.js'
 import { syncFollows } from './jobs/sync-follows.js'
 import { syncScrobbles } from './jobs/sync-scrobbles.js'
@@ -25,6 +26,9 @@ app.route('', activityPubRouter)
 
 // MCP
 app.route('', mcpRouter)
+
+// REST API (same data as MCP, for non-MCP collectors)
+app.route('/api/v1', restRouter)
 
 // Admin UI
 app.route('/admin', adminRouter)
@@ -72,6 +76,7 @@ async function main() {
     logger.info(`Actor: https://${config.APP_DOMAIN}/actor`)
     logger.info(`Admin: http://localhost:${info.port}/admin`)
     logger.info(`MCP:   https://${config.APP_DOMAIN}/mcp`)
+    logger.info(`REST:  https://${config.APP_DOMAIN}/api/v1`)
   })
 }
 

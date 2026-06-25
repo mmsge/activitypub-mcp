@@ -12,6 +12,7 @@ Works with **Mastodon**, **BookWyrm**, **Pixelfed**, and **Loops**.
 - The server **auto-rejects all incoming Follow requests** — it is a read-only bot, not a social participant.
 - An admin UI at `/admin` lets you review stored data and inspect every HTTP request the server has handled, including signature validity.
 - An MCP server at `/mcp` lets AI agents answer questions like "What did this user post today?" or "What book is this user currently reading?"
+- A read-only **REST API** at `/api/v1` exposes the same data to non-MCP clients (scripts, cron jobs, dashboards), gated by an API key.
 
 ---
 
@@ -90,6 +91,7 @@ Here is what each variable means:
 | `FOLLOW_ACTORS` | Yes | Comma-separated list of handles to follow (see below) |
 | `ADMIN_PASSWORD_HASH` | Yes | The bcrypt hash you generated in step 3 |
 | `SESSION_SECRET` | Yes | A random 32-byte hex string (generate with the command below) |
+| `REST_API_KEY` | No | Shared secret enabling the read-only REST API at `/api/v1`. Leave blank to keep it disabled (`503`). Generate like `SESSION_SECRET`. |
 | `LASTFM_API_KEY` | No | Last.fm API key ([create one](https://www.last.fm/api/account/create)). Enables scrobble ingestion. |
 | `LASTFM_USERNAME` | No | The Last.fm username whose scrobbles are ingested. Required alongside `LASTFM_API_KEY`. |
 | `LOG_LEVEL` | No | `info` is fine for production. Use `debug` to see more. |
@@ -174,6 +176,7 @@ Server started on port 3000
 Actor: https://bot.example.com/actor
 Admin: http://localhost:3000/admin
 MCP:   https://bot.example.com/mcp
+REST:  https://bot.example.com/api/v1
 ```
 
 ### 7. Verify the actor is discoverable
@@ -258,6 +261,78 @@ listening history into the local database — backfilling the full history on fi
 syncing new scrobbles every 5 minutes thereafter. The stored scrobbles are queryable by
 timestamp, artist, album, and track via `get_scrobbles`, with aggregate metrics (totals,
 listening span, top artists/albums/tracks) via `get_scrobble_stats`.
+
+---
+
+## REST API
+
+For collectors that don't speak MCP (cron jobs, scripts, dashboards), the same data the MCP server
+exposes is available as a **read-only REST API** under `https://yourdomain.com/api/v1`. Each MCP
+tool has a matching REST endpoint that returns **identical** data.
+
+### Authentication
+
+Every `/api/v1` request requires the `REST_API_KEY` from your `.env`, sent as either header:
+
+```
+Authorization: Bearer <REST_API_KEY>
+X-API-Key: <REST_API_KEY>
+```
+
+Requests without a valid key get `401`. If `REST_API_KEY` is unset, the API is disabled and returns `503`.
+
+### Methods
+
+Each endpoint accepts three methods, all returning the same data:
+
+| Method | Parameters | Use when |
+|---|---|---|
+| `GET` | query string (`?actor_handle=@a@b&limit=5`) | simple collectors, curl, browsers |
+| `QUERY` | JSON body (identical to the MCP tool input) | rich filters; the [RFC 10008](https://www.rfc-editor.org/rfc/rfc10008.html) safe, idempotent query method |
+| `POST` | JSON body (identical to the MCP tool input) | compatibility fallback wherever `QUERY` isn't supported |
+
+For `GET`, array filters are repeated params (`?object_types=Note&object_types=Article`) or
+comma-separated (`?object_types=Note,Article`). For `QUERY`/`POST`, the JSON body is exactly the
+arguments object you would pass the MCP tool.
+
+### Endpoints
+
+All paths accept `GET`, `QUERY`, and `POST`.
+
+| REST path (under `/api/v1`) | MCP tool | Key parameters |
+|---|---|---|
+| `/actor-posts` | `get_actor_posts` | `actor_handle`, `limit`, `since`, `until`, `object_types` |
+| `/actor-reading-status` | `get_actor_reading_status` | `actor_handle`, `status`, `limit`, `use_live` |
+| `/actor-media` | `get_actor_media` | `actor_handle`, `media_type`, `limit`, `since` |
+| `/search-actor-content` | `search_actor_content` | `query`, `actor_handle`, `limit`, `object_types` |
+| `/follows` | `get_follows` | `status` |
+| `/activity-stats` | `get_activity_stats` | `actor_handle`, `since` |
+| `/recent-activities` | `get_recent_activities` | `limit`, `types`, `since` |
+| `/reading-events` | `get_reading_events` | `actor_handle`, `event_type`, `limit`, `since` |
+| `/scrobbles` | `get_scrobbles` | `artist`, `album`, `track`, `from`, `to`, `since`, `limit`, `page` |
+| `/scrobble-stats` | `get_scrobble_stats` | `from`, `to`, `group_by`, `limit` |
+
+`GET /api/v1` returns a discovery document listing every endpoint and its parameters.
+
+### Examples
+
+```bash
+# GET with query-string params
+curl -H 'X-API-Key: YOUR_KEY' \
+  'https://yourdomain.com/api/v1/scrobbles?artist=Aphex%20Twin&limit=10'
+
+# QUERY (RFC 10008) — JSON body, identical to the MCP tool input
+curl -X QUERY -H 'Authorization: Bearer YOUR_KEY' -H 'Content-Type: application/json' \
+  https://yourdomain.com/api/v1/actor-posts \
+  -d '{"actor_handle":"@alice@mastodon.social","limit":5,"object_types":["Note"]}'
+
+# POST — same body as QUERY, for clients/proxies without QUERY support
+curl -X POST -H 'X-API-Key: YOUR_KEY' -H 'Content-Type: application/json' \
+  https://yourdomain.com/api/v1/follows -d '{"status":"all"}'
+```
+
+Responses use standard status codes: `400` (invalid parameters), `401` (missing/invalid key),
+`404` (e.g. an actor handle that can't be resolved), `503` (API key not configured).
 
 ---
 
