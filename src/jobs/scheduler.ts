@@ -1,5 +1,6 @@
 import { runDeliveryWorker } from './deliver.js'
 import { refreshStaleActors } from './refresh-actors.js'
+import { syncScrobbles } from './sync-scrobbles.js'
 import { logger } from '../lib/logger.js'
 
 export function startScheduler(): void {
@@ -12,6 +13,11 @@ export function startScheduler(): void {
   setInterval(async () => {
     try { await refreshStaleActors() } catch (e) { logger.error(e, 'Actor refresh error') }
   }, 60 * 60_000)
+
+  // Last.fm scrobble sync — every 5 minutes
+  setInterval(async () => {
+    try { await syncScrobbles() } catch (e) { logger.error(e, 'Scrobble sync error') }
+  }, 5 * 60_000)
 
   logger.info('Scheduler started')
 }

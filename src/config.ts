@@ -8,6 +8,8 @@ const schema = z.object({
   FOLLOW_ACTORS: z.string().default(''),
   ADMIN_PASSWORD_HASH: z.string().min(1),
   SESSION_SECRET: z.string().min(32),
+  LASTFM_API_KEY: z.string().default(''),
+  LASTFM_USERNAME: z.string().default(''),
   PORT: z.coerce.number().default(3000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.string().default('info'),
