@@ -4,18 +4,7 @@ import { scrobbles } from '../../db/schema.js'
 import { and, gte, lte, ilike, count, sql, type SQL } from 'drizzle-orm'
 import { type PgColumn } from 'drizzle-orm/pg-core'
 
-// ---- get_scrobbles: raw, filterable feed -----------------------------------
-
-export const getScrobblesSchema = z.object({
-  artist: z.string().optional().describe('Filter by artist name (case-insensitive, partial match)'),
-  album: z.string().optional().describe('Filter by album name (case-insensitive, partial match)'),
-  track: z.string().optional().describe('Filter by track name (case-insensitive, partial match)'),
-  from: z.string().optional().describe('Only scrobbles played at or after this ISO datetime'),
-  to: z.string().optional().describe('Only scrobbles played at or before this ISO datetime'),
-  since: z.string().optional().describe('Alias for "from" — only scrobbles after this ISO datetime'),
-  limit: z.number().int().min(1).max(200).default(50),
-  page: z.number().int().min(1).default(1),
-})
+// ---- shared filter handling ------------------------------------------------
 
 function buildConditions(input: {
   artist?: string; album?: string; track?: string; from?: string; to?: string; since?: string
@@ -30,12 +19,77 @@ function buildConditions(input: {
   return conditions
 }
 
+// ---- playedAt-based keyset cursor ------------------------------------------
+//
+// playedAt alone isn't unique (the dedupe key is played_at + track + artist),
+// so the cursor also carries the row id as a tiebreaker to give a strict total
+// order. The cursor is an opaque base64url token; callers pass it back verbatim.
+
+type Cursor = { p: string; id: string }
+
+function encodeCursor(playedAt: Date, id: string): string {
+  const payload: Cursor = { p: playedAt.toISOString(), id }
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+}
+
+function decodeCursor(token: string): Cursor {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'))
+  } catch {
+    throw new Error('Invalid cursor: not a valid token')
+  }
+  const c = parsed as Cursor
+  if (!c || typeof c.p !== 'string' || typeof c.id !== 'string' || Number.isNaN(Date.parse(c.p))) {
+    throw new Error('Invalid cursor: malformed payload')
+  }
+  return c
+}
+
+// ---- get_scrobbles: raw, filterable feed -----------------------------------
+
+export const getScrobblesSchema = z.object({
+  artist: z.string().optional().describe('Filter by artist name (case-insensitive, partial match)'),
+  album: z.string().optional().describe('Filter by album name (case-insensitive, partial match)'),
+  track: z.string().optional().describe('Filter by track name (case-insensitive, partial match)'),
+  from: z.string().optional().describe('Only scrobbles played at or after this ISO datetime'),
+  to: z.string().optional().describe('Only scrobbles played at or before this ISO datetime'),
+  since: z.string().optional().describe('Alias for "from" — only scrobbles after this ISO datetime'),
+  sort_order: z.enum(['asc', 'desc']).default('desc')
+    .describe('Order by played_at. "desc" (default) is newest-first; "asc" is oldest-first — pair with limit:1 to fetch the earliest matching scrobble in one call.'),
+  limit: z.number().int().min(1).max(200).default(50),
+  page: z.number().int().min(1).default(1)
+    .describe('Offset-based page (legacy). Ignored when "cursor" is supplied; prefer "cursor" for deep traversal.'),
+  cursor: z.string().optional()
+    .describe('Opaque pagination cursor from a previous response\'s next_cursor. When set, page/offset is ignored and traversal continues from where the last page ended (respecting sort_order and all filters).'),
+})
+
 export async function getScrobbles(input: z.infer<typeof getScrobblesSchema>) {
   const db = getDb()
   const conditions = buildConditions(input)
 
-  const rows = await db
+  const asc = input.sort_order === 'asc'
+
+  // Keyset pagination: continue strictly past the cursor row using (played_at, id)
+  // as the ordering key. Falls back to offset pagination when no cursor is given.
+  if (input.cursor) {
+    const c = decodeCursor(input.cursor)
+    const cursorDate = new Date(c.p)
+    conditions.push(
+      asc
+        ? sql`(${scrobbles.playedAt}, ${scrobbles.id}) > (${cursorDate}::timestamptz, ${c.id}::uuid)`
+        : sql`(${scrobbles.playedAt}, ${scrobbles.id}) < (${cursorDate}::timestamptz, ${c.id}::uuid)`,
+    )
+  }
+
+  const where = conditions.length ? and(...conditions) : undefined
+  const orderBy = asc
+    ? sql`${scrobbles.playedAt} ASC, ${scrobbles.id} ASC`
+    : sql`${scrobbles.playedAt} DESC, ${scrobbles.id} DESC`
+
+  const baseQuery = db
     .select({
+      id: scrobbles.id,
       playedAt: scrobbles.playedAt,
       track: scrobbles.trackName,
       artist: scrobbles.artistName,
@@ -44,14 +98,29 @@ export async function getScrobbles(input: z.infer<typeof getScrobblesSchema>) {
       loved: scrobbles.loved,
     })
     .from(scrobbles)
-    .where(conditions.length ? and(...conditions) : undefined)
-    .orderBy(sql`${scrobbles.playedAt} DESC`)
+    .where(where)
+    .orderBy(orderBy)
     .limit(input.limit)
-    .offset((input.page - 1) * input.limit)
+
+  // Cursor traversal is offset-free; only the legacy offset path applies page.
+  const rows = input.cursor
+    ? await baseQuery
+    : await baseQuery.offset((input.page - 1) * input.limit)
+
+  // A full page may have more behind it; a short page is the end of the run.
+  const last = rows[rows.length - 1]
+  const nextCursor = rows.length === input.limit && last
+    ? encodeCursor(last.playedAt, last.id)
+    : null
+
+  // Keep the id out of the returned rows — it's an internal keyset detail.
+  const scrobbleRows = rows.map(({ id: _id, ...rest }) => rest)
 
   return {
-    count: rows.length,
-    page: input.page,
+    count: scrobbleRows.length,
+    page: input.cursor ? null : input.page,
+    next_cursor: nextCursor,
+    sort_order: input.sort_order,
     filters: {
       artist: input.artist ?? null,
       album: input.album ?? null,
@@ -59,15 +128,19 @@ export async function getScrobbles(input: z.infer<typeof getScrobblesSchema>) {
       from: input.from ?? input.since ?? null,
       to: input.to ?? null,
     },
-    scrobbles: rows,
+    scrobbles: scrobbleRows,
   }
 }
 
 // ---- get_scrobble_stats: aggregate metrics ---------------------------------
 
 export const getScrobbleStatsSchema = z.object({
+  artist: z.string().optional().describe('Filter by artist name (case-insensitive, partial match). When set, totals and first/last played reflect only this artist.'),
+  album: z.string().optional().describe('Filter by album name (case-insensitive, partial match). When set, totals and first/last played reflect only this album.'),
+  track: z.string().optional().describe('Filter by track name (case-insensitive, partial match). When set, totals and first/last played reflect only this track.'),
   from: z.string().optional().describe('Only count scrobbles played at or after this ISO datetime'),
   to: z.string().optional().describe('Only count scrobbles played at or before this ISO datetime'),
+  since: z.string().optional().describe('Alias for "from" — only count scrobbles after this ISO datetime'),
   group_by: z.enum(['artist', 'album', 'track']).default('artist'),
   limit: z.number().int().min(1).max(100).default(20),
 })
@@ -109,6 +182,11 @@ export async function getScrobbleStats(input: z.infer<typeof getScrobbleStatsSch
     last_played_at: totals?.last ?? null,
     group_by: input.group_by,
     top: top.map((r) => ({ ...r, plays: Number(r.plays) })),
-    range: { from: input.from ?? null, to: input.to ?? null },
+    filters: {
+      artist: input.artist ?? null,
+      album: input.album ?? null,
+      track: input.track ?? null,
+    },
+    range: { from: input.from ?? input.since ?? null, to: input.to ?? null },
   }
 }
