@@ -1,0 +1,65 @@
+import { sql, type SQL } from 'drizzle-orm'
+import { type PgColumn } from 'drizzle-orm/pg-core'
+
+// Shared playedAt/publishedAt-style keyset pagination for the time-ordered
+// feed tools (scrobbles, actor posts, reading events).
+//
+// The ordering timestamp isn't unique (and, for objects.published_at, can even
+// be null), so the cursor also carries the row id as a tiebreaker to give a
+// strict total order. Ordering is always "<ts> <dir> NULLS LAST, id <dir>", so
+// rows with a null timestamp sort to the end in both directions. The cursor is
+// an opaque base64url token; callers pass it back verbatim.
+
+export type SortOrder = 'asc' | 'desc'
+
+type CursorPayload = { p: string | null; id: string }
+
+export function encodeCursor(ts: Date | null, id: string): string {
+  const payload: CursorPayload = { p: ts ? ts.toISOString() : null, id }
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+}
+
+export function decodeCursor(token: string): CursorPayload {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'))
+  } catch {
+    throw new Error('Invalid cursor: not a valid token')
+  }
+  const c = parsed as CursorPayload
+  const pOk = c && (c.p === null || (typeof c.p === 'string' && !Number.isNaN(Date.parse(c.p))))
+  if (!c || typeof c.id !== 'string' || !pOk) {
+    throw new Error('Invalid cursor: malformed payload')
+  }
+  return c
+}
+
+/** ORDER BY clause matching the keyset: timestamp then id, NULLS LAST. */
+export function keysetOrderBy(tsCol: PgColumn, idCol: PgColumn, order: SortOrder): SQL {
+  return order === 'asc'
+    ? sql`${tsCol} ASC NULLS LAST, ${idCol} ASC`
+    : sql`${tsCol} DESC NULLS LAST, ${idCol} DESC`
+}
+
+/**
+ * WHERE condition selecting rows strictly past the cursor row under the keyset
+ * order above. Because nulls sort last in both directions, a non-null cursor is
+ * always followed by every null-timestamp row; a null cursor means we're already
+ * in that trailing null section, so only later null rows (by id) remain.
+ */
+export function keysetCondition(
+  tsCol: PgColumn,
+  idCol: PgColumn,
+  cursor: CursorPayload,
+  order: SortOrder,
+): SQL {
+  if (cursor.p === null) {
+    return order === 'asc'
+      ? sql`(${tsCol} IS NULL AND ${idCol} > ${cursor.id}::uuid)`
+      : sql`(${tsCol} IS NULL AND ${idCol} < ${cursor.id}::uuid)`
+  }
+  const p = new Date(cursor.p)
+  return order === 'asc'
+    ? sql`(${tsCol} > ${p}::timestamptz OR (${tsCol} = ${p}::timestamptz AND ${idCol} > ${cursor.id}::uuid) OR ${tsCol} IS NULL)`
+    : sql`(${tsCol} < ${p}::timestamptz OR (${tsCol} = ${p}::timestamptz AND ${idCol} < ${cursor.id}::uuid) OR ${tsCol} IS NULL)`
+}

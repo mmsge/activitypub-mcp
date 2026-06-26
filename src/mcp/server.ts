@@ -16,7 +16,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_actor_posts',
-    'Get recent posts from a specific ActivityPub actor',
+    "Get posts from a specific ActivityPub actor. Defaults to newest-first; set sort_order='asc' with limit=1 to fetch the actor's earliest post in one call, and follow the next_cursor token for deep traversal.",
     getActorPostsSchema.shape,
     async (input) => {
       const result = await getActorPosts(input as any)
@@ -86,7 +86,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_reading_events',
-    'Get BookWyrm reading events from locally stored activities with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved. Useful for building a reading timeline or finding when a book was started vs finished.',
+    "Get BookWyrm reading events from locally stored activities with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved. Useful for building a reading timeline or finding when a book was started vs finished. Defaults to newest-first; set sort_order='asc' with limit=1 to fetch the earliest reading event in one call, and follow the next_cursor token for deep traversal.",
     getReadingEventsSchema.shape,
     async (input) => {
       const result = await getReadingEvents(input as any)
@@ -96,7 +96,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_scrobbles',
-    "Query the locally-stored Last.fm scrobble history. Filter by artist, album, or track (case-insensitive partial match) and/or a played-at time window (from/to/since, ISO datetimes). Returns scrobbles newest-first with pagination.",
+    "Query the locally-stored Last.fm scrobble history. Filter by artist, album, or track (case-insensitive partial match) and/or a played-at time window (from/to/since, ISO datetimes). Defaults to newest-first; set sort_order='asc' with limit=1 to fetch the earliest matching scrobble in one call. For deep traversal, follow the next_cursor token instead of incrementing page.",
     getScrobblesSchema.shape,
     async (input) => {
       const result = await getScrobbles(input as any)
@@ -106,7 +106,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_scrobble_stats',
-    "Aggregate metrics over the stored Last.fm scrobbles: total play count, listening span (first/last played), and top artists, albums, or tracks by play count. Optionally bounded by a from/to time window.",
+    "Aggregate metrics over the stored Last.fm scrobbles: total play count, listening span (first/last played), and top artists, albums, or tracks by play count. Accepts the same artist/album/track filters as get_scrobbles — when filtered, total_scrobbles and first_played_at/last_played_at reflect only matching rows, so e.g. an artist's first play is answerable in a single call. Optionally bounded by a from/to time window.",
     getScrobbleStatsSchema.shape,
     async (input) => {
       const result = await getScrobbleStats(input as any)

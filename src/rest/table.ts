@@ -37,7 +37,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/actor-posts',
     name: 'get_actor_posts',
-    description: 'Get recent posts from a specific ActivityPub actor',
+    description: "Get posts from a specific ActivityPub actor. Defaults to newest-first; set sort_order=asc with limit=1 for the earliest post, and follow next_cursor for deep traversal.",
     schema: getActorPostsSchema,
     handler: getActorPosts,
     numbers: ['limit'],
@@ -107,7 +107,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/reading-events',
     name: 'get_reading_events',
-    description: 'Get BookWyrm reading events from locally stored activities with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved.',
+    description: 'Get BookWyrm reading events from locally stored activities with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved. Defaults to newest-first; set sort_order=asc with limit=1 for the earliest event, and follow next_cursor for deep traversal.',
     schema: getReadingEventsSchema,
     handler: getReadingEvents,
     numbers: ['limit'],
@@ -117,7 +117,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/scrobbles',
     name: 'get_scrobbles',
-    description: 'Query the locally-stored Last.fm scrobble history. Filter by artist, album, or track (case-insensitive partial match) and/or a played-at time window (from/to/since, ISO datetimes). Returns scrobbles newest-first with pagination.',
+    description: 'Query the locally-stored Last.fm scrobble history. Filter by artist, album, or track (case-insensitive partial match) and/or a played-at time window (from/to/since, ISO datetimes). Returns scrobbles newest-first by default; pass sort_order=asc with limit=1 to get the earliest match, and paginate deeply via the next_cursor token.',
     schema: getScrobblesSchema,
     handler: getScrobbles,
     numbers: ['limit', 'page'],
@@ -127,7 +127,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/scrobble-stats',
     name: 'get_scrobble_stats',
-    description: 'Aggregate metrics over the stored Last.fm scrobbles: total play count, listening span (first/last played), and top artists, albums, or tracks by play count. Optionally bounded by a from/to time window.',
+    description: 'Aggregate metrics over the stored Last.fm scrobbles: total play count, listening span (first/last played), and top artists, albums, or tracks by play count. Accepts the same artist/album/track filters as /scrobbles, so first_played_at/last_played_at/total_scrobbles can be scoped to one artist. Optionally bounded by a from/to time window.',
     schema: getScrobbleStatsSchema,
     handler: getScrobbleStats,
     numbers: ['limit'],

@@ -262,6 +262,19 @@ syncing new scrobbles every 5 minutes thereafter. The stored scrobbles are query
 timestamp, artist, album, and track via `get_scrobbles`, with aggregate metrics (totals,
 listening span, top artists/albums/tracks) via `get_scrobble_stats`.
 
+`get_scrobbles` returns newest-first by default. To answer "earliest/latest/total" questions
+without paginating backward through thousands of rows:
+
+- **First play of an artist in one call:** `get_scrobble_stats` accepts the same `artist`/`album`/`track`
+  filters as `get_scrobbles`. When filtered, `first_played_at`, `last_played_at`, and `total_scrobbles`
+  reflect only matching rows — e.g. `get_scrobble_stats(artist="Maisie Peters")` returns that artist's
+  first and last play and total count directly.
+- **Oldest matching row directly:** pass `sort_order="asc"` (default `"desc"`) with `limit=1` to
+  `get_scrobbles` to fetch the earliest matching scrobble in a single call.
+- **Deep traversal:** each `get_scrobbles` response includes a `next_cursor` token (a `played_at`-based
+  keyset cursor, `null` when exhausted). Pass it back as `cursor` to continue from where the last page
+  ended — far cheaper than large offsets. Offset-based `page` remains available for compatibility.
+
 ---
 
 ## REST API
@@ -301,16 +314,16 @@ All paths accept `GET`, `QUERY`, and `POST`.
 
 | REST path (under `/api/v1`) | MCP tool | Key parameters |
 |---|---|---|
-| `/actor-posts` | `get_actor_posts` | `actor_handle`, `limit`, `since`, `until`, `object_types` |
+| `/actor-posts` | `get_actor_posts` | `actor_handle`, `limit`, `since`, `until`, `object_types`, `sort_order`, `cursor` |
 | `/actor-reading-status` | `get_actor_reading_status` | `actor_handle`, `status`, `limit`, `use_live` |
 | `/actor-media` | `get_actor_media` | `actor_handle`, `media_type`, `limit`, `since` |
 | `/search-actor-content` | `search_actor_content` | `query`, `actor_handle`, `limit`, `object_types` |
 | `/follows` | `get_follows` | `status` |
 | `/activity-stats` | `get_activity_stats` | `actor_handle`, `since` |
 | `/recent-activities` | `get_recent_activities` | `limit`, `types`, `since` |
-| `/reading-events` | `get_reading_events` | `actor_handle`, `event_type`, `limit`, `since` |
-| `/scrobbles` | `get_scrobbles` | `artist`, `album`, `track`, `from`, `to`, `since`, `limit`, `page` |
-| `/scrobble-stats` | `get_scrobble_stats` | `from`, `to`, `group_by`, `limit` |
+| `/reading-events` | `get_reading_events` | `actor_handle`, `event_type`, `limit`, `since`, `sort_order`, `cursor` |
+| `/scrobbles` | `get_scrobbles` | `artist`, `album`, `track`, `from`, `to`, `since`, `sort_order`, `limit`, `page`, `cursor` |
+| `/scrobble-stats` | `get_scrobble_stats` | `artist`, `album`, `track`, `from`, `to`, `since`, `group_by`, `limit` |
 
 `GET /api/v1` returns a discovery document listing every endpoint and its parameters.
 
