@@ -314,14 +314,14 @@ All paths accept `GET`, `QUERY`, and `POST`.
 
 | REST path (under `/api/v1`) | MCP tool | Key parameters |
 |---|---|---|
-| `/actor-posts` | `get_actor_posts` | `actor_handle`, `limit`, `since`, `until`, `object_types` |
+| `/actor-posts` | `get_actor_posts` | `actor_handle`, `limit`, `since`, `until`, `object_types`, `sort_order`, `cursor` |
 | `/actor-reading-status` | `get_actor_reading_status` | `actor_handle`, `status`, `limit`, `use_live` |
 | `/actor-media` | `get_actor_media` | `actor_handle`, `media_type`, `limit`, `since` |
 | `/search-actor-content` | `search_actor_content` | `query`, `actor_handle`, `limit`, `object_types` |
 | `/follows` | `get_follows` | `status` |
 | `/activity-stats` | `get_activity_stats` | `actor_handle`, `since` |
 | `/recent-activities` | `get_recent_activities` | `limit`, `types`, `since` |
-| `/reading-events` | `get_reading_events` | `actor_handle`, `event_type`, `limit`, `since` |
+| `/reading-events` | `get_reading_events` | `actor_handle`, `event_type`, `limit`, `since`, `sort_order`, `cursor` |
 | `/scrobbles` | `get_scrobbles` | `artist`, `album`, `track`, `from`, `to`, `since`, `sort_order`, `limit`, `page`, `cursor` |
 | `/scrobble-stats` | `get_scrobble_stats` | `artist`, `album`, `track`, `from`, `to`, `since`, `group_by`, `limit` |
 

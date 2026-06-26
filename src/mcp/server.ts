@@ -16,7 +16,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_actor_posts',
-    'Get recent posts from a specific ActivityPub actor',
+    "Get posts from a specific ActivityPub actor. Defaults to newest-first; set sort_order='asc' with limit=1 to fetch the actor's earliest post in one call, and follow the next_cursor token for deep traversal.",
     getActorPostsSchema.shape,
     async (input) => {
       const result = await getActorPosts(input as any)
@@ -86,7 +86,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_reading_events',
-    'Get BookWyrm reading events from locally stored activities with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved. Useful for building a reading timeline or finding when a book was started vs finished.',
+    "Get BookWyrm reading events from locally stored activities with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved. Useful for building a reading timeline or finding when a book was started vs finished. Defaults to newest-first; set sort_order='asc' with limit=1 to fetch the earliest reading event in one call, and follow the next_cursor token for deep traversal.",
     getReadingEventsSchema.shape,
     async (input) => {
       const result = await getReadingEvents(input as any)

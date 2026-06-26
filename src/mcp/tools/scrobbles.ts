@@ -3,6 +3,7 @@ import { getDb } from '../../db/client.js'
 import { scrobbles } from '../../db/schema.js'
 import { and, gte, lte, ilike, count, sql, type SQL } from 'drizzle-orm'
 import { type PgColumn } from 'drizzle-orm/pg-core'
+import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
 
 // ---- shared filter handling ------------------------------------------------
 
@@ -17,33 +18,6 @@ function buildConditions(input: {
   if (from) conditions.push(gte(scrobbles.playedAt, new Date(from)))
   if (input.to) conditions.push(lte(scrobbles.playedAt, new Date(input.to)))
   return conditions
-}
-
-// ---- playedAt-based keyset cursor ------------------------------------------
-//
-// playedAt alone isn't unique (the dedupe key is played_at + track + artist),
-// so the cursor also carries the row id as a tiebreaker to give a strict total
-// order. The cursor is an opaque base64url token; callers pass it back verbatim.
-
-type Cursor = { p: string; id: string }
-
-function encodeCursor(playedAt: Date, id: string): string {
-  const payload: Cursor = { p: playedAt.toISOString(), id }
-  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
-}
-
-function decodeCursor(token: string): Cursor {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'))
-  } catch {
-    throw new Error('Invalid cursor: not a valid token')
-  }
-  const c = parsed as Cursor
-  if (!c || typeof c.p !== 'string' || typeof c.id !== 'string' || Number.isNaN(Date.parse(c.p))) {
-    throw new Error('Invalid cursor: malformed payload')
-  }
-  return c
 }
 
 // ---- get_scrobbles: raw, filterable feed -----------------------------------
@@ -68,24 +42,14 @@ export async function getScrobbles(input: z.infer<typeof getScrobblesSchema>) {
   const db = getDb()
   const conditions = buildConditions(input)
 
-  const asc = input.sort_order === 'asc'
-
   // Keyset pagination: continue strictly past the cursor row using (played_at, id)
   // as the ordering key. Falls back to offset pagination when no cursor is given.
   if (input.cursor) {
-    const c = decodeCursor(input.cursor)
-    const cursorDate = new Date(c.p)
-    conditions.push(
-      asc
-        ? sql`(${scrobbles.playedAt}, ${scrobbles.id}) > (${cursorDate}::timestamptz, ${c.id}::uuid)`
-        : sql`(${scrobbles.playedAt}, ${scrobbles.id}) < (${cursorDate}::timestamptz, ${c.id}::uuid)`,
-    )
+    conditions.push(keysetCondition(scrobbles.playedAt, scrobbles.id, decodeCursor(input.cursor), input.sort_order))
   }
 
   const where = conditions.length ? and(...conditions) : undefined
-  const orderBy = asc
-    ? sql`${scrobbles.playedAt} ASC, ${scrobbles.id} ASC`
-    : sql`${scrobbles.playedAt} DESC, ${scrobbles.id} DESC`
+  const orderBy = keysetOrderBy(scrobbles.playedAt, scrobbles.id, input.sort_order)
 
   const baseQuery = db
     .select({

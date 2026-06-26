@@ -1,22 +1,29 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
 import { objects, bookwyrmObjects } from '../../db/schema.js'
-import { and, eq, isNull, desc, gte } from 'drizzle-orm'
+import { and, eq, isNull, isNotNull, gte, type SQL } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
+import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
+
+const eventTypeEnum = z.enum([
+  'started_reading',
+  'finished_reading',
+  'review',
+  'rating',
+  'comment',
+  'note',
+  'shelved',
+])
 
 export const getReadingEventsSchema = z.object({
   actor_handle: z.string().describe('Actor handle (@user@domain) or full actor URL'),
-  event_type: z.enum([
-    'started_reading',
-    'finished_reading',
-    'review',
-    'rating',
-    'comment',
-    'note',
-    'shelved',
-  ]).optional().describe('Filter by event type'),
+  event_type: eventTypeEnum.optional().describe('Filter by event type'),
   limit: z.number().int().min(1).max(100).default(20),
   since: z.string().datetime().optional().describe('ISO 8601 datetime — only return events after this time'),
+  sort_order: z.enum(['asc', 'desc']).default('desc')
+    .describe('Order by published_at. "desc" (default) is newest-first; "asc" is oldest-first — pair with limit:1 to fetch the earliest reading event in one call.'),
+  cursor: z.string().optional()
+    .describe('Opaque pagination cursor from a previous response\'s next_cursor. When set, continues from where the last page ended (respecting sort_order and all filters).'),
 })
 
 function deriveEventType(bwType: string, finishDate: string | null): string {
@@ -31,6 +38,23 @@ function deriveEventType(bwType: string, finishDate: string | null): string {
   }
 }
 
+// Inverse of deriveEventType, expressed as a SQL condition so event_type can be
+// filtered in the query (keeping `limit` exact and the cursor correct) rather
+// than over-fetching and filtering in memory.
+function eventTypeCondition(eventType: z.infer<typeof eventTypeEnum>): SQL | undefined {
+  switch (eventType) {
+    case 'started_reading':
+      return and(eq(bookwyrmObjects.bwType, 'ReadThrough'), isNull(bookwyrmObjects.finishDate))
+    case 'finished_reading':
+      return and(eq(bookwyrmObjects.bwType, 'ReadThrough'), isNotNull(bookwyrmObjects.finishDate))
+    case 'review': return eq(bookwyrmObjects.bwType, 'Review')
+    case 'rating': return eq(bookwyrmObjects.bwType, 'Rating')
+    case 'comment': return eq(bookwyrmObjects.bwType, 'Comment')
+    case 'note': return eq(bookwyrmObjects.bwType, 'GeneratedNote')
+    case 'shelved': return eq(bookwyrmObjects.bwType, 'ShelfBook')
+  }
+}
+
 export async function getReadingEvents(input: z.infer<typeof getReadingEventsSchema>) {
   const actor = input.actor_handle.startsWith('http')
     ? { apId: input.actor_handle }
@@ -39,15 +63,19 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
   if (!actor) return { error: `Could not resolve actor: ${input.actor_handle}` }
 
   const db = getDb()
-  const conditions = [eq(objects.actorApId, actor.apId), isNull(objects.deletedAt)]
+  const conditions: SQL[] = [eq(objects.actorApId, actor.apId), isNull(objects.deletedAt)]
   if (input.since) conditions.push(gte(objects.publishedAt, new Date(input.since)))
+  if (input.event_type) {
+    const etCond = eventTypeCondition(input.event_type)
+    if (etCond) conditions.push(etCond)
+  }
+  if (input.cursor) {
+    conditions.push(keysetCondition(objects.publishedAt, objects.id, decodeCursor(input.cursor), input.sort_order))
+  }
 
-  // When filtering by started_reading/finished_reading we need to filter on bwType=ReadThrough
-  // and finishDate presence — fetch all ReadThrough rows and filter after
-  const eventTypeFilter = input.event_type
-
-  let rows = await db
+  const rows = await db
     .select({
+      id: objects.id,
       apId: objects.apId,
       bwType: bookwyrmObjects.bwType,
       bookTitle: bookwyrmObjects.bookTitle,
@@ -62,26 +90,34 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
     .from(bookwyrmObjects)
     .innerJoin(objects, eq(bookwyrmObjects.objectApId, objects.apId))
     .where(and(...conditions))
-    .orderBy(desc(objects.publishedAt))
-    .limit(eventTypeFilter ? input.limit * 4 : input.limit) // over-fetch when filtering
+    .orderBy(keysetOrderBy(objects.publishedAt, objects.id, input.sort_order))
+    .limit(input.limit)
 
-  if (eventTypeFilter) {
-    rows = rows.filter((r) => {
-      const et = deriveEventType(r.bwType, r.finishDate)
-      return et === eventTypeFilter
-    }).slice(0, input.limit)
+  const last = rows[rows.length - 1]
+  const nextCursor = rows.length === input.limit && last
+    ? encodeCursor(last.publishedAt, last.id)
+    : null
+
+  return {
+    count: rows.length,
+    next_cursor: nextCursor,
+    sort_order: input.sort_order,
+    filters: {
+      actor_handle: input.actor_handle,
+      event_type: input.event_type ?? null,
+      since: input.since ?? null,
+    },
+    events: rows.map((r) => ({
+      event_type: deriveEventType(r.bwType, r.finishDate),
+      book_title: r.bookTitle,
+      book_author: r.bookAuthor,
+      started_date: r.startDate,
+      finished_date: r.finishDate,
+      rating: r.rating,
+      comment: r.reviewContent,
+      published_at: r.publishedAt?.toISOString() ?? null,
+      ap_id: r.apId,
+      bookwyrm_book_url: r.bookUrl,
+    })),
   }
-
-  return rows.map((r) => ({
-    event_type: deriveEventType(r.bwType, r.finishDate),
-    book_title: r.bookTitle,
-    book_author: r.bookAuthor,
-    started_date: r.startDate,
-    finished_date: r.finishDate,
-    rating: r.rating,
-    comment: r.reviewContent,
-    published_at: r.publishedAt?.toISOString() ?? null,
-    ap_id: r.apId,
-    bookwyrm_book_url: r.bookUrl,
-  }))
 }

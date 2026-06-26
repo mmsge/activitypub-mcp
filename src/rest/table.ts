@@ -37,7 +37,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/actor-posts',
     name: 'get_actor_posts',
-    description: 'Get recent posts from a specific ActivityPub actor',
+    description: "Get posts from a specific ActivityPub actor. Defaults to newest-first; set sort_order=asc with limit=1 for the earliest post, and follow next_cursor for deep traversal.",
     schema: getActorPostsSchema,
     handler: getActorPosts,
     numbers: ['limit'],
@@ -107,7 +107,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/reading-events',
     name: 'get_reading_events',
-    description: 'Get BookWyrm reading events from locally stored activities with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved.',
+    description: 'Get BookWyrm reading events from locally stored activities with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved. Defaults to newest-first; set sort_order=asc with limit=1 for the earliest event, and follow next_cursor for deep traversal.',
     schema: getReadingEventsSchema,
     handler: getReadingEvents,
     numbers: ['limit'],
