@@ -4,7 +4,7 @@ import { objects, bookwyrmObjects } from '../../db/schema.js'
 import { and, eq, isNull, desc, or } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 import { fetchBookwyrmShelf, type ShelfItem } from '../../lib/fetch-bookwyrm-shelf.js'
-import { classifyReadingEvent, readingEventBaseCondition } from '../../lib/bookwyrm-reading.js'
+import { classifyReadingEvent, collapseReadingEvents, readingEventBaseCondition } from '../../lib/bookwyrm-reading.js'
 
 export const getActorReadingStatusSchema = z.object({
   actor_handle: z.string().describe('Actor handle (@user@domain) or full actor URL'),
@@ -114,8 +114,10 @@ async function fetchLiveShelf(
 // generatednote posts ("…wants to read X" / "…started reading X" / "…finished
 // reading X"), so we derive each book's current shelf from those events in the
 // generic post store (see lib/bookwyrm-reading.ts) rather than the rarely-populated
-// bookwyrm_objects table. Note: ratings aren't carried in these Note payloads —
-// use use_live=true for ratings and live cover art.
+// bookwyrm_objects table. Every reading action is its own Note, so we collapse the
+// event stream to one row per book (collapseReadingEvents). Ratings aren't carried
+// in the Note payloads, but a review/rating that was ingested into bookwyrm_objects
+// surfaces via the LEFT JOIN below; use use_live=true for live cover art.
 async function fetchFromDb(
   actorApId: string,
   statusFilter: 'reading' | 'read' | 'to-read' | undefined,
@@ -129,72 +131,37 @@ async function fetchFromDb(
       tags: objects.tags,
       attachments: objects.attachments,
       publishedAt: objects.publishedAt,
+      rating: bookwyrmObjects.rating,
     })
     .from(objects)
+    .leftJoin(bookwyrmObjects, eq(bookwyrmObjects.objectApId, objects.apId))
     .where(and(eq(objects.actorApId, actorApId), isNull(objects.deletedAt), readingEventBaseCondition()))
     .orderBy(desc(objects.publishedAt))
 
-  type Acc = {
-    title: string | null
-    author: string | null
-    url: string | null
-    shelf: 'reading' | 'read' | 'to-read' | null
-    shelfAt: Date | null // published_at of the event that set `shelf`
-    started: Date | null
-    finished: Date | null
-  }
-  const byBook = new Map<string, Acc>()
+  const books = collapseReadingEvents(
+    rows.flatMap((r) => {
+      const event = classifyReadingEvent({
+        apId: r.apId,
+        content: r.contentText,
+        tags: r.tags,
+        attachments: r.attachments,
+      })
+      return event ? [{ event, publishedAt: r.publishedAt, rating: r.rating }] : []
+    }),
+  )
 
-  for (const r of rows) {
-    const ev = classifyReadingEvent({
-      apId: r.apId,
-      content: r.contentText,
-      tags: r.tags,
-      attachments: r.attachments,
-    })
-    if (!ev || (!ev.book_title && !ev.bookwyrm_book_url)) continue // skip goal notes etc.
-
-    const key = ev.bookwyrm_book_url ?? ev.book_title!.toLowerCase().trim()
-    const acc = byBook.get(key) ?? {
-      title: ev.book_title,
-      author: ev.book_author,
-      url: ev.bookwyrm_book_url,
-      shelf: null,
-      shelfAt: null,
-      started: null,
-      finished: null,
-    }
-    acc.title ??= ev.book_title
-    acc.author ??= ev.book_author
-    acc.url ??= ev.bookwyrm_book_url
-
-    const at = r.publishedAt
-    // The current shelf is whatever the most recent shelf-affecting event set it to.
-    const shelfForEvent =
-      ev.event_type === 'finished_reading' ? 'read'
-        : ev.event_type === 'started_reading' ? 'reading'
-          : ev.event_type === 'shelved' ? 'to-read'
-            : null
-    if (shelfForEvent && (!acc.shelfAt || (at && at > acc.shelfAt))) {
-      acc.shelf = shelfForEvent
-      acc.shelfAt = at ?? acc.shelfAt
-    }
-    if (ev.event_type === 'started_reading' && at && (!acc.started || at < acc.started)) acc.started = at
-    if (ev.event_type === 'finished_reading' && at && (!acc.finished || at > acc.finished)) acc.finished = at
-
-    byBook.set(key, acc)
-  }
-
-  let results: ReadingResult[] = [...byBook.values()].map((a) => ({
-    title: a.title,
-    authors: a.author,
-    cover: null,
-    shelf: a.shelf,
-    started_date: a.started?.toISOString().slice(0, 10) ?? null,
-    finished_date: a.finished?.toISOString().slice(0, 10) ?? null,
-    rating: null,
-    bookwyrm_book_url: a.url,
-  }))
+  let results: ReadingResult[] = books
+    .sort((a, b) => (b.lastActivity?.getTime() ?? 0) - (a.lastActivity?.getTime() ?? 0))
+    .map((a) => ({
+      title: a.title,
+      authors: a.author,
+      cover: a.cover,
+      shelf: a.shelf,
+      started_date: a.started?.toISOString().slice(0, 10) ?? null,
+      finished_date: a.finished?.toISOString().slice(0, 10) ?? null,
+      rating: a.rating,
+      bookwyrm_book_url: a.url,
+    }))
   if (statusFilter) results = results.filter((r) => r.shelf === statusFilter)
   return results.slice(0, limit)
 }

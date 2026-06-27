@@ -10,7 +10,8 @@
     "create-admin": "tsx scripts/create-admin.ts",
     "lint:openapi": "redocly lint docs/openapi.yaml",
     "format:check": "prettier --check docs/openapi.yaml",
-    "format": "prettier --write docs/openapi.yaml"
+    "format": "prettier --write docs/openapi.yaml",
+    "test": "vitest run"
   },
   "license": "ISC",
   "type": "module",
@@ -32,6 +33,7 @@
     "drizzle-kit": "^0.31.10",
     "prettier": "^3.8.5",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
   }
 }

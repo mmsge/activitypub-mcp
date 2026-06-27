@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
-import { objects } from '../../db/schema.js'
+import { objects, bookwyrmObjects } from '../../db/schema.js'
 import { and, eq, isNull, gte, type SQL } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 import {
@@ -65,8 +65,10 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
       tags: objects.tags,
       attachments: objects.attachments,
       publishedAt: objects.publishedAt,
+      rating: bookwyrmObjects.rating,
     })
     .from(objects)
+    .leftJoin(bookwyrmObjects, eq(bookwyrmObjects.objectApId, objects.apId))
     .where(and(...conditions))
     .orderBy(keysetOrderBy(objects.publishedAt, objects.id, input.sort_order))
     .limit(input.limit)
@@ -100,9 +102,11 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
         book_author: ev.book_author,
         started_date: ev.event_type === 'started_reading' ? date : null,
         finished_date: ev.event_type === 'finished_reading' ? date : null,
-        // The numeric rating isn't reliably present in the federated Note payload;
-        // use get_actor_reading_status(use_live=true) for ratings.
-        rating: null,
+        // Standalone `rating` events depend on BookWyrm federating `/rating/`
+        // activities (classified via SEG_RATING). The numeric value isn't in the
+        // Note payload, but a review/rating ingested into bookwyrm_objects surfaces
+        // its inline rating here via the LEFT JOIN rather than being lost.
+        rating: r.rating,
         comment: ev.comment,
         published_at: r.publishedAt?.toISOString() ?? null,
         ap_id: r.apId,
