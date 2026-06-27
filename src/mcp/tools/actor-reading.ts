@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
 import { objects, bookwyrmObjects } from '../../db/schema.js'
-import { and, eq, isNull, desc, or } from 'drizzle-orm'
+import { and, eq, isNull, desc, or, sql } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 import { fetchBookwyrmShelf, type ShelfItem } from '../../lib/fetch-bookwyrm-shelf.js'
 import { classifyReadingEvent, collapseReadingEvents, readingEventBaseCondition } from '../../lib/bookwyrm-reading.js'
@@ -132,6 +132,8 @@ async function fetchFromDb(
       attachments: objects.attachments,
       publishedAt: objects.publishedAt,
       rating: bookwyrmObjects.rating,
+      readingStatus: sql<string | null>`${objects.raw}->>'readingStatus'`,
+      inReplyToBook: sql<string | null>`${objects.raw}->>'inReplyToBook'`,
     })
     .from(objects)
     .leftJoin(bookwyrmObjects, eq(bookwyrmObjects.objectApId, objects.apId))
@@ -145,6 +147,8 @@ async function fetchFromDb(
         content: r.contentText,
         tags: r.tags,
         attachments: r.attachments,
+        readingStatus: r.readingStatus,
+        inReplyToBook: r.inReplyToBook,
       })
       return event ? [{ event, publishedAt: r.publishedAt, rating: r.rating }] : []
     }),

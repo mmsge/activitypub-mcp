@@ -47,12 +47,18 @@ async function backfillOutbox(actorApId: string): Promise<{ pages: number; inges
       for (const item of items) {
         if (!item || typeof item !== 'object') continue
         const act = item as AnyObject
-        // BookWyrm outbox entries are Create activities wrapping the reading Note;
-        // skip anything else (e.g. Announce) so we don't ingest boosts as our own.
-        if (act.type !== 'Create') continue
-        if (!act.actor) act.actor = actorApId
+        // BookWyrm outbox entries are bare Note objects (not Create-wrapped). Wrap
+        // each in a synthetic Create so the ingest handler's (actor, object) contract
+        // holds. Already-wrapped Creates pass through; anything else (boosts etc.) is
+        // skipped so we don't ingest other people's content as our own.
+        let activity: AnyObject | null = null
+        if (act.type === 'Create') activity = act
+        else if (act.type === 'Note' || act.type === 'Article') {
+          activity = { type: 'Create', actor: actorApId, object: act }
+        } else continue
+        if (!activity.actor) activity.actor = actorApId
         try {
-          await handleCreate(act)
+          await handleCreate(activity)
           ingested++
         } catch (e) {
           logger.warn({ error: e }, 'Failed to ingest outbox item')

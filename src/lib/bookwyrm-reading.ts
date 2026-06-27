@@ -37,6 +37,16 @@ export interface ClassifierInput {
   content: string | null // objects.contentText (HTML already stripped at ingest)
   tags: unknown // objects.tags jsonb
   attachments: unknown // objects.attachments jsonb
+  // BookWyrm stamps comment/review/note objects with the reader's shelf state at
+  // post time ("read" / "reading" / "to-read"), carried on the AP object as
+  // `readingStatus` (queried from objects.raw). This is the reliable finish signal:
+  // a `read` comment is what BookWyrm renders as "finished reading" with that post's
+  // date, even when no standalone "finished reading" generatednote was produced.
+  readingStatus?: string | null
+  // BookWyrm comments/reviews reference the book via `inReplyToBook` (the Edition
+  // AP id) rather than an Edition tag, so it's the book-url source for those — and
+  // the join key into book_metadata. Queried from objects.raw.
+  inReplyToBook?: string | null
 }
 
 export interface ReadingEvent {
@@ -45,6 +55,18 @@ export interface ReadingEvent {
   book_author: string | null
   bookwyrm_book_url: string | null
   comment: string | null
+  reading_status: 'read' | 'reading' | 'to-read' | null
+}
+
+// Normalize the AP `readingStatus` value (plain "read"/"reading"/"to-read", or a
+// shelf URL containing one of those) to our shelf enum.
+export function normalizeReadingStatus(v: unknown): 'read' | 'reading' | 'to-read' | null {
+  if (typeof v !== 'string') return null
+  const s = v.toLowerCase()
+  if (s.includes('to-read') || s.includes('want-to-read')) return 'to-read'
+  if (s.includes('reading')) return 'reading'
+  if (s.includes('read')) return 'read'
+  return null
 }
 
 /**
@@ -73,13 +95,14 @@ export function classifyReadingEvent(row: ClassifierInput): ReadingEvent | null 
     return null // caller drops it
   }
 
-  const { title, author, url } = extractBookMeta(row, content)
+  const { title, author, url } = extractBookMeta(row, content, row.inReplyToBook)
   return {
     event_type,
     book_title: title,
     book_author: author,
     bookwyrm_book_url: url,
     comment: event_type === 'comment' || event_type === 'review' ? content || null : null,
+    reading_status: normalizeReadingStatus(row.readingStatus),
   }
 }
 
@@ -87,6 +110,7 @@ export function classifyReadingEvent(row: ClassifierInput): ReadingEvent | null 
 function extractBookMeta(
   row: ClassifierInput,
   content: string,
+  inReplyToBook?: string | null,
 ): { title: string | null; author: string | null; url: string | null } {
   let title: string | null = null
   let author: string | null = null
@@ -100,6 +124,9 @@ function extractBookMeta(
     if (typeof editionTag.name === 'string') title = editionTag.name.replace(/^@/, '').trim()
     if (typeof editionTag.href === 'string') url = editionTag.href
   }
+
+  // Comments/reviews carry the book url in inReplyToBook, not an Edition tag.
+  if (!url && typeof inReplyToBook === 'string' && inReplyToBook) url = inReplyToBook
 
   // 2) Attachment name "Author: Title (Format, lang, year, publisher)".
   const att = asArray(row.attachments).find(
@@ -194,18 +221,21 @@ export function collapseReadingEvents(events: DerivedReadingEvent[]): CollapsedB
     acc.url ??= ev.bookwyrm_book_url
     acc.rating ??= rating
 
+    // Prefer BookWyrm's explicit readingStatus (carried on comments/reviews too)
+    // over the generatednote event_type, so a "read" comment counts as a finish.
+    const rs = ev.reading_status
+    const isFinish = rs === 'read' || ev.event_type === 'finished_reading'
+    const isStart = rs === 'reading' || ev.event_type === 'started_reading'
+    const isShelve = rs === 'to-read' || ev.event_type === 'shelved'
+
     // The current shelf is whatever the most recent shelf-affecting event set it to.
-    const shelfForEvent =
-      ev.event_type === 'finished_reading' ? 'read'
-        : ev.event_type === 'started_reading' ? 'reading'
-          : ev.event_type === 'shelved' ? 'to-read'
-            : null
+    const shelfForEvent = isFinish ? 'read' : isStart ? 'reading' : isShelve ? 'to-read' : null
     if (shelfForEvent && (!acc.shelfAt || (at && at > acc.shelfAt))) {
       acc.shelf = shelfForEvent
       acc.shelfAt = at ?? acc.shelfAt
     }
-    if (ev.event_type === 'started_reading' && at && (!acc.started || at < acc.started)) acc.started = at
-    if (ev.event_type === 'finished_reading' && at && (!acc.finished || at > acc.finished)) acc.finished = at
+    if (isStart && at && (!acc.started || at < acc.started)) acc.started = at
+    if (isFinish && at && (!acc.finished || at > acc.finished)) acc.finished = at
     if (at && (!acc.lastActivity || at > acc.lastActivity)) acc.lastActivity = at
   }
 
