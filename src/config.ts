@@ -11,6 +11,10 @@ const schema = z.object({
   REST_API_KEY: z.string().default(''),
   LASTFM_API_KEY: z.string().default(''),
   LASTFM_USERNAME: z.string().default(''),
+  // How often to poll Last.fm for new scrobbles, in seconds. Each incremental
+  // sync is a single lightweight API call, so this can run frequently; the floor
+  // of 15s keeps us well within Last.fm's rate limits.
+  LASTFM_SYNC_INTERVAL_SECONDS: z.coerce.number().int().min(15).default(60),
   PORT: z.coerce.number().default(3000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.string().default('info'),
