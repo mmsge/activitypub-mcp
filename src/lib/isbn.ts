@@ -98,10 +98,11 @@ export function resolveBestIsbn(
 const LANGUAGE_MAP: Record<string, string> = {
   // English
   en: 'en', eng: 'en', english: 'en', engelsk: 'en',
-  // Norwegian (+ written forms)
+  // Norwegian — bokmål and nynorsk both collapse to `no` so the dominant language
+  // isn't fragmented across written forms (BookWyrm tags them inconsistently).
   no: 'no', nor: 'no', norwegian: 'no', norsk: 'no',
   nb: 'no', nob: 'no', bokmål: 'no', bokmal: 'no',
-  nn: 'nn', nno: 'nn', nynorsk: 'nn',
+  nn: 'no', nno: 'no', nynorsk: 'no',
   // Danish
   da: 'da', dan: 'da', danish: 'da', dansk: 'da',
   // Swedish
@@ -120,18 +121,38 @@ const LANGUAGE_MAP: Record<string, string> = {
   fi: 'fi', fin: 'fi', finnish: 'fi', finsk: 'fi',
   // Icelandic
   is: 'is', isl: 'is', ice: 'is', icelandic: 'is', islandsk: 'is',
+  // Other languages that turn up in the reading data
+  ko: 'ko', kor: 'ko', korean: 'ko', koreansk: 'ko',
+  ja: 'ja', jpn: 'ja', japanese: 'ja', japansk: 'ja',
+  zh: 'zh', chi: 'zh', zho: 'zh', chinese: 'zh', kinesisk: 'zh',
+  ru: 'ru', rus: 'ru', russian: 'ru', russisk: 'ru',
+  pl: 'pl', pol: 'pl', polish: 'pl', polsk: 'pl',
+  pt: 'pt', por: 'pt', portuguese: 'pt', portugisisk: 'pt',
+  la: 'la', lat: 'la', latin: 'la',
 }
 
+function cleanToken(token: string): string {
+  return token.trim().toLowerCase().replace(/^\/languages\//, '')
+}
+
+// Resolve one token to a known ISO code, or null if unknown. Handles multi-word
+// BookWyrm values like "Norwegian nynorsk" or "Norsk bokmål" by also trying each
+// whitespace/punctuation-separated word.
 function mapLangToken(token: string): string | null {
-  const t = token.trim().toLowerCase().replace(/^\/languages\//, '')
+  const t = cleanToken(token)
   if (!t) return null
-  return LANGUAGE_MAP[t] ?? t
+  if (LANGUAGE_MAP[t]) return LANGUAGE_MAP[t]
+  for (const word of t.split(/[\s_/-]+/)) {
+    if (LANGUAGE_MAP[word]) return LANGUAGE_MAP[word]
+  }
+  return null
 }
 
 /**
  * Normalize a language value (string, array of strings, or OpenLibrary language
- * objects) to a single ISO-639-1 code where known. For arrays we prefer the first
- * token that maps to a known code, else the first non-empty token.
+ * objects) to a single ISO-639-1 code where known. Returns the first token that
+ * resolves to a known code; for a language outside our table it falls back to the
+ * first non-empty token lower-cased, rather than dropping it.
  */
 export function normalizeLanguage(value: unknown): string | null {
   const tokens: string[] = []
@@ -146,9 +167,11 @@ export function normalizeLanguage(value: unknown): string | null {
   let fallback: string | null = null
   for (const tok of tokens) {
     const mapped = mapLangToken(tok)
-    if (!mapped) continue
-    if (LANGUAGE_MAP[tok.trim().toLowerCase().replace(/^\/languages\//, '')]) return mapped
-    if (fallback == null) fallback = mapped
+    if (mapped) return mapped // first token that resolves to a known ISO code wins
+    if (fallback == null) {
+      const raw = cleanToken(tok)
+      if (raw) fallback = raw
+    }
   }
   return fallback
 }

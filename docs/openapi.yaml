@@ -186,8 +186,12 @@ paths:
         Reading status for an actor by querying the live shelf (`use_live=true`,
         default) or the local DB. With `use_live=false`, shelves
         (`reading`/`read`/`to-read`) are derived from the actor's stored reading
-        note posts; ratings and cover art are only available via the live shelf.
-        Returns one entry per book.
+        note posts; ratings appear only when a federated review/rating carried one.
+        Cover, pages and language are backfilled from the cached book metadata for
+        enriched books (offline rows now carry covers where the book has been
+        enriched; the live shelf remains ground truth for cover art). Returns one
+        entry per book (title, authors, cover, shelf, dates, rating,
+        bookwyrm_book_url, pages, language).
       operationId: getActorReadingStatusGet
       parameters:
         - $ref: "#/components/parameters/ActorHandleRequired"
