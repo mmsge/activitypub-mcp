@@ -7,7 +7,10 @@
     "start": "node --import tsx/esm src/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
-    "create-admin": "tsx scripts/create-admin.ts"
+    "create-admin": "tsx scripts/create-admin.ts",
+    "lint:openapi": "redocly lint docs/openapi.yaml",
+    "format:check": "prettier --check docs/openapi.yaml",
+    "format": "prettier --write docs/openapi.yaml"
   },
   "license": "ISC",
   "type": "module",
@@ -22,9 +25,11 @@
     "zod": "^4.4.2"
   },
   "devDependencies": {
+    "@redocly/cli": "^2.35.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^25.6.0",
     "drizzle-kit": "^0.31.10",
+    "prettier": "^3.8.5",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
   }

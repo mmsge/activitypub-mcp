@@ -79,7 +79,7 @@ paths:
         defines the routes, so it never drifts.
       operationId: getDiscovery
       responses:
-        '200':
+        "200":
           description: API description.
           content:
             application/json:
@@ -115,10 +115,10 @@ paths:
                           type: array
                           items:
                             type: string
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-        '503':
-          $ref: '#/components/responses/Disabled'
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          $ref: "#/components/responses/Disabled"
 
   /api/v1/actor-posts:
     get:
@@ -130,7 +130,7 @@ paths:
         `next_cursor` for deep traversal.
       operationId: getActorPostsGet
       parameters:
-        - $ref: '#/components/parameters/ActorHandleRequired'
+        - $ref: "#/components/parameters/ActorHandleRequired"
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -146,18 +146,18 @@ paths:
           in: query
           description: Filter by object type, e.g. `Note,Article`.
           schema: { type: array, items: { type: string } }
-        - $ref: '#/components/parameters/SortOrder'
-        - $ref: '#/components/parameters/Cursor'
+        - $ref: "#/components/parameters/SortOrder"
+        - $ref: "#/components/parameters/Cursor"
       responses:
-        '200':
+        "200":
           description: Page of posts.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ActorPostsResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Disabled' }
+              schema: { $ref: "#/components/schemas/ActorPostsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
     post:
       tags: [REST API]
       summary: Get posts from an actor (JSON body)
@@ -166,17 +166,17 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/ActorPostsRequest' }
+            schema: { $ref: "#/components/schemas/ActorPostsRequest" }
       responses:
-        '200':
+        "200":
           description: Page of posts.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ActorPostsResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Disabled' }
+              schema: { $ref: "#/components/schemas/ActorPostsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
 
   /api/v1/actor-reading-status:
     get:
@@ -187,7 +187,7 @@ paths:
         default) or the local DB. Returns one entry per book.
       operationId: getActorReadingStatusGet
       parameters:
-        - $ref: '#/components/parameters/ActorHandleRequired'
+        - $ref: "#/components/parameters/ActorHandleRequired"
         - name: status
           in: query
           schema: { type: string, enum: [reading, read, to-read] }
@@ -199,17 +199,17 @@ paths:
           description: Fetch the live shelf from the BookWyrm instance (ground truth) instead of local data.
           schema: { type: boolean, default: true }
       responses:
-        '200':
+        "200":
           description: Reading status entries.
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/ReadingStatus' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Disabled' }
+                items: { $ref: "#/components/schemas/ReadingStatus" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
     post:
       tags: [REST API]
       summary: Get BookWyrm reading status (JSON body)
@@ -227,17 +227,17 @@ paths:
                 limit: { type: integer, minimum: 1, maximum: 50, default: 10 }
                 use_live: { type: boolean, default: true }
       responses:
-        '200':
+        "200":
           description: Reading status entries.
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/ReadingStatus' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Disabled' }
+                items: { $ref: "#/components/schemas/ReadingStatus" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
 
   /api/v1/actor-media:
     get:
@@ -245,7 +245,7 @@ paths:
       summary: Get posts with image/video attachments
       operationId: getActorMediaGet
       parameters:
-        - $ref: '#/components/parameters/ActorHandleRequired'
+        - $ref: "#/components/parameters/ActorHandleRequired"
         - name: media_type
           in: query
           schema: { type: string, enum: [image, video, any], default: any }
@@ -257,15 +257,15 @@ paths:
           description: ISO 8601 datetime.
           schema: { type: string, format: date-time }
       responses:
-        '200':
+        "200":
           description: Posts with media attachments.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ActorMediaResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Disabled' }
+              schema: { $ref: "#/components/schemas/ActorMediaResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
     post:
       tags: [REST API]
       summary: Get posts with image/video attachments (JSON body)
@@ -279,19 +279,20 @@ paths:
               required: [actor_handle]
               properties:
                 actor_handle: { type: string }
-                media_type: { type: string, enum: [image, video, any], default: any }
+                media_type:
+                  { type: string, enum: [image, video, any], default: any }
                 limit: { type: integer, minimum: 1, maximum: 100, default: 20 }
                 since: { type: string, format: date-time }
       responses:
-        '200':
+        "200":
           description: Posts with media attachments.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ActorMediaResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Disabled' }
+              schema: { $ref: "#/components/schemas/ActorMediaResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
 
   /api/v1/search-actor-content:
     get:
@@ -316,15 +317,15 @@ paths:
           in: query
           schema: { type: array, items: { type: string } }
       responses:
-        '200':
+        "200":
           description: Search results.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SearchResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Disabled' }
+              schema: { $ref: "#/components/schemas/SearchResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
     post:
       tags: [REST API]
       summary: Full-text search across stored posts (JSON body)
@@ -342,15 +343,15 @@ paths:
                 limit: { type: integer, minimum: 1, maximum: 50, default: 20 }
                 object_types: { type: array, items: { type: string } }
       responses:
-        '200':
+        "200":
           description: Search results.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/SearchResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Disabled' }
+              schema: { $ref: "#/components/schemas/SearchResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
 
   /api/v1/follows:
     get:
@@ -361,18 +362,23 @@ paths:
       parameters:
         - name: status
           in: query
-          schema: { type: string, enum: [pending, accepted, rejected, all], default: accepted }
+          schema:
+            {
+              type: string,
+              enum: [pending, accepted, rejected, all],
+              default: accepted,
+            }
       responses:
-        '200':
+        "200":
           description: Follow records.
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/Follow' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '503': { $ref: '#/components/responses/Disabled' }
+                items: { $ref: "#/components/schemas/Follow" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
     post:
       tags: [REST API]
       summary: List followed actors (JSON body)
@@ -384,18 +390,23 @@ paths:
             schema:
               type: object
               properties:
-                status: { type: string, enum: [pending, accepted, rejected, all], default: accepted }
+                status:
+                  {
+                    type: string,
+                    enum: [pending, accepted, rejected, all],
+                    default: accepted,
+                  }
       responses:
-        '200':
+        "200":
           description: Follow records.
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/Follow' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '503': { $ref: '#/components/responses/Disabled' }
+                items: { $ref: "#/components/schemas/Follow" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
 
   /api/v1/activity-stats:
     get:
@@ -412,15 +423,15 @@ paths:
           description: ISO 8601 datetime.
           schema: { type: string, format: date-time }
       responses:
-        '200':
+        "200":
           description: Aggregate statistics.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ActivityStatsResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Disabled' }
+              schema: { $ref: "#/components/schemas/ActivityStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
     post:
       tags: [REST API]
       summary: Aggregate statistics about stored posts (JSON body)
@@ -435,15 +446,15 @@ paths:
                 actor_handle: { type: string }
                 since: { type: string, format: date-time }
       responses:
-        '200':
+        "200":
           description: Aggregate statistics.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ActivityStatsResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Disabled' }
+              schema: { $ref: "#/components/schemas/ActivityStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
 
   /api/v1/recent-activities:
     get:
@@ -463,16 +474,16 @@ paths:
           description: ISO 8601 datetime.
           schema: { type: string, format: date-time }
       responses:
-        '200':
+        "200":
           description: Recent activities.
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/RecentActivity' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '503': { $ref: '#/components/responses/Disabled' }
+                items: { $ref: "#/components/schemas/RecentActivity" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
     post:
       tags: [REST API]
       summary: Most recently received activities (JSON body)
@@ -488,16 +499,16 @@ paths:
                 types: { type: array, items: { type: string } }
                 since: { type: string, format: date-time }
       responses:
-        '200':
+        "200":
           description: Recent activities.
           content:
             application/json:
               schema:
                 type: array
-                items: { $ref: '#/components/schemas/RecentActivity' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '503': { $ref: '#/components/responses/Disabled' }
+                items: { $ref: "#/components/schemas/RecentActivity" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
 
   /api/v1/reading-events:
     get:
@@ -509,10 +520,10 @@ paths:
         traversal.
       operationId: getReadingEventsGet
       parameters:
-        - $ref: '#/components/parameters/ActorHandleRequired'
+        - $ref: "#/components/parameters/ActorHandleRequired"
         - name: event_type
           in: query
-          schema: { $ref: '#/components/schemas/EventType' }
+          schema: { $ref: "#/components/schemas/EventType" }
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -520,18 +531,18 @@ paths:
           in: query
           description: ISO 8601 datetime — only events after this time.
           schema: { type: string, format: date-time }
-        - $ref: '#/components/parameters/SortOrder'
-        - $ref: '#/components/parameters/Cursor'
+        - $ref: "#/components/parameters/SortOrder"
+        - $ref: "#/components/parameters/Cursor"
       responses:
-        '200':
+        "200":
           description: Page of reading events.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ReadingEventsResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Disabled' }
+              schema: { $ref: "#/components/schemas/ReadingEventsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
     post:
       tags: [REST API]
       summary: BookWyrm reading events (JSON body)
@@ -545,21 +556,21 @@ paths:
               required: [actor_handle]
               properties:
                 actor_handle: { type: string }
-                event_type: { $ref: '#/components/schemas/EventType' }
+                event_type: { $ref: "#/components/schemas/EventType" }
                 limit: { type: integer, minimum: 1, maximum: 100, default: 20 }
                 since: { type: string, format: date-time }
                 sort_order: { type: string, enum: [asc, desc], default: desc }
                 cursor: { type: string }
       responses:
-        '200':
+        "200":
           description: Page of reading events.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ReadingEventsResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '404': { $ref: '#/components/responses/NotFound' }
-        '503': { $ref: '#/components/responses/Disabled' }
+              schema: { $ref: "#/components/schemas/ReadingEventsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
 
   /api/v1/scrobbles:
     get:
@@ -574,25 +585,44 @@ paths:
         - { name: artist, in: query, schema: { type: string } }
         - { name: album, in: query, schema: { type: string } }
         - { name: track, in: query, schema: { type: string } }
-        - { name: from, in: query, description: ISO datetime — at or after., schema: { type: string, format: date-time } }
-        - { name: to, in: query, description: ISO datetime — at or before., schema: { type: string, format: date-time } }
-        - { name: since, in: query, description: Alias for `from`., schema: { type: string, format: date-time } }
-        - $ref: '#/components/parameters/SortOrder'
-        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - {
+            name: from,
+            in: query,
+            description: ISO datetime — at or after.,
+            schema: { type: string, format: date-time },
+          }
+        - {
+            name: to,
+            in: query,
+            description: ISO datetime — at or before.,
+            schema: { type: string, format: date-time },
+          }
+        - {
+            name: since,
+            in: query,
+            description: Alias for `from`.,
+            schema: { type: string, format: date-time },
+          }
+        - $ref: "#/components/parameters/SortOrder"
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 200, default: 50 },
+          }
         - name: page
           in: query
           description: Offset-based page (legacy). Ignored when `cursor` is supplied.
           schema: { type: integer, minimum: 1, default: 1 }
-        - $ref: '#/components/parameters/Cursor'
+        - $ref: "#/components/parameters/Cursor"
       responses:
-        '200':
+        "200":
           description: Page of scrobbles.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ScrobblesResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '503': { $ref: '#/components/responses/Disabled' }
+              schema: { $ref: "#/components/schemas/ScrobblesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
     post:
       tags: [REST API]
       summary: Query Last.fm scrobble history (JSON body)
@@ -615,14 +645,14 @@ paths:
                 page: { type: integer, minimum: 1, default: 1 }
                 cursor: { type: string }
       responses:
-        '200':
+        "200":
           description: Page of scrobbles.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ScrobblesResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '503': { $ref: '#/components/responses/Disabled' }
+              schema: { $ref: "#/components/schemas/ScrobblesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
 
   /api/v1/scrobble-stats:
     get:
@@ -638,18 +668,33 @@ paths:
         - { name: track, in: query, schema: { type: string } }
         - { name: from, in: query, schema: { type: string, format: date-time } }
         - { name: to, in: query, schema: { type: string, format: date-time } }
-        - { name: since, in: query, description: Alias for `from`., schema: { type: string, format: date-time } }
-        - { name: group_by, in: query, schema: { type: string, enum: [artist, album, track], default: artist } }
-        - { name: limit, in: query, description: Number of top results., schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - {
+            name: since,
+            in: query,
+            description: Alias for `from`.,
+            schema: { type: string, format: date-time },
+          }
+        - {
+            name: group_by,
+            in: query,
+            schema:
+              { type: string, enum: [artist, album, track], default: artist },
+          }
+        - {
+            name: limit,
+            in: query,
+            description: Number of top results.,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
       responses:
-        '200':
+        "200":
           description: Aggregate scrobble metrics.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ScrobbleStatsResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '503': { $ref: '#/components/responses/Disabled' }
+              schema: { $ref: "#/components/schemas/ScrobbleStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
     post:
       tags: [REST API]
       summary: Aggregate Last.fm scrobble metrics (JSON body)
@@ -667,17 +712,22 @@ paths:
                 from: { type: string, format: date-time }
                 to: { type: string, format: date-time }
                 since: { type: string, format: date-time }
-                group_by: { type: string, enum: [artist, album, track], default: artist }
+                group_by:
+                  {
+                    type: string,
+                    enum: [artist, album, track],
+                    default: artist,
+                  }
                 limit: { type: integer, minimum: 1, maximum: 100, default: 20 }
       responses:
-        '200':
+        "200":
           description: Aggregate scrobble metrics.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/ScrobbleStatsResponse' }
-        '400': { $ref: '#/components/responses/BadRequest' }
-        '401': { $ref: '#/components/responses/Unauthorized' }
-        '503': { $ref: '#/components/responses/Disabled' }
+              schema: { $ref: "#/components/schemas/ScrobbleStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
 
   # ------------------------------------------------------------- Discovery
   /.well-known/webfinger:
@@ -691,24 +741,24 @@ paths:
         - name: resource
           in: query
           required: true
-          description: 'Account URI, e.g. `acct:bot@bot.skvip.lol`.'
+          description: "Account URI, e.g. `acct:bot@bot.skvip.lol`."
           schema: { type: string }
       responses:
-        '200':
+        "200":
           description: JRD document.
           content:
             application/jrd+json:
-              schema: { $ref: '#/components/schemas/WebfingerJrd' }
-        '400':
+              schema: { $ref: "#/components/schemas/WebfingerJrd" }
+        "400":
           description: Missing `resource` parameter.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '404':
+              schema: { $ref: "#/components/schemas/Error" }
+        "404":
           description: Unknown resource.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+              schema: { $ref: "#/components/schemas/Error" }
 
   /nodeinfo:
     get:
@@ -718,7 +768,7 @@ paths:
       operationId: nodeinfoIndex
       security: []
       responses:
-        '200':
+        "200":
           description: NodeInfo link document.
           content:
             application/json:
@@ -740,11 +790,11 @@ paths:
       operationId: nodeinfo20
       security: []
       responses:
-        '200':
+        "200":
           description: NodeInfo 2.0 document.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/NodeInfo20' }
+              schema: { $ref: "#/components/schemas/NodeInfo20" }
 
   # ------------------------------------------------------------ ActivityPub
   /actor:
@@ -755,11 +805,11 @@ paths:
       operationId: getActor
       security: []
       responses:
-        '200':
+        "200":
           description: Actor document.
           content:
             application/activity+json:
-              schema: { $ref: '#/components/schemas/Actor' }
+              schema: { $ref: "#/components/schemas/Actor" }
 
   /actor/inbox:
     post:
@@ -778,9 +828,9 @@ paths:
         required: true
         content:
           application/activity+json:
-            schema: { $ref: '#/components/schemas/Activity' }
+            schema: { $ref: "#/components/schemas/Activity" }
       responses:
-        '202':
+        "202":
           description: Activity accepted for processing.
           content:
             application/json:
@@ -788,16 +838,16 @@ paths:
                 type: object
                 properties:
                   status: { type: string, example: accepted }
-        '400':
+        "400":
           description: Invalid JSON or missing activity id.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '401':
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
           description: HTTP Signature verification failed.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+              schema: { $ref: "#/components/schemas/Error" }
 
   /inbox:
     post:
@@ -810,9 +860,9 @@ paths:
         required: true
         content:
           application/activity+json:
-            schema: { $ref: '#/components/schemas/Activity' }
+            schema: { $ref: "#/components/schemas/Activity" }
       responses:
-        '202':
+        "202":
           description: Activity accepted for processing.
           content:
             application/json:
@@ -820,16 +870,16 @@ paths:
                 type: object
                 properties:
                   status: { type: string, example: accepted }
-        '400':
+        "400":
           description: Invalid JSON or missing activity id.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
-        '401':
+              schema: { $ref: "#/components/schemas/Error" }
+        "401":
           description: HTTP Signature verification failed.
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Error' }
+              schema: { $ref: "#/components/schemas/Error" }
 
   /actor/outbox:
     get:
@@ -844,11 +894,11 @@ paths:
           description: Zero-indexed page number.
           schema: { type: integer, minimum: 0, default: 0 }
       responses:
-        '200':
+        "200":
           description: Ordered collection page.
           content:
             application/activity+json:
-              schema: { $ref: '#/components/schemas/OrderedCollectionPage' }
+              schema: { $ref: "#/components/schemas/OrderedCollectionPage" }
 
   /actor/followers:
     get:
@@ -858,11 +908,11 @@ paths:
       operationId: getFollowers
       security: []
       responses:
-        '200':
+        "200":
           description: Empty ordered collection.
           content:
             application/activity+json:
-              schema: { $ref: '#/components/schemas/OrderedCollection' }
+              schema: { $ref: "#/components/schemas/OrderedCollection" }
 
   /actor/following:
     get:
@@ -872,11 +922,11 @@ paths:
       operationId: getFollowing
       security: []
       responses:
-        '200':
+        "200":
           description: Ordered collection of actor IDs.
           content:
             application/activity+json:
-              schema: { $ref: '#/components/schemas/OrderedCollection' }
+              schema: { $ref: "#/components/schemas/OrderedCollection" }
 
   # ------------------------------------------------------------------ Health
   /health:
@@ -886,7 +936,7 @@ paths:
       operationId: getHealth
       security: []
       responses:
-        '200':
+        "200":
           description: Service is healthy.
           content:
             application/json:
@@ -901,12 +951,12 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-      description: 'Send the REST API key as `Authorization: Bearer <REST_API_KEY>`.'
+      description: "Send the REST API key as `Authorization: Bearer <REST_API_KEY>`."
     ApiKeyAuth:
       type: apiKey
       in: header
       name: X-API-Key
-      description: 'Alternative to Bearer: send the REST API key as `X-API-Key: <REST_API_KEY>`.'
+      description: "Alternative to Bearer: send the REST API key as `X-API-Key: <REST_API_KEY>`."
 
   parameters:
     ActorHandleRequired:
@@ -918,7 +968,7 @@ components:
     SortOrder:
       name: sort_order
       in: query
-      description: '`desc` (default) is newest-first; `asc` is oldest-first.'
+      description: "`desc` (default) is newest-first; `asc` is oldest-first."
       schema: { type: string, enum: [asc, desc], default: desc }
     Cursor:
       name: cursor
@@ -933,7 +983,7 @@ components:
         application/json:
           schema:
             allOf:
-              - $ref: '#/components/schemas/Error'
+              - $ref: "#/components/schemas/Error"
               - type: object
                 properties:
                   issues:
@@ -943,17 +993,17 @@ components:
       description: Missing or invalid API key.
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/Error' }
+          schema: { $ref: "#/components/schemas/Error" }
     NotFound:
       description: The referenced actor handle could not be resolved.
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/Error' }
+          schema: { $ref: "#/components/schemas/Error" }
     Disabled:
       description: REST API disabled (`REST_API_KEY` not configured).
       content:
         application/json:
-          schema: { $ref: '#/components/schemas/Error' }
+          schema: { $ref: "#/components/schemas/Error" }
 
   schemas:
     Error:
@@ -967,7 +1017,11 @@ components:
       type: object
       required: [actor_handle]
       properties:
-        actor_handle: { type: string, description: Actor handle (`@user@domain`) or full actor URL. }
+        actor_handle:
+          {
+            type: string,
+            description: Actor handle (`@user@domain`) or full actor URL.,
+          }
         limit: { type: integer, minimum: 1, maximum: 100, default: 20 }
         since: { type: string, format: date-time }
         until: { type: string, format: date-time }
@@ -981,51 +1035,51 @@ components:
       properties:
         ap_id: { type: string }
         type: { type: string, example: Note }
-        content: { type: [string, 'null'] }
-        summary: { type: [string, 'null'] }
-        url: { type: [string, 'null'] }
-        in_reply_to: { type: [string, 'null'] }
-        published_at: { type: [string, 'null'], format: date-time }
-        attachments: { type: [array, 'null'], items: { type: object } }
-        tags: { type: [array, 'null'], items: { type: object } }
+        content: { type: [string, "null"] }
+        summary: { type: [string, "null"] }
+        url: { type: [string, "null"] }
+        in_reply_to: { type: [string, "null"] }
+        published_at: { type: [string, "null"], format: date-time }
+        attachments: { type: [array, "null"], items: { type: object } }
+        tags: { type: [array, "null"], items: { type: object } }
 
     ActorPostsResponse:
       type: object
       properties:
         count: { type: integer }
-        next_cursor: { type: [string, 'null'] }
+        next_cursor: { type: [string, "null"] }
         sort_order: { type: string, enum: [asc, desc] }
         filters:
           type: object
           properties:
             actor_handle: { type: string }
-            since: { type: [string, 'null'] }
-            until: { type: [string, 'null'] }
-            object_types: { type: [array, 'null'], items: { type: string } }
+            since: { type: [string, "null"] }
+            until: { type: [string, "null"] }
+            object_types: { type: [array, "null"], items: { type: string } }
         posts:
           type: array
-          items: { $ref: '#/components/schemas/Post' }
+          items: { $ref: "#/components/schemas/Post" }
 
     ReadingStatus:
       type: object
       properties:
-        title: { type: [string, 'null'] }
-        authors: { type: [string, 'null'] }
-        shelf: { type: [string, 'null'], enum: [reading, read, to-read, null] }
-        started_date: { type: [string, 'null'] }
-        finished_date: { type: [string, 'null'] }
-        rating: { type: [string, 'null'] }
-        bookwyrm_book_url: { type: [string, 'null'] }
+        title: { type: [string, "null"] }
+        authors: { type: [string, "null"] }
+        shelf: { type: [string, "null"], enum: [reading, read, to-read, null] }
+        started_date: { type: [string, "null"] }
+        finished_date: { type: [string, "null"] }
+        rating: { type: [string, "null"] }
+        bookwyrm_book_url: { type: [string, "null"] }
 
     MediaPost:
       type: object
       properties:
         ap_id: { type: string }
         type: { type: string }
-        content: { type: [string, 'null'] }
-        url: { type: [string, 'null'] }
-        published_at: { type: [string, 'null'], format: date-time }
-        attachments: { type: [array, 'null'], items: { type: object } }
+        content: { type: [string, "null"] }
+        url: { type: [string, "null"] }
+        published_at: { type: [string, "null"], format: date-time }
+        attachments: { type: [array, "null"], items: { type: object } }
 
     ActorMediaResponse:
       type: object
@@ -1033,7 +1087,7 @@ components:
         count: { type: integer }
         posts:
           type: array
-          items: { $ref: '#/components/schemas/MediaPost' }
+          items: { $ref: "#/components/schemas/MediaPost" }
 
     SearchResult:
       type: object
@@ -1041,10 +1095,10 @@ components:
         apId: { type: string }
         type: { type: string }
         actorApId: { type: string }
-        content: { type: [string, 'null'] }
-        summary: { type: [string, 'null'] }
-        url: { type: [string, 'null'] }
-        publishedAt: { type: [string, 'null'], format: date-time }
+        content: { type: [string, "null"] }
+        summary: { type: [string, "null"] }
+        url: { type: [string, "null"] }
+        publishedAt: { type: [string, "null"], format: date-time }
 
     SearchResponse:
       type: object
@@ -1052,20 +1106,20 @@ components:
         count: { type: integer }
         results:
           type: array
-          items: { $ref: '#/components/schemas/SearchResult' }
+          items: { $ref: "#/components/schemas/SearchResult" }
 
     Follow:
       type: object
       properties:
         actorApId: { type: string }
         status: { type: string, enum: [pending, accepted, rejected] }
-        followedAt: { type: [string, 'null'], format: date-time }
-        acceptedAt: { type: [string, 'null'], format: date-time }
-        rejectedAt: { type: [string, 'null'], format: date-time }
-        handle: { type: [string, 'null'] }
-        displayName: { type: [string, 'null'] }
-        iconUrl: { type: [string, 'null'] }
-        domain: { type: [string, 'null'] }
+        followedAt: { type: [string, "null"], format: date-time }
+        acceptedAt: { type: [string, "null"], format: date-time }
+        rejectedAt: { type: [string, "null"], format: date-time }
+        handle: { type: [string, "null"] }
+        displayName: { type: [string, "null"] }
+        iconUrl: { type: [string, "null"] }
+        domain: { type: [string, "null"] }
 
     ActivityStatsResponse:
       type: object
@@ -1079,7 +1133,7 @@ components:
               type: { type: string }
               count: { type: integer }
         with_attachments: { type: integer }
-        since: { type: [string, 'null'] }
+        since: { type: [string, "null"] }
 
     RecentActivity:
       type: object
@@ -1087,42 +1141,51 @@ components:
         id: { type: integer }
         type: { type: string }
         actorApId: { type: string }
-        objectType: { type: [string, 'null'] }
-        receivedAt: { type: [string, 'null'], format: date-time }
+        objectType: { type: [string, "null"] }
+        receivedAt: { type: [string, "null"], format: date-time }
 
     EventType:
       type: string
-      enum: [started_reading, finished_reading, review, rating, comment, note, shelved]
+      enum:
+        [
+          started_reading,
+          finished_reading,
+          review,
+          rating,
+          comment,
+          note,
+          shelved,
+        ]
 
     ReadingEvent:
       type: object
       properties:
-        event_type: { $ref: '#/components/schemas/EventType' }
-        book_title: { type: [string, 'null'] }
-        book_author: { type: [string, 'null'] }
-        started_date: { type: [string, 'null'] }
-        finished_date: { type: [string, 'null'] }
-        rating: { type: [string, 'null'] }
-        comment: { type: [string, 'null'] }
-        published_at: { type: [string, 'null'], format: date-time }
+        event_type: { $ref: "#/components/schemas/EventType" }
+        book_title: { type: [string, "null"] }
+        book_author: { type: [string, "null"] }
+        started_date: { type: [string, "null"] }
+        finished_date: { type: [string, "null"] }
+        rating: { type: [string, "null"] }
+        comment: { type: [string, "null"] }
+        published_at: { type: [string, "null"], format: date-time }
         ap_id: { type: string }
-        bookwyrm_book_url: { type: [string, 'null'] }
+        bookwyrm_book_url: { type: [string, "null"] }
 
     ReadingEventsResponse:
       type: object
       properties:
         count: { type: integer }
-        next_cursor: { type: [string, 'null'] }
+        next_cursor: { type: [string, "null"] }
         sort_order: { type: string, enum: [asc, desc] }
         filters:
           type: object
           properties:
             actor_handle: { type: string }
-            event_type: { type: [string, 'null'] }
-            since: { type: [string, 'null'] }
+            event_type: { type: [string, "null"] }
+            since: { type: [string, "null"] }
         events:
           type: array
-          items: { $ref: '#/components/schemas/ReadingEvent' }
+          items: { $ref: "#/components/schemas/ReadingEvent" }
 
     Scrobble:
       type: object
@@ -1130,35 +1193,35 @@ components:
         playedAt: { type: string, format: date-time }
         track: { type: string }
         artist: { type: string }
-        album: { type: [string, 'null'] }
-        url: { type: [string, 'null'] }
+        album: { type: [string, "null"] }
+        url: { type: [string, "null"] }
         loved: { type: boolean }
 
     ScrobblesResponse:
       type: object
       properties:
         count: { type: integer }
-        page: { type: [integer, 'null'] }
-        next_cursor: { type: [string, 'null'] }
+        page: { type: [integer, "null"] }
+        next_cursor: { type: [string, "null"] }
         sort_order: { type: string, enum: [asc, desc] }
         filters:
           type: object
           properties:
-            artist: { type: [string, 'null'] }
-            album: { type: [string, 'null'] }
-            track: { type: [string, 'null'] }
-            from: { type: [string, 'null'] }
-            to: { type: [string, 'null'] }
+            artist: { type: [string, "null"] }
+            album: { type: [string, "null"] }
+            track: { type: [string, "null"] }
+            from: { type: [string, "null"] }
+            to: { type: [string, "null"] }
         scrobbles:
           type: array
-          items: { $ref: '#/components/schemas/Scrobble' }
+          items: { $ref: "#/components/schemas/Scrobble" }
 
     ScrobbleStatsResponse:
       type: object
       properties:
         total_scrobbles: { type: integer }
-        first_played_at: { type: [string, 'null'], format: date-time }
-        last_played_at: { type: [string, 'null'], format: date-time }
+        first_played_at: { type: [string, "null"], format: date-time }
+        last_played_at: { type: [string, "null"], format: date-time }
         group_by: { type: string, enum: [artist, album, track] }
         top:
           type: array
@@ -1172,14 +1235,14 @@ components:
         filters:
           type: object
           properties:
-            artist: { type: [string, 'null'] }
-            album: { type: [string, 'null'] }
-            track: { type: [string, 'null'] }
+            artist: { type: [string, "null"] }
+            album: { type: [string, "null"] }
+            track: { type: [string, "null"] }
         range:
           type: object
           properties:
-            from: { type: [string, 'null'] }
-            to: { type: [string, 'null'] }
+            from: { type: [string, "null"] }
+            to: { type: [string, "null"] }
 
     # ---- ActivityPub / discovery ----
     WebfingerJrd:
@@ -1201,7 +1264,7 @@ components:
     NodeInfo20:
       type: object
       properties:
-        version: { type: string, example: '2.0' }
+        version: { type: string, example: "2.0" }
         software:
           type: object
           properties:
@@ -1224,7 +1287,7 @@ components:
       type: object
       description: ActivityPub `Person` document.
       properties:
-        '@context':
+        "@context":
           oneOf:
             - type: string
             - type: array
@@ -1253,7 +1316,7 @@ components:
       type: object
       description: An ActivityPub activity (or bare object, which is wrapped in a synthetic `Create`).
       properties:
-        '@context':
+        "@context":
           oneOf:
             - type: string
             - type: array
@@ -1271,7 +1334,7 @@ components:
     OrderedCollection:
       type: object
       properties:
-        '@context': { type: string }
+        "@context": { type: string }
         id: { type: string, format: uri }
         type: { type: string, example: OrderedCollection }
         totalItems: { type: integer }
@@ -1282,7 +1345,7 @@ components:
     OrderedCollectionPage:
       type: object
       properties:
-        '@context': { type: string }
+        "@context": { type: string }
         id: { type: string, format: uri }
         type: { type: string, example: OrderedCollectionPage }
         partOf: { type: string, format: uri }
