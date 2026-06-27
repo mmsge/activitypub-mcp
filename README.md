@@ -310,6 +310,7 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_recent_activities` | "What has come in recently?" |
 | `get_scrobbles` | "What did I listen to yesterday? Show my Aphex Twin scrobbles." |
 | `get_scrobble_stats` | "Who are my top artists this month? How many tracks have I scrobbled?" |
+| `get_reading_stats` | "What's the average length of the books I read in 2026? How many pages have I read this year?" |
 
 All tools are read-only queries against the local database — no requests go out to remote servers when you query the MCP server.
 
@@ -334,6 +335,28 @@ without paginating backward through thousands of rows:
 - **Deep traversal:** each `get_scrobbles` response includes a `next_cursor` token (a `played_at`-based
   keyset cursor, `null` when exhausted). Pass it back as `cursor` to continue from where the last page
   ended — far cheaper than large offsets. Offset-based `page` remains available for compatibility.
+
+### Reading stats
+
+Reading rows from BookWyrm carry a title, shelf, and rating but no length or finish-date
+data that rolls up. Two background jobs close that gap so `get_reading_stats` can answer
+aggregate questions ("average length of books read in 2026", "pages per month", a
+format/author/rating breakdown):
+
+- **Edition metadata** — for each book referenced by the actor's reading activity, the server
+  fetches the BookWyrm Edition ActivityPub object and caches its `pages`, `physicalFormat`,
+  `isbn13`, and publication year in a `book_metadata` table. When an Edition has no page count
+  (and isn't an audiobook), it falls back to OpenLibrary then Google Books by ISBN
+  (`GOOGLE_BOOKS_API_KEY` optional).
+- **Finish dates** — for each actor listed in `BOOKWYRM_ACTORS`, the server walks the full
+  outbox on startup and every 6 hours, ingesting started/finished/review posts so finish dates
+  are complete even for activity that predates the follow.
+
+`get_reading_stats` defaults to the `read` shelf and `group_by=year`. Page averages are
+reported over books with a known page count (`pages_coverage`, e.g. "22/25 books with known
+page counts") rather than silently dropping the rest, and `avg_pages_prose` excludes comics,
+graphic novels, and audiobooks so a comics-heavy span doesn't skew the prose figure. Filter by
+`year`/`from`/`to` (on finish date), `format`, `author`, or `rating`.
 
 ---
 
@@ -384,6 +407,7 @@ All paths accept `GET`, `QUERY`, and `POST`.
 | `/reading-events` | `get_reading_events` | `actor_handle`, `event_type`, `limit`, `since`, `sort_order`, `cursor` |
 | `/scrobbles` | `get_scrobbles` | `artist`, `album`, `track`, `from`, `to`, `since`, `sort_order`, `limit`, `page`, `cursor` |
 | `/scrobble-stats` | `get_scrobble_stats` | `artist`, `album`, `track`, `from`, `to`, `since`, `group_by`, `limit` |
+| `/reading-stats` | `get_reading_stats` | `actor_handle`, `status`, `year`, `from`, `to`, `format`, `author`, `rating`, `group_by`, `limit` |
 
 `GET /api/v1` returns a discovery document listing every endpoint and its parameters.
 

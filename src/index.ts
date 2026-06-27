@@ -14,6 +14,8 @@ import { restRouter } from './rest/router.js'
 import { startScheduler } from './jobs/scheduler.js'
 import { syncFollows } from './jobs/sync-follows.js'
 import { syncScrobbles } from './jobs/sync-scrobbles.js'
+import { syncBookMetadata } from './jobs/sync-book-metadata.js'
+import { syncReadingHistory } from './jobs/sync-reading-history.js'
 import { runDeliveryWorker } from './jobs/deliver.js'
 import { getDb } from './db/client.js'
 
@@ -61,6 +63,18 @@ async function main() {
   } catch (e) {
     logger.error(e, 'Scrobble sync failed on startup')
   }
+
+  // Backfill BookWyrm reading history + enrich book metadata (no-ops unless
+  // BOOKWYRM_ACTORS / referenced books are present). Run in the background so a
+  // slow first crawl doesn't block startup.
+  void (async () => {
+    try {
+      await syncReadingHistory()
+      await syncBookMetadata()
+    } catch (e) {
+      logger.error(e, 'Reading sync failed on startup')
+    }
+  })()
 
   // Run delivery worker once immediately
   try {

@@ -9,6 +9,7 @@ import {
   getRecentActivitiesSchema, getRecentActivities,
 } from '../mcp/tools/activity-stats.js'
 import { getReadingEventsSchema, getReadingEvents } from '../mcp/tools/reading-events.js'
+import { getReadingStatsSchema, getReadingStats } from '../mcp/tools/reading-stats.js'
 import {
   getScrobblesSchema, getScrobbles,
   getScrobbleStatsSchema, getScrobbleStats,
@@ -117,6 +118,16 @@ export const endpoints: RestEndpoint[] = [
     schema: getReadingEventsSchema,
     handler: getReadingEvents,
     numbers: ['limit'],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/reading-stats',
+    name: 'get_reading_stats',
+    description: "Aggregate reading statistics for an actor's BookWyrm books: total/average/median page counts, reading span, ratings distribution, a per-format breakdown, and a top-N breakdown by year, month, format, author, or rating. Defaults to the read shelf and group_by=year; filter by year/from/to (on finish date), format, author, or rating. Page averages report coverage (pages_coverage), and avg_pages_prose excludes comics and audiobooks.",
+    schema: getReadingStatsSchema,
+    handler: getReadingStats,
+    numbers: ['limit', 'year', 'rating'],
     booleans: [],
     arrays: [],
   },
