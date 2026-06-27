@@ -184,7 +184,10 @@ paths:
       summary: Get BookWyrm reading status for an actor
       description: |
         Reading status for an actor by querying the live shelf (`use_live=true`,
-        default) or the local DB. Returns one entry per book.
+        default) or the local DB. With `use_live=false`, shelves
+        (`reading`/`read`/`to-read`) are derived from the actor's stored reading
+        note posts; ratings and cover art are only available via the live shelf.
+        Returns one entry per book.
       operationId: getActorReadingStatusGet
       parameters:
         - $ref: "#/components/parameters/ActorHandleRequired"
@@ -515,9 +518,9 @@ paths:
       tags: [REST API]
       summary: BookWyrm reading events
       description: |
-        Reading events from locally stored activities, with a normalized
-        `event_type`. Defaults to newest-first; follow `next_cursor` for deep
-        traversal.
+        Reading events derived from the actor's stored note posts, with a
+        normalized `event_type`. Defaults to newest-first; follow `next_cursor`
+        for deep traversal.
       operationId: getReadingEventsGet
       parameters:
         - $ref: "#/components/parameters/ActorHandleRequired"

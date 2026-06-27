@@ -53,7 +53,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/actor-reading-status',
     name: 'get_actor_reading_status',
-    description: 'Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. Returns title, authors, cover, shelf, started_date, finished_date, rating, and bookwyrm_book_url per book.',
+    description: 'Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. With use_live: false, shelves (reading/read/to-read) are derived from the actor\'s stored reading note posts; ratings and cover art are only available via the live shelf. Returns title, authors, cover, shelf, started_date, finished_date, rating, and bookwyrm_book_url per book.',
     schema: getActorReadingStatusSchema,
     handler: getActorReadingStatus,
     numbers: ['limit'],
@@ -113,7 +113,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/reading-events',
     name: 'get_reading_events',
-    description: 'Get BookWyrm reading events from locally stored activities with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved. Defaults to newest-first; set sort_order=asc with limit=1 for the earliest event, and follow next_cursor for deep traversal.',
+    description: 'Get BookWyrm reading events for an actor, derived from stored note posts with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved. Defaults to newest-first; set sort_order=asc with limit=1 for the earliest event, and follow next_cursor for deep traversal.',
     schema: getReadingEventsSchema,
     handler: getReadingEvents,
     numbers: ['limit'],

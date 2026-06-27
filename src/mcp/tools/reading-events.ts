@@ -1,8 +1,13 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
-import { objects, bookwyrmObjects } from '../../db/schema.js'
-import { and, eq, isNull, isNotNull, gte, type SQL } from 'drizzle-orm'
+import { objects } from '../../db/schema.js'
+import { and, eq, isNull, gte, type SQL } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
+import {
+  classifyReadingEvent,
+  readingEventBaseCondition,
+  readingEventTypeCondition,
+} from '../../lib/bookwyrm-reading.js'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
 
 const eventTypeEnum = z.enum([
@@ -26,35 +31,6 @@ export const getReadingEventsSchema = z.object({
     .describe('Opaque pagination cursor from a previous response\'s next_cursor. When set, continues from where the last page ended (respecting sort_order and all filters).'),
 })
 
-function deriveEventType(bwType: string, finishDate: string | null): string {
-  switch (bwType) {
-    case 'ReadThrough': return finishDate ? 'finished_reading' : 'started_reading'
-    case 'Review': return 'review'
-    case 'Rating': return 'rating'
-    case 'Comment': return 'comment'
-    case 'GeneratedNote': return 'note'
-    case 'ShelfBook': return 'shelved'
-    default: return bwType.toLowerCase()
-  }
-}
-
-// Inverse of deriveEventType, expressed as a SQL condition so event_type can be
-// filtered in the query (keeping `limit` exact and the cursor correct) rather
-// than over-fetching and filtering in memory.
-function eventTypeCondition(eventType: z.infer<typeof eventTypeEnum>): SQL | undefined {
-  switch (eventType) {
-    case 'started_reading':
-      return and(eq(bookwyrmObjects.bwType, 'ReadThrough'), isNull(bookwyrmObjects.finishDate))
-    case 'finished_reading':
-      return and(eq(bookwyrmObjects.bwType, 'ReadThrough'), isNotNull(bookwyrmObjects.finishDate))
-    case 'review': return eq(bookwyrmObjects.bwType, 'Review')
-    case 'rating': return eq(bookwyrmObjects.bwType, 'Rating')
-    case 'comment': return eq(bookwyrmObjects.bwType, 'Comment')
-    case 'note': return eq(bookwyrmObjects.bwType, 'GeneratedNote')
-    case 'shelved': return eq(bookwyrmObjects.bwType, 'ShelfBook')
-  }
-}
-
 export async function getReadingEvents(input: z.infer<typeof getReadingEventsSchema>) {
   const actor = input.actor_handle.startsWith('http')
     ? { apId: input.actor_handle }
@@ -63,10 +39,18 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
   if (!actor) return { error: `Could not resolve actor: ${input.actor_handle}` }
 
   const db = getDb()
-  const conditions: SQL[] = [eq(objects.actorApId, actor.apId), isNull(objects.deletedAt)]
+  // Derive reading events on the fly from the generic post store, classifying by
+  // ap_id segment + content (see lib/bookwyrm-reading.ts). The base condition keeps
+  // unrelated Notes out; event_type is filtered in SQL so `limit` and the keyset
+  // cursor stay exact.
+  const conditions: SQL[] = [
+    eq(objects.actorApId, actor.apId),
+    isNull(objects.deletedAt),
+    readingEventBaseCondition(),
+  ]
   if (input.since) conditions.push(gte(objects.publishedAt, new Date(input.since)))
   if (input.event_type) {
-    const etCond = eventTypeCondition(input.event_type)
+    const etCond = readingEventTypeCondition(input.event_type)
     if (etCond) conditions.push(etCond)
   }
   if (input.cursor) {
@@ -77,18 +61,12 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
     .select({
       id: objects.id,
       apId: objects.apId,
-      bwType: bookwyrmObjects.bwType,
-      bookTitle: bookwyrmObjects.bookTitle,
-      bookAuthor: bookwyrmObjects.bookAuthor,
-      startDate: bookwyrmObjects.startDate,
-      finishDate: bookwyrmObjects.finishDate,
-      rating: bookwyrmObjects.rating,
-      reviewContent: bookwyrmObjects.reviewContent,
-      bookUrl: bookwyrmObjects.bookUrl,
+      contentText: objects.contentText,
+      tags: objects.tags,
+      attachments: objects.attachments,
       publishedAt: objects.publishedAt,
     })
-    .from(bookwyrmObjects)
-    .innerJoin(objects, eq(bookwyrmObjects.objectApId, objects.apId))
+    .from(objects)
     .where(and(...conditions))
     .orderBy(keysetOrderBy(objects.publishedAt, objects.id, input.sort_order))
     .limit(input.limit)
@@ -107,17 +85,29 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
       event_type: input.event_type ?? null,
       since: input.since ?? null,
     },
-    events: rows.map((r) => ({
-      event_type: deriveEventType(r.bwType, r.finishDate),
-      book_title: r.bookTitle,
-      book_author: r.bookAuthor,
-      started_date: r.startDate,
-      finished_date: r.finishDate,
-      rating: r.rating,
-      comment: r.reviewContent,
-      published_at: r.publishedAt?.toISOString() ?? null,
-      ap_id: r.apId,
-      bookwyrm_book_url: r.bookUrl,
-    })),
+    events: rows.map((r) => {
+      // Non-null: the base condition only selects classifiable reading events.
+      const ev = classifyReadingEvent({
+        apId: r.apId,
+        content: r.contentText,
+        tags: r.tags,
+        attachments: r.attachments,
+      })!
+      const date = r.publishedAt?.toISOString().slice(0, 10) ?? null
+      return {
+        event_type: ev.event_type,
+        book_title: ev.book_title,
+        book_author: ev.book_author,
+        started_date: ev.event_type === 'started_reading' ? date : null,
+        finished_date: ev.event_type === 'finished_reading' ? date : null,
+        // The numeric rating isn't reliably present in the federated Note payload;
+        // use get_actor_reading_status(use_live=true) for ratings.
+        rating: null,
+        comment: ev.comment,
+        published_at: r.publishedAt?.toISOString() ?? null,
+        ap_id: r.apId,
+        bookwyrm_book_url: ev.bookwyrm_book_url,
+      }
+    }),
   }
 }
