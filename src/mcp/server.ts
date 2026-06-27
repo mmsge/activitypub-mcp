@@ -9,6 +9,7 @@ import { getReadingEventsSchema, getReadingEvents } from './tools/reading-events
 import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleStats } from './tools/scrobbles.js'
 import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
 import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats } from './tools/train-trips.js'
+import { getGardenPagesSchema, getGardenPages } from './tools/garden-pages.js'
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -142,6 +143,16 @@ export function createMcpServer(): McpServer {
     getTrainStatsSchema.shape,
     async (input) => {
       const result = await getTrainStats(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_garden_pages',
+    'Get pages from the markus.plus "Tankehav" digital garden (an Obsidian Publish site): title, url, section, excerpt, image and an optional date per page, plus a section roll-up. Filter by section; dated pages sort by date, undated pages sort after alphabetically.',
+    getGardenPagesSchema.shape,
+    async (input) => {
+      const result = await getGardenPages(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

@@ -18,6 +18,7 @@ import {
   getTrainTripsSchema, getTrainTrips,
   getTrainStatsSchema, getTrainStats,
 } from '../mcp/tools/train-trips.js'
+import { getGardenPagesSchema, getGardenPages } from '../mcp/tools/garden-pages.js'
 
 /**
  * One row per MCP tool. Each REST endpoint reuses the exact same (schema, handler)
@@ -166,6 +167,16 @@ export const endpoints: RestEndpoint[] = [
     schema: getTrainStatsSchema,
     handler: getTrainStats,
     numbers: ['limit', 'year'],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/garden-pages',
+    name: 'get_garden_pages',
+    description: 'Get pages from the markus.plus "Tankehav" digital garden (an Obsidian Publish site): title, url, section, excerpt, image and an optional date per page, plus a section roll-up. Filter by section; dated pages sort by date, undated pages sort after alphabetically.',
+    schema: getGardenPagesSchema,
+    handler: getGardenPages,
+    numbers: ['limit'],
     booleans: [],
     arrays: [],
   },
