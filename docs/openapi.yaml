@@ -953,6 +953,61 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/garden-pages:
+    get:
+      tags: [REST API]
+      summary: List markus.plus "Tankehav" garden pages
+      description: |
+        Pages from the markus.plus "Tankehav" digital garden (an Obsidian
+        Publish site): title, url, section, excerpt, image and an optional date
+        per page, plus a section roll-up. Filter by `section`; dated pages sort
+        by date, undated pages sort after alphabetically.
+      operationId: getGardenPagesGet
+      parameters:
+        - name: section
+          in: query
+          description: Filter to one section (the first permalink segment, e.g. reisar, lesing, melding).
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 500 }
+        - name: sort_order
+          in: query
+          schema: { type: string, enum: [asc, desc], default: desc }
+      responses:
+        "200":
+          description: Garden pages with a section roll-up.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GardenPagesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: List markus.plus "Tankehav" garden pages (JSON body)
+      operationId: getGardenPagesPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                section: { type: string }
+                limit:
+                  { type: integer, minimum: 1, maximum: 1000, default: 500 }
+                sort_order: { type: string, enum: [asc, desc], default: desc }
+      responses:
+        "200":
+          description: Garden pages with a section roll-up.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GardenPagesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   # ------------------------------------------------------------- Discovery
   /.well-known/webfinger:
     get:
@@ -1542,6 +1597,44 @@ components:
             date: { type: string }
             duration: { type: [string, "null"] }
         filters: { type: object }
+
+    GardenPagesResponse:
+      type: object
+      properties:
+        count:
+          {
+            type: integer,
+            description: Number of pages returned (after filter + limit).,
+          }
+        total:
+          {
+            type: integer,
+            description: Total pages in the garden (before filter).,
+          }
+        sections:
+          type: array
+          items:
+            type: object
+            properties:
+              section: { type: string }
+              count: { type: integer }
+        pages:
+          type: array
+          items:
+            type: object
+            properties:
+              title: { type: string }
+              url: { type: string, format: uri }
+              path:
+                type: string
+                description: Permalink, e.g. /reisar/interrail/2025
+              section: { type: string }
+              description: { type: [string, "null"] }
+              image: { type: [string, "null"] }
+              date: { type: [string, "null"] }
+              tags:
+                type: array
+                items: { type: string }
 
     # ---- ActivityPub / discovery ----
     WebfingerJrd:
