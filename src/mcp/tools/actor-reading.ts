@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
-import { objects, bookwyrmObjects } from '../../db/schema.js'
-import { and, eq, isNull, desc, or, sql } from 'drizzle-orm'
+import { objects, bookwyrmObjects, bookMetadata } from '../../db/schema.js'
+import { and, eq, isNull, desc, or, sql, inArray } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 import { fetchBookwyrmShelf, type ShelfItem } from '../../lib/fetch-bookwyrm-shelf.js'
 import { classifyReadingEvent, collapseReadingEvents, readingEventBaseCondition } from '../../lib/bookwyrm-reading.js'
@@ -25,6 +25,33 @@ type ReadingResult = {
   finished_date: string | null
   rating: string | null
   bookwyrm_book_url: string | null
+  pages: number | null
+  language: string | null
+}
+
+// Fill pages/language (and, offline, the cover) from the enriched book_metadata
+// cache, joined by Edition URL. Mutates the results in place.
+async function enrichWithMetadata(results: ReadingResult[]): Promise<void> {
+  const urls = [...new Set(results.map((r) => r.bookwyrm_book_url).filter((u): u is string => !!u))]
+  if (urls.length === 0) return
+  const db = getDb()
+  const rows = await db
+    .select({
+      bookUrl: bookMetadata.bookUrl,
+      pages: bookMetadata.pages,
+      language: bookMetadata.language,
+      coverUrl: bookMetadata.coverUrl,
+    })
+    .from(bookMetadata)
+    .where(inArray(bookMetadata.bookUrl, urls))
+  const byUrl = new Map(rows.map((m) => [m.bookUrl, m]))
+  for (const r of results) {
+    const m = r.bookwyrm_book_url ? byUrl.get(r.bookwyrm_book_url) : undefined
+    if (!m) continue
+    r.pages = m.pages ?? r.pages
+    r.language = m.language ?? r.language
+    r.cover = r.cover ?? m.coverUrl ?? null
+  }
 }
 
 export async function getActorReadingStatus(input: z.infer<typeof getActorReadingStatusSchema>) {
@@ -34,11 +61,12 @@ export async function getActorReadingStatus(input: z.infer<typeof getActorReadin
 
   if (!actor) return { error: `Could not resolve actor: ${input.actor_handle}` }
 
-  if (input.use_live) {
-    return fetchLiveShelf(actor.apId, input.status, input.limit)
-  }
+  const results = input.use_live
+    ? await fetchLiveShelf(actor.apId, input.status, input.limit)
+    : await fetchFromDb(actor.apId, input.status, input.limit)
 
-  return fetchFromDb(actor.apId, input.status, input.limit)
+  if (Array.isArray(results)) await enrichWithMetadata(results)
+  return results
 }
 
 async function fetchLiveShelf(
@@ -104,6 +132,8 @@ async function fetchLiveShelf(
       finished_date: dbRow?.finishDate ?? null,
       rating: dbRow?.rating ?? null,
       bookwyrm_book_url: item.bookUrl,
+      pages: null,
+      language: null,
     }
   })
 
@@ -165,6 +195,8 @@ async function fetchFromDb(
       finished_date: a.finished?.toISOString().slice(0, 10) ?? null,
       rating: a.rating,
       bookwyrm_book_url: a.url,
+      pages: null,
+      language: null,
     }))
   if (statusFilter) results = results.filter((r) => r.shelf === statusFilter)
   return results.slice(0, limit)

@@ -119,18 +119,29 @@ export const bookMetadata = pgTable('book_metadata', {
   bookUrl: text('book_url').notNull().unique(), // Edition AP id — the join key
   workUrl: text('work_url'), // canonical Work id, for per-work dedup later
   title: text('title'),
+  subtitle: text('subtitle'),
   pages: integer('pages'),
   physicalFormat: text('physical_format'), // Paperback | Hardcover | GraphicNovel | AudiobookFormat | …
   isbn13: text('isbn13'),
+  isbn10: text('isbn10'),
   pubYear: integer('pub_year'), // from publishedDate ?? firstPublishedDate
-  language: text('language'),
-  pageSource: text('page_source'), // bookwyrm | openlibrary | googlebooks | override
+  language: text('language'), // normalized ISO-639-1 where known
+  originalLanguage: text('original_language'),
+  publisher: text('publisher'),
+  series: text('series'),
+  coverUrl: text('cover_url'),
+  description: text('description'),
+  subjects: jsonb('subjects'), // string[] — genres / subjects / categories
+  pageSource: text('page_source'), // bookwyrm | review | openlibrary | googlebooks | override — source of `pages`
+  isbnSource: text('isbn_source'), // bookwyrm | review | bookwyrm_object — where the resolved ISBN came from
+  sourceMap: jsonb('source_map'), // { field: winning source } — provenance for every populated field
   raw: jsonb('raw').notNull(),
   fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index('book_metadata_book_url_idx').on(t.bookUrl),
   index('book_metadata_work_url_idx').on(t.workUrl),
   index('book_metadata_format_idx').on(t.physicalFormat),
+  index('book_metadata_isbn13_idx').on(t.isbn13),
 ])
 
 export const deliveryQueue = pgTable('delivery_queue', {

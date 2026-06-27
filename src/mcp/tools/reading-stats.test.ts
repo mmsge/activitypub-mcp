@@ -14,6 +14,7 @@ function book(partial: Partial<BookForStats>): BookForStats {
     pages: null,
     format: null,
     pubYear: null,
+    language: null,
     ...partial,
   }
 }

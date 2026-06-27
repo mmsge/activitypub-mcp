@@ -43,6 +43,13 @@
       "when": 1782590779832,
       "tag": "0005_short_bedlam",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782595369457,
+      "tag": "0006_modern_chronomancer",
+      "breakpoints": true
     }
   ]
 }
