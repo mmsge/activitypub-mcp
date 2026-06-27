@@ -956,6 +956,111 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/reading-stats:
+    get:
+      tags: [REST API]
+      summary: Aggregate reading statistics
+      description: |
+        Total/average/median page counts, reading span, ratings distribution and
+        a per-format breakdown for an actor's BookWyrm books, plus a top-N
+        breakdown by year, month, format, author or rating. Page/format/year data
+        comes from cached BookWyrm Edition metadata; finish dates from the actor's
+        finished-reading posts. Defaults to the `read` shelf and `group_by=year`.
+        Page averages are reported over books with known page counts (see
+        `pages_coverage`); `avg_pages_prose` excludes comics/graphic novels and
+        audiobooks.
+      operationId: getReadingStatsGet
+      parameters:
+        - {
+            name: actor_handle,
+            in: query,
+            required: true,
+            schema: { type: string },
+          }
+        - {
+            name: status,
+            in: query,
+            schema:
+              { type: string, enum: [reading, read, to-read], default: read },
+          }
+        - {
+            name: year,
+            in: query,
+            description: Scope to books finished in this calendar year. Omit for all-time.,
+            schema: { type: integer },
+          }
+        - { name: from, in: query, schema: { type: string } }
+        - { name: to, in: query, schema: { type: string } }
+        - { name: format, in: query, schema: { type: string } }
+        - { name: author, in: query, schema: { type: string } }
+        - { name: rating, in: query, schema: { type: number } }
+        - {
+            name: group_by,
+            in: query,
+            schema:
+              {
+                type: string,
+                enum: [year, month, format, author, rating],
+                default: year,
+              },
+          }
+        - {
+            name: limit,
+            in: query,
+            description: Number of top results.,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
+      responses:
+        "200":
+          description: Aggregate reading metrics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReadingStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Aggregate reading statistics (JSON body)
+      operationId: getReadingStatsPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actor_handle]
+              properties:
+                actor_handle: { type: string }
+                status:
+                  {
+                    type: string,
+                    enum: [reading, read, to-read],
+                    default: read,
+                  }
+                year: { type: integer }
+                from: { type: string }
+                to: { type: string }
+                format: { type: string }
+                author: { type: string }
+                rating: { type: number }
+                group_by:
+                  {
+                    type: string,
+                    enum: [year, month, format, author, rating],
+                    default: year,
+                  }
+                limit: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Aggregate reading metrics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReadingStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/garden-pages:
     get:
       tags: [REST API]
@@ -1599,6 +1704,56 @@ components:
             to: { type: string }
             date: { type: string }
             duration: { type: [string, "null"] }
+        filters: { type: object }
+
+    ReadingStatsResponse:
+      type: object
+      properties:
+        total_books: { type: integer }
+        books_with_pages: { type: integer }
+        pages_coverage:
+          {
+            type: string,
+            description: e.g. "22/25 books with known page counts".,
+          }
+        total_pages: { type: integer }
+        avg_pages: { type: [integer, "null"] }
+        median_pages: { type: [integer, "null"] }
+        avg_pages_prose:
+          {
+            type: [integer, "null"],
+            description: Average over prose only (excludes comics/graphic novels and audiobooks).,
+          }
+        prose_books: { type: integer }
+        first_finished_at: { type: [string, "null"], format: date }
+        last_finished_at: { type: [string, "null"], format: date }
+        rating:
+          type: object
+          properties:
+            avg: { type: [number, "null"] }
+            count: { type: integer }
+            distribution:
+              type: object
+              additionalProperties: { type: integer }
+        by_format:
+          type: array
+          items:
+            type: object
+            properties:
+              format: { type: string }
+              books: { type: integer }
+              total_pages: { type: integer }
+              avg_pages: { type: [integer, "null"] }
+        group_by: { type: string, enum: [year, month, format, author, rating] }
+        top:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              books: { type: integer }
+              total_pages: { type: integer }
+              avg_pages: { type: [integer, "null"] }
         filters: { type: object }
 
     GardenPagesResponse:

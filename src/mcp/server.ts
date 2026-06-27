@@ -6,6 +6,7 @@ import { searchActorContentSchema, searchActorContent } from './tools/actor-sear
 import { getFollowsSchema, getFollows } from './tools/follows.js'
 import { getActivityStatsSchema, getActivityStats, getRecentActivitiesSchema, getRecentActivities } from './tools/activity-stats.js'
 import { getReadingEventsSchema, getReadingEvents } from './tools/reading-events.js'
+import { getReadingStatsSchema, getReadingStats } from './tools/reading-stats.js'
 import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleStats } from './tools/scrobbles.js'
 import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
 import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats } from './tools/train-trips.js'
@@ -93,6 +94,16 @@ export function createMcpServer(): McpServer {
     getReadingEventsSchema.shape,
     async (input) => {
       const result = await getReadingEvents(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_reading_stats',
+    "Aggregate reading statistics for an actor's BookWyrm books: total/average/median page counts, reading span, ratings distribution, and a per-format breakdown, with a top-N breakdown by year, month, format, author, or rating. Page/format/year data comes from cached BookWyrm Edition metadata; finish dates from the actor's finished-reading posts. Defaults to the \"read\" shelf and group_by=year; filter by year/from/to (on finish date), format, author, or rating. Page averages are reported over books with known page counts (see pages_coverage), and avg_pages_prose excludes comics/graphic novels and audiobooks so a comics-heavy span doesn't skew the prose number.",
+    getReadingStatsSchema.shape,
+    async (input) => {
+      const result = await getReadingStats(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

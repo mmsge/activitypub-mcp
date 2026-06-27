@@ -1,8 +1,12 @@
 import { runDeliveryWorker } from './deliver.js'
 import { refreshStaleActors } from './refresh-actors.js'
 import { syncScrobbles } from './sync-scrobbles.js'
+import { syncBookMetadata } from './sync-book-metadata.js'
+import { syncReadingHistory } from './sync-reading-history.js'
 import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
+
+const SIX_HOURS_MS = 6 * 60 * 60_000
 
 export function startScheduler(): void {
   // Delivery queue — every 30 seconds
@@ -20,6 +24,16 @@ export function startScheduler(): void {
   setInterval(async () => {
     try { await syncScrobbles() } catch (e) { logger.error(e, 'Scrobble sync error') }
   }, scrobbleIntervalMs)
+
+  // Reading-history outbox backfill + book metadata enrichment — every 6 hours.
+  // History first so newly-ingested books are present when metadata enrichment
+  // collects the URLs to fetch.
+  setInterval(async () => {
+    try {
+      await syncReadingHistory()
+      await syncBookMetadata()
+    } catch (e) { logger.error(e, 'Reading sync error') }
+  }, SIX_HOURS_MS)
 
   logger.info({ scrobbleIntervalSeconds: config.LASTFM_SYNC_INTERVAL_SECONDS }, 'Scheduler started')
 }

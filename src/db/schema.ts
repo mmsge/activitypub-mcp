@@ -108,6 +108,31 @@ export const bookwyrmObjects = pgTable('bookwyrm_objects', {
   index('bookwyrm_actor_idx').on(t.objectApId),
 ])
 
+// Per-edition book metadata, cached so the reading-stats aggregation has page
+// counts / formats / years to roll up (the reading tools themselves derive their
+// rows live from `objects`). Keyed by the BookWyrm Edition AP id — the same value
+// every reading row carries as `bookwyrm_book_url` — so it joins straight onto the
+// collapsed reading events. Primary source is the Edition AP object; `pageSource`
+// records where `pages` ultimately came from when an ISBN fallback filled it in.
+export const bookMetadata = pgTable('book_metadata', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  bookUrl: text('book_url').notNull().unique(), // Edition AP id — the join key
+  workUrl: text('work_url'), // canonical Work id, for per-work dedup later
+  title: text('title'),
+  pages: integer('pages'),
+  physicalFormat: text('physical_format'), // Paperback | Hardcover | GraphicNovel | AudiobookFormat | …
+  isbn13: text('isbn13'),
+  pubYear: integer('pub_year'), // from publishedDate ?? firstPublishedDate
+  language: text('language'),
+  pageSource: text('page_source'), // bookwyrm | openlibrary | googlebooks | override
+  raw: jsonb('raw').notNull(),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('book_metadata_book_url_idx').on(t.bookUrl),
+  index('book_metadata_work_url_idx').on(t.workUrl),
+  index('book_metadata_format_idx').on(t.physicalFormat),
+])
+
 export const deliveryQueue = pgTable('delivery_queue', {
   id: uuid('id').primaryKey().defaultRandom(),
   inboxUrl: text('inbox_url').notNull(),
