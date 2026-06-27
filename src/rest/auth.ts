@@ -10,7 +10,7 @@ function safeEqual(a: string, b: string): boolean {
 }
 
 /**
- * Gate every /api/v1 route behind a shared secret. The key is supplied either as
+ * Gate a route behind a shared secret (used for both /api/v1 and /mcp). The key is supplied either as
  * `Authorization: Bearer <key>` or `X-API-Key: <key>` and compared in constant
  * time. If no key is configured the API stays closed (503) rather than silently
  * public; OPTIONS is skipped so CORS preflight (which carries no auth) succeeds.
@@ -19,7 +19,7 @@ export const requireApiKey = createMiddleware(async (c, next) => {
   if (c.req.method === 'OPTIONS') return next()
 
   if (!config.REST_API_KEY) {
-    return c.json({ error: 'REST API disabled: REST_API_KEY not configured' }, 503)
+    return c.json({ error: 'API disabled: REST_API_KEY not configured' }, 503)
   }
 
   const authHeader = c.req.header('authorization')
