@@ -347,6 +347,13 @@ curl -X POST -H 'X-API-Key: YOUR_KEY' -H 'Content-Type: application/json' \
 Responses use standard status codes: `400` (invalid parameters), `401` (missing/invalid key),
 `404` (e.g. an actor handle that can't be resolved), `503` (API key not configured).
 
+### OpenAPI spec
+
+A full machine-readable description of the HTTP API — the REST endpoints above plus the
+ActivityPub federation, discovery (WebFinger/NodeInfo) and health endpoints — lives at
+[`docs/openapi.yaml`](docs/openapi.yaml) (OpenAPI 3.1). Load it into Swagger UI, Redoc, Postman,
+or any OpenAPI client to browse schemas and generate request code.
+
 ---
 
 ## Updating
