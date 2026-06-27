@@ -14,6 +14,8 @@ import { FollowsPage } from './views/follows.js'
 import { LogsPage } from './views/logs.js'
 import { ObjectsPage } from './views/objects.js'
 import { ImportPage, ImportResultPage } from './views/import.js'
+import { ToolsPage, INFRA_ROUTES } from './views/tools.js'
+import { endpoints } from '../rest/table.js'
 import {
   parseMastodonArchive,
   crawlOutbox,
@@ -213,6 +215,9 @@ app.get('/logs', async (c) => {
     />
   )
 })
+
+// Tools & endpoints
+app.get('/tools', (c) => c.html(<ToolsPage endpoints={endpoints} infra={INFRA_ROUTES} />))
 
 // Import
 app.get('/import', (c) => c.html(<ImportPage />))
