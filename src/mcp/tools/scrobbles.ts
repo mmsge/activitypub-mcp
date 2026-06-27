@@ -59,6 +59,7 @@ export async function getScrobbles(input: z.infer<typeof getScrobblesSchema>) {
       artist: scrobbles.artistName,
       album: scrobbles.albumName,
       url: scrobbles.trackUrl,
+      image: scrobbles.imageUrl,
       loved: scrobbles.loved,
     })
     .from(scrobbles)
@@ -132,8 +133,11 @@ export async function getScrobbleStats(input: z.infer<typeof getScrobbleStatsSch
         ? { artist: scrobbles.artistName, album: scrobbles.albumName }
         : { artist: scrobbles.artistName, track: scrobbles.trackName }
 
+  // Pick the most-recent play's art to represent each group; aggregated so it
+  // survives the GROUP BY (the image column isn't one of the grouping keys).
+  const imageExpr = sql<string | null>`(array_agg(${scrobbles.imageUrl} ORDER BY ${scrobbles.playedAt} DESC))[1]`
   const top = await db
-    .select({ ...groupCols, plays: count() })
+    .select({ ...groupCols, plays: count(), image: imageExpr })
     .from(scrobbles)
     .where(where)
     .groupBy(...Object.values(groupCols))

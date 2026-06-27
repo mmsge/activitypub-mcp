@@ -7,6 +7,7 @@ import { getFollowsSchema, getFollows } from './tools/follows.js'
 import { getActivityStatsSchema, getActivityStats, getRecentActivitiesSchema, getRecentActivities } from './tools/activity-stats.js'
 import { getReadingEventsSchema, getReadingEvents } from './tools/reading-events.js'
 import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleStats } from './tools/scrobbles.js'
+import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -110,6 +111,16 @@ export function createMcpServer(): McpServer {
     getScrobbleStatsSchema.shape,
     async (input) => {
       const result = await getScrobbleStats(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_now_playing',
+    "Get the Last.fm user's currently-playing track as a live read (not a stored scrobble). Returns { nowPlaying: true, track, artist, album, image, url } when something is playing, or { nowPlaying: false } otherwise.",
+    getNowPlayingSchema.shape,
+    async (input) => {
+      const result = await getNowPlaying(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

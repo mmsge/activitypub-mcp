@@ -13,6 +13,7 @@ import {
   getScrobblesSchema, getScrobbles,
   getScrobbleStatsSchema, getScrobbleStats,
 } from '../mcp/tools/scrobbles.js'
+import { getNowPlayingSchema, getNowPlaying } from '../mcp/tools/now-playing.js'
 
 /**
  * One row per MCP tool. Each REST endpoint reuses the exact same (schema, handler)
@@ -131,6 +132,16 @@ export const endpoints: RestEndpoint[] = [
     schema: getScrobbleStatsSchema,
     handler: getScrobbleStats,
     numbers: ['limit'],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/now-playing',
+    name: 'get_now_playing',
+    description: "Get the Last.fm user's currently-playing track as a live read (not a stored scrobble). Returns { nowPlaying: true, track, artist, album, image, url } when something is playing, or { nowPlaying: false } otherwise.",
+    schema: getNowPlayingSchema,
+    handler: getNowPlaying,
+    numbers: [],
     booleans: [],
     arrays: [],
   },
