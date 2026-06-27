@@ -225,3 +225,54 @@ export const trainTrips = pgTable('train_trips', {
   // Viaduct CSV rows carry no stable id; this hash is the re-import dedupe key.
   uniqueIndex('train_trips_dedupe_idx').on(t.dedupeKey),
 ])
+
+// ---------------------------------------------------------------------------
+// OAuth 2.1 (MCP authorization). These back the OAuth flow that lets browser /
+// mobile MCP clients (e.g. claude.ai connectors, which only speak OAuth, not a
+// static bearer header) authenticate against /mcp. The "user" login step reuses
+// the admin password (ADMIN_PASSWORD_HASH); see src/oauth/.
+// ---------------------------------------------------------------------------
+
+// Clients created via Dynamic Client Registration (RFC 7591). claude.ai
+// registers a fresh client per connection, so rows accumulate — that's expected.
+export const oauthClients = pgTable('oauth_clients', {
+  clientId: text('client_id').primaryKey(),
+  // Null for public clients (token_endpoint_auth_method = 'none'), which is what
+  // PKCE-based connectors use. Set (random hex) for confidential clients.
+  clientSecret: text('client_secret'),
+  redirectUris: jsonb('redirect_uris').notNull(), // string[]
+  clientName: text('client_name'),
+  tokenEndpointAuthMethod: text('token_endpoint_auth_method').notNull().default('client_secret_basic'),
+  grantTypes: jsonb('grant_types'), // string[]
+  responseTypes: jsonb('response_types'), // string[]
+  scope: text('scope'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+// Short-lived authorization codes (PKCE). The code itself is never stored — only
+// its sha256 hash — mirroring how admin_sessions handles session tokens.
+export const oauthAuthCodes = pgTable('oauth_auth_codes', {
+  codeHash: text('code_hash').primaryKey(),
+  clientId: text('client_id').notNull(),
+  redirectUri: text('redirect_uri').notNull(),
+  codeChallenge: text('code_challenge').notNull(), // S256 challenge
+  scope: text('scope'),
+  resource: text('resource'), // RFC 8707 resource indicator, if supplied
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('oauth_auth_codes_expires_idx').on(t.expiresAt),
+])
+
+// Access and refresh tokens, sha256-hashed. `type` is 'access' or 'refresh'.
+export const oauthTokens = pgTable('oauth_tokens', {
+  tokenHash: text('token_hash').primaryKey(),
+  type: text('type').notNull(),
+  clientId: text('client_id').notNull(),
+  scope: text('scope'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('oauth_tokens_client_idx').on(t.clientId),
+  index('oauth_tokens_expires_idx').on(t.expiresAt),
+])
