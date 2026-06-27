@@ -94,6 +94,7 @@ Here is what each variable means:
 | `REST_API_KEY` | No | Shared secret enabling the read-only REST API at `/api/v1`. Leave blank to keep it disabled (`503`). Generate like `SESSION_SECRET`. |
 | `LASTFM_API_KEY` | No | Last.fm API key ([create one](https://www.last.fm/api/account/create)). Enables scrobble ingestion. |
 | `LASTFM_USERNAME` | No | The Last.fm username whose scrobbles are ingested. Required alongside `LASTFM_API_KEY`. |
+| `LASTFM_SYNC_INTERVAL_SECONDS` | No | How often to poll Last.fm for new scrobbles, in seconds. Default `60`, minimum `15`. |
 | `LOG_LEVEL` | No | `info` is fine for production. Use `debug` to see more. |
 
 Generate a session secret:
@@ -258,7 +259,8 @@ All tools are read-only queries against the local database — no requests go ou
 
 When `LASTFM_API_KEY` and `LASTFM_USERNAME` are set, the server ingests the user's Last.fm
 listening history into the local database — backfilling the full history on first run and
-syncing new scrobbles every 5 minutes thereafter. The stored scrobbles are queryable by
+syncing new scrobbles every 60 seconds thereafter (tune with `LASTFM_SYNC_INTERVAL_SECONDS`).
+The stored scrobbles are queryable by
 timestamp, artist, album, and track via `get_scrobbles`, with aggregate metrics (totals,
 listening span, top artists/albums/tracks) via `get_scrobble_stats`.
 
