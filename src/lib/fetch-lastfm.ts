@@ -137,3 +137,66 @@ export async function fetchRecentScrobbles(
 
   return { scrobbles, totalPages, page }
 }
+
+export interface NowPlayingTrack {
+  track: string
+  artist: string
+  album: string | null
+  image: string | null
+  url: string | null
+}
+
+/**
+ * Fetch the user's currently-playing track, if any. Unlike a scrobble, the live
+ * "now playing" entry has no date and is dropped by the sync (see mapTrack), so
+ * this is a separate live read of user.getrecenttracks. Returns null when nothing
+ * is playing or on any API failure (non-throwing, like fetchRecentScrobbles).
+ */
+export async function fetchNowPlaying(
+  apiKey: string,
+  username: string,
+): Promise<NowPlayingTrack | null> {
+  const url = new URL(API_BASE)
+  url.searchParams.set('method', 'user.getrecenttracks')
+  url.searchParams.set('user', username)
+  url.searchParams.set('api_key', apiKey)
+  url.searchParams.set('format', 'json')
+  url.searchParams.set('limit', '1')
+
+  let res: Response
+  try {
+    res = await fetch(url, { headers: { Accept: 'application/json' } })
+  } catch (e) {
+    logger.warn({ error: e }, 'Failed to fetch Last.fm now playing')
+    return null
+  }
+  if (!res.ok) {
+    logger.warn({ status: res.status }, 'Last.fm now playing returned non-OK status')
+    return null
+  }
+
+  const data = (await res.json()) as AnyObject
+  if (data.error) {
+    logger.warn({ error: data.error, message: data.message }, 'Last.fm API returned an error')
+    return null
+  }
+
+  const recent = data.recenttracks as AnyObject | undefined
+  const rawTracks = recent?.track
+  const first = (Array.isArray(rawTracks) ? rawTracks[0] : rawTracks) as AnyObject | undefined
+  if (!first) return null
+  // Only the live entry carries @attr.nowplaying; a plain recent scrobble does not.
+  if ((first['@attr'] as AnyObject)?.nowplaying !== 'true') return null
+
+  const track = pickText(first.name)
+  const artist = pickText(first.artist)
+  if (!track || !artist) return null
+
+  return {
+    track,
+    artist,
+    album: pickText(first.album),
+    image: largestImage(first.image),
+    url: typeof first.url === 'string' ? first.url || null : null,
+  }
+}

@@ -729,6 +729,41 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/now-playing:
+    get:
+      tags: [REST API]
+      summary: Currently-playing Last.fm track
+      description: |
+        A live read of the Last.fm user's currently-playing track (not a stored
+        scrobble). Returns `{ nowPlaying: false }` when nothing is playing or
+        Last.fm is not configured. Result is briefly cached server-side.
+      operationId: getNowPlayingGet
+      responses:
+        "200":
+          description: Current now-playing state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NowPlayingResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Currently-playing Last.fm track (JSON body)
+      operationId: getNowPlayingPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        "200":
+          description: Current now-playing state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NowPlayingResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   # ------------------------------------------------------------- Discovery
   /.well-known/webfinger:
     get:
@@ -1187,6 +1222,17 @@ components:
           type: array
           items: { $ref: "#/components/schemas/ReadingEvent" }
 
+    NowPlayingResponse:
+      type: object
+      properties:
+        nowPlaying: { type: boolean }
+        track: { type: string }
+        artist: { type: string }
+        album: { type: [string, "null"] }
+        image: { type: [string, "null"] }
+        url: { type: [string, "null"] }
+      required: [nowPlaying]
+
     Scrobble:
       type: object
       properties:
@@ -1195,6 +1241,7 @@ components:
         artist: { type: string }
         album: { type: [string, "null"] }
         url: { type: [string, "null"] }
+        image: { type: [string, "null"] }
         loved: { type: boolean }
 
     ScrobblesResponse:
@@ -1232,6 +1279,7 @@ components:
               album: { type: string }
               track: { type: string }
               plays: { type: integer }
+              image: { type: [string, "null"] }
         filters:
           type: object
           properties:
