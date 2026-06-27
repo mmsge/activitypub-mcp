@@ -91,7 +91,7 @@ Here is what each variable means:
 | `FOLLOW_ACTORS` | Yes | Comma-separated list of handles to follow (see below) |
 | `ADMIN_PASSWORD_HASH` | Yes | The bcrypt hash you generated in step 3 |
 | `SESSION_SECRET` | Yes | A random 32-byte hex string (generate with the command below) |
-| `REST_API_KEY` | No | Shared secret enabling the read-only REST API at `/api/v1`. Leave blank to keep it disabled (`503`). Generate like `SESSION_SECRET`. |
+| `REST_API_KEY` | No | Shared secret gating both the MCP server at `/mcp` and the read-only REST API at `/api/v1`. Leave blank to keep both disabled (`503`). Generate like `SESSION_SECRET`. |
 | `LASTFM_API_KEY` | No | Last.fm API key ([create one](https://www.last.fm/api/account/create)). Enables scrobble ingestion. |
 | `LASTFM_USERNAME` | No | The Last.fm username whose scrobbles are ingested. Required alongside `LASTFM_API_KEY`. |
 | `LASTFM_SYNC_INTERVAL_SECONDS` | No | How often to poll Last.fm for new scrobbles, in seconds. Default `60`, minimum `15`. |
@@ -237,7 +237,46 @@ The Logs page is the most useful for debugging. A `✗` in the signature column 
 
 The MCP endpoint is at `https://yourdomain.com/mcp`.
 
-Connect to it from any MCP-compatible AI client (Claude Desktop, Claude Code, etc.) by adding it as an MCP server with the URL above.
+### Authentication
+
+The MCP endpoint is gated by `REST_API_KEY` (the same secret that gates the REST API). Clients
+must send it as either header:
+
+```
+Authorization: Bearer <REST_API_KEY>
+X-API-Key: <REST_API_KEY>
+```
+
+Requests without a valid key get `401`. If `REST_API_KEY` is unset, the MCP server is disabled
+and returns `503` — so it is never accidentally public.
+
+### Connecting from Claude Code
+
+Add it as a remote HTTP MCP server with the key supplied as a static header (replace
+`<REST_API_KEY>` with the value from your `.env`):
+
+```bash
+claude mcp add --transport http activitypub \
+  https://yourdomain.com/mcp \
+  --header "Authorization: Bearer <REST_API_KEY>"
+```
+
+Or add it directly to an `.mcp.json` (project- or user-scoped):
+
+```json
+{
+  "mcpServers": {
+    "activitypub": {
+      "type": "http",
+      "url": "https://yourdomain.com/mcp",
+      "headers": { "Authorization": "Bearer <REST_API_KEY>" }
+    }
+  }
+}
+```
+
+Other MCP-compatible clients (Claude Desktop, etc.) connect the same way — point them at the
+URL above and send the `Authorization` (or `X-API-Key`) header.
 
 ### Available tools
 
