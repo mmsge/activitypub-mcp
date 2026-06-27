@@ -133,6 +133,85 @@ function extractBookMeta(
   return { title, author, url }
 }
 
+// A classified event plus the per-row facts the collapse needs (publish time for
+// recency, and any inline rating joined from bookwyrm_objects).
+export interface DerivedReadingEvent {
+  event: ReadingEvent
+  publishedAt: Date | null
+  rating: string | null
+}
+
+// One current-state record per book, the shape get_actor_reading_status returns.
+export interface CollapsedBook {
+  title: string | null
+  author: string | null
+  url: string | null
+  cover: string | null
+  shelf: 'reading' | 'read' | 'to-read' | null
+  started: Date | null
+  finished: Date | null
+  rating: string | null
+  lastActivity: Date | null // newest event time, for ordering
+}
+
+/**
+ * Collapse a book's event stream into one current-state record per distinct book.
+ *
+ * BookWyrm federates each reading action as its own Note, so a single book yields
+ * many events (started/finished generatednotes carry an Edition tag → book url;
+ * comments/reviews are often title-only with no url). We key by normalized title
+ * (falling back to the book url) so those variants merge instead of producing a
+ * duplicate row each. Within a book: the most recent shelf-changing event wins;
+ * dates/rating/url/author are coalesced to the first non-null seen so a later
+ * event missing a field never blanks an earlier one. Order-independent.
+ */
+export function collapseReadingEvents(events: DerivedReadingEvent[]): CollapsedBook[] {
+  type Acc = CollapsedBook & { shelfAt: Date | null } // shelfAt: publish time of the event that set `shelf`
+  const byBook = new Map<string, Acc>()
+
+  for (const { event: ev, publishedAt: at, rating } of events) {
+    const key = normalizeTitle(ev.book_title) || ev.bookwyrm_book_url
+    if (!key) continue // no title and no url — goal notes etc.
+
+    let acc = byBook.get(key)
+    if (!acc) {
+      acc = {
+        title: ev.book_title,
+        author: ev.book_author,
+        url: ev.bookwyrm_book_url,
+        cover: null, // no cover source in the local store; live shelf supplies it
+        shelf: null,
+        shelfAt: null,
+        started: null,
+        finished: null,
+        rating: null,
+        lastActivity: null,
+      }
+      byBook.set(key, acc)
+    }
+    acc.title ??= ev.book_title
+    acc.author ??= ev.book_author
+    acc.url ??= ev.bookwyrm_book_url
+    acc.rating ??= rating
+
+    // The current shelf is whatever the most recent shelf-affecting event set it to.
+    const shelfForEvent =
+      ev.event_type === 'finished_reading' ? 'read'
+        : ev.event_type === 'started_reading' ? 'reading'
+          : ev.event_type === 'shelved' ? 'to-read'
+            : null
+    if (shelfForEvent && (!acc.shelfAt || (at && at > acc.shelfAt))) {
+      acc.shelf = shelfForEvent
+      acc.shelfAt = at ?? acc.shelfAt
+    }
+    if (ev.event_type === 'started_reading' && at && (!acc.started || at < acc.started)) acc.started = at
+    if (ev.event_type === 'finished_reading' && at && (!acc.finished || at > acc.finished)) acc.finished = at
+    if (at && (!acc.lastActivity || at > acc.lastActivity)) acc.lastActivity = at
+  }
+
+  return [...byBook.values()].map(({ shelfAt: _shelfAt, ...book }) => book)
+}
+
 /**
  * Base predicate: only `objects` rows whose ap_id matches a known BookWyrm
  * segment. Keeps unrelated Notes out so `classifyReadingEvent` never returns
@@ -178,6 +257,13 @@ export function readingEventTypeCondition(et: ReadingEventType): SQL | undefined
       return like(objects.apId, SEG_RATING)
   }
 }
+
+// Merge key for grouping events by book: lowercase, collapse whitespace, trim.
+// No parenthetical stripping — kept conservative to avoid merging distinct books
+// that share a base title. Returns '' for an absent/whitespace-only title so the
+// caller can fall back to the book url.
+export const normalizeTitle = (title: string | null): string =>
+  (title ?? '').toLowerCase().replace(/\s+/g, ' ').trim()
 
 const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : v == null ? [] : [v])
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null

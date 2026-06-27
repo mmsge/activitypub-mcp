@@ -29,7 +29,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_actor_reading_status',
-    "Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. With use_live: false, shelves (reading/read/to-read) are derived from the actor's stored reading note posts; ratings and cover art are only available via the live shelf. Returns title, authors, cover, shelf, started_date, finished_date, rating, and bookwyrm_book_url per book.",
+    "Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. With use_live: false, shelves (reading/read/to-read) are derived from the actor's stored reading note posts, collapsed to one row per book; ratings only appear if a federated review/rating carried one, and cover art is only available via the live shelf. Returns title, authors, cover, shelf, started_date, finished_date, rating, and bookwyrm_book_url per book.",
     getActorReadingStatusSchema.shape,
     async (input) => {
       const result = await getActorReadingStatus(input as any)
@@ -89,7 +89,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_reading_events',
-    "Get BookWyrm reading events for an actor, derived from stored note posts with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved. Useful for building a reading timeline or finding when a book was started vs finished. Defaults to newest-first; set sort_order='asc' with limit=1 to fetch the earliest reading event in one call, and follow the next_cursor token for deep traversal.",
+    "Get BookWyrm reading events for an actor, derived from stored note posts with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved. The `rating` event_type requires BookWyrm to federate a standalone /rating/ activity (many actors never produce these); an inline rating on a review is surfaced on that event's `rating` field. Useful for building a reading timeline or finding when a book was started vs finished. Defaults to newest-first; set sort_order='asc' with limit=1 to fetch the earliest reading event in one call, and follow the next_cursor token for deep traversal.",
     getReadingEventsSchema.shape,
     async (input) => {
       const result = await getReadingEvents(input as any)
