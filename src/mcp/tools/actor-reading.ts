@@ -18,6 +18,7 @@ export const getActorReadingStatusSchema = z.object({
 type ReadingResult = {
   title: string | null
   authors: string | null
+  cover: string | null
   shelf: 'reading' | 'read' | 'to-read' | null
   started_date: string | null
   finished_date: string | null
@@ -96,6 +97,7 @@ async function fetchLiveShelf(
     return {
       title: item.bookTitle,
       authors: item.bookAuthor ?? dbRow?.bookAuthor ?? null,
+      cover: item.bookCover,
       shelf: item.shelf,
       started_date: dbRow?.startDate ?? null,
       finished_date: dbRow?.finishDate ?? null,
@@ -135,6 +137,7 @@ async function fetchFromDb(
   return rows.map((r) => ({
     title: r.bookTitle,
     authors: r.bookAuthor,
+    cover: null,
     shelf: r.readingStatus as 'reading' | 'read' | 'to-read' | null,
     started_date: r.startDate,
     finished_date: r.finishDate,
