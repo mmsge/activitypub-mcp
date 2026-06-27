@@ -8,6 +8,7 @@ import { getActivityStatsSchema, getActivityStats, getRecentActivitiesSchema, ge
 import { getReadingEventsSchema, getReadingEvents } from './tools/reading-events.js'
 import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleStats } from './tools/scrobbles.js'
 import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
+import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats } from './tools/train-trips.js'
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -121,6 +122,26 @@ export function createMcpServer(): McpServer {
     getNowPlayingSchema.shape,
     async (input) => {
       const result = await getNowPlaying(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_train_trips',
+    "Query the locally-stored train travel history (imported from viaduct.world CSV exports). Filter by station (origin or destination), journey name, operator, mode (Train/Ferry), status (Completed/Planned), tag, year, or a departure time window. Defaults to newest-first; set sort_order='asc' with limit=1 for the earliest matching trip, and follow next_cursor for deep traversal.",
+    getTrainTripsSchema.shape,
+    async (input) => {
+      const result = await getTrainTrips(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_train_stats',
+    "Aggregate metrics over the stored train trips: total trip count, total distance (km), total time aboard, distinct stations/operators/journeys, and travel span (first/last departure). Accepts the same journey/operator/mode/status/tag filters plus a year scope (defaults to all-time). Returns a top-N breakdown by journey, operator, mode, or year, and the next upcoming planned trip.",
+    getTrainStatsSchema.shape,
+    async (input) => {
+      const result = await getTrainStats(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

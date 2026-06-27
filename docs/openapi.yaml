@@ -764,6 +764,195 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/train-trips:
+    get:
+      tags: [REST API]
+      summary: Query train travel history
+      description: |
+        The locally-stored train trip feed (imported from viaduct.world CSV
+        exports). Filter by `station` (origin or destination), `from_station`,
+        `to_station`, `journey`, `operator`, `mode`, `status`, `tag`, `year`, or
+        a departure `from`/`to` window. Newest-first by default; paginate via
+        `next_cursor`.
+      operationId: getTrainTripsGet
+      parameters:
+        - {
+            name: station,
+            in: query,
+            description: Origin OR destination contains this.,
+            schema: { type: string },
+          }
+        - { name: from_station, in: query, schema: { type: string } }
+        - { name: to_station, in: query, schema: { type: string } }
+        - { name: journey, in: query, schema: { type: string } }
+        - { name: operator, in: query, schema: { type: string } }
+        - {
+            name: mode,
+            in: query,
+            description: e.g. Train or Ferry.,
+            schema: { type: string },
+          }
+        - {
+            name: status,
+            in: query,
+            description: e.g. Completed or Planned.,
+            schema: { type: string },
+          }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: year, in: query, schema: { type: integer } }
+        - {
+            name: from,
+            in: query,
+            description: ISO datetime — at or after.,
+            schema: { type: string, format: date-time },
+          }
+        - {
+            name: to,
+            in: query,
+            description: ISO datetime — at or before.,
+            schema: { type: string, format: date-time },
+          }
+        - $ref: "#/components/parameters/SortOrder"
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 200, default: 50 },
+          }
+        - name: page
+          in: query
+          description: Offset-based page (legacy). Ignored when `cursor` is supplied.
+          schema: { type: integer, minimum: 1, default: 1 }
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Page of trips.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrainTripsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Query train travel history (JSON body)
+      operationId: getTrainTripsPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                station: { type: string }
+                from_station: { type: string }
+                to_station: { type: string }
+                journey: { type: string }
+                operator: { type: string }
+                mode: { type: string }
+                status: { type: string }
+                tag: { type: string }
+                year: { type: integer }
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+                sort_order: { type: string, enum: [asc, desc], default: desc }
+                limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+                page: { type: integer, minimum: 1, default: 1 }
+                cursor: { type: string }
+      responses:
+        "200":
+          description: Page of trips.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrainTripsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/train-stats:
+    get:
+      tags: [REST API]
+      summary: Aggregate train travel metrics
+      description: |
+        Total trip count, total distance (km), total time aboard, distinct
+        stations/operators/journeys, travel span, a top-N breakdown (by journey,
+        operator, mode or year), and the next upcoming planned trip. Accepts the
+        journey/operator/mode/status/tag filters plus a `year` scope.
+      operationId: getTrainStatsGet
+      parameters:
+        - { name: journey, in: query, schema: { type: string } }
+        - { name: operator, in: query, schema: { type: string } }
+        - { name: mode, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+        - {
+            name: year,
+            in: query,
+            description: Scope totals to this calendar year. Omit for all-time.,
+            schema: { type: integer },
+          }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - {
+            name: group_by,
+            in: query,
+            schema:
+              {
+                type: string,
+                enum: [journey, operator, mode, year],
+                default: journey,
+              },
+          }
+        - {
+            name: limit,
+            in: query,
+            description: Number of top results.,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
+      responses:
+        "200":
+          description: Aggregate train metrics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrainStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Aggregate train travel metrics (JSON body)
+      operationId: getTrainStatsPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                journey: { type: string }
+                operator: { type: string }
+                mode: { type: string }
+                status: { type: string }
+                tag: { type: string }
+                year: { type: integer }
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+                group_by:
+                  {
+                    type: string,
+                    enum: [journey, operator, mode, year],
+                    default: journey,
+                  }
+                limit: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Aggregate train metrics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrainStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   # ------------------------------------------------------------- Discovery
   /.well-known/webfinger:
     get:
@@ -1292,6 +1481,67 @@ components:
           properties:
             from: { type: [string, "null"] }
             to: { type: [string, "null"] }
+
+    Trip:
+      type: object
+      properties:
+        departureAt: { type: [string, "null"], format: date-time }
+        arrivalAt: { type: [string, "null"], format: date-time }
+        from: { type: string }
+        to: { type: string }
+        journey: { type: [string, "null"] }
+        trainCode: { type: [string, "null"] }
+        operator: { type: [string, "null"] }
+        mode: { type: [string, "null"] }
+        travelClass: { type: [string, "null"] }
+        distanceKm: { type: [integer, "null"] }
+        delay: { type: [integer, "null"] }
+        night: { type: boolean }
+        status: { type: [string, "null"] }
+        tags: { type: [array, "null"], items: { type: string } }
+
+    TrainTripsResponse:
+      type: object
+      properties:
+        count: { type: integer }
+        page: { type: [integer, "null"] }
+        next_cursor: { type: [string, "null"] }
+        sort_order: { type: string, enum: [asc, desc] }
+        filters: { type: object }
+        trips:
+          type: array
+          items: { $ref: "#/components/schemas/Trip" }
+
+    TrainStatsResponse:
+      type: object
+      properties:
+        total_trips: { type: integer }
+        total_km: { type: number }
+        total_duration_seconds: { type: number }
+        hours: { type: integer }
+        minutes: { type: integer }
+        distinct_stations: { type: integer }
+        distinct_operators: { type: integer }
+        distinct_journeys: { type: integer }
+        first_trip_at: { type: [string, "null"], format: date-time }
+        last_trip_at: { type: [string, "null"], format: date-time }
+        group_by: { type: string, enum: [journey, operator, mode, year] }
+        top:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: [string, "null"] }
+              trips: { type: integer }
+              km: { type: number }
+        upcoming:
+          type: [object, "null"]
+          properties:
+            from: { type: string }
+            to: { type: string }
+            date: { type: string }
+            duration: { type: [string, "null"] }
+        filters: { type: object }
 
     # ---- ActivityPub / discovery ----
     WebfingerJrd:

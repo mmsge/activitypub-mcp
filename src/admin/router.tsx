@@ -20,8 +20,10 @@ import {
   processActivityBatch,
   ensureActor,
   reprocessActivitiesByType,
+  importTrainTrips,
   BARE_OBJECT_TYPES,
 } from './import.js'
+import { parseTrainTripsCsv } from '../lib/parse-trips-csv.js'
 import { resolveActorByHandle } from '../lib/fetch-actor.js'
 import { logger } from '../lib/logger.js'
 
@@ -263,6 +265,43 @@ app.post(
       imported: String(result.imported),
       skipped: String(result.skipped),
       errorCount: String(result.errors.length),
+    })
+    return c.redirect(`/admin/import/result?${params}`)
+  },
+)
+
+app.post(
+  '/import/trips',
+  bodyLimit({ maxSize: 25 * 1024 * 1024 }),
+  async (c) => {
+    const body = await c.req.parseBody()
+    const file = body['file']
+    if (!file || typeof file === 'string') {
+      return c.html(<ImportPage error="No file uploaded" />)
+    }
+    let text: string
+    try {
+      text = await (file as File).text()
+    } catch {
+      return c.html(<ImportPage error="Could not read file" />)
+    }
+
+    let rows
+    try {
+      rows = parseTrainTripsCsv(text)
+    } catch (e) {
+      return c.html(<ImportPage error={String(e)} />)
+    }
+
+    const result = await importTrainTrips(rows)
+    logger.info({ ...result }, 'Train trips import complete')
+
+    const params = new URLSearchParams({
+      actor: 'train trips (CSV)',
+      total: String(result.total),
+      imported: String(result.inserted),
+      skipped: String(result.skipped),
+      errorCount: '0',
     })
     return c.redirect(`/admin/import/result?${params}`)
   },
