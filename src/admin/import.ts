@@ -1,9 +1,10 @@
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
-import { activities, actors } from '../db/schema.js'
+import { activities, actors, trainTrips } from '../db/schema.js'
 import { processActivity } from '../activitypub/inbox.js'
 import { fetchActor } from '../lib/fetch-actor.js'
 import { logger } from '../lib/logger.js'
+import type { TripRow } from '../lib/parse-trips-csv.js'
 
 type AnyObject = Record<string, unknown>
 
@@ -175,6 +176,76 @@ export async function crawlOutbox(actorUrl: string): Promise<unknown[]> {
   await fetchPage(outboxUrl)
   logger.info({ actorUrl, pages: pagesFetched, items: allItems.length }, 'Outbox crawl complete')
   return allItems
+}
+
+export interface TripImportResult {
+  total: number
+  inserted: number
+  skipped: number
+}
+
+/**
+ * Bulk-insert parsed train trips, deduped by the content hash. Absolute instants
+ * are computed in Postgres from the local wall-clock + IANA zone so DST and
+ * overnight legs resolve correctly. Re-importing the same export is a no-op.
+ */
+export async function importTrainTrips(rows: TripRow[]): Promise<TripImportResult> {
+  const total = rows.length
+  if (total === 0) return { total: 0, inserted: 0, skipped: 0 }
+
+  // Drop in-file duplicates so the single INSERT has no repeated conflict targets.
+  const seen = new Set<string>()
+  const unique = rows.filter((r) => (seen.has(r.dedupeKey) ? false : (seen.add(r.dedupeKey), true)))
+
+  const db = getDb()
+  const values = unique.map((r) => ({
+    fromStation: r.fromStation,
+    toStation: r.toStation,
+    journey: r.journey,
+    trainCode: r.trainCode,
+    lineNumber: r.lineNumber,
+    trainName: r.trainName,
+    operator: r.operator,
+    mode: r.mode,
+    travelClass: r.travelClass,
+    seatType: r.seatType,
+    seat: r.seat,
+    coach: r.coach,
+    reason: r.reason,
+    continent: r.continent,
+    notes: r.notes,
+    ticket: r.ticket,
+    departureLocal: sql`${r.departureLocal}::timestamp`,
+    arrivalLocal: r.arrivalLocal ? sql`${r.arrivalLocal}::timestamp` : null,
+    fromTz: r.fromTz,
+    toTz: r.toTz,
+    departureAt: sql`(${r.departureLocal}::timestamp AT TIME ZONE ${r.fromTz})`,
+    arrivalAt: r.arrivalLocal ? sql`(${r.arrivalLocal}::timestamp AT TIME ZONE ${r.toTz})` : null,
+    distanceKm: r.distanceKm,
+    delay: r.delay,
+    departureDelay: r.departureDelay,
+    price: r.price,
+    savings: r.savings,
+    currency: r.currency,
+    cycling: r.cycling,
+    wifi: r.wifi,
+    diningCar: r.diningCar,
+    night: r.night,
+    replacement: r.replacement,
+    reservation: r.reservation,
+    status: r.status,
+    tags: r.tags,
+    raw: r.raw,
+    dedupeKey: r.dedupeKey,
+  }))
+
+  const inserted = await db
+    .insert(trainTrips)
+    .values(values as any)
+    .onConflictDoNothing({ target: trainTrips.dedupeKey })
+    .returning({ id: trainTrips.id })
+
+  return { total, inserted: inserted.length, skipped: total - inserted.length }
 }
 
 export async function ensureActor(actorUrl: string): Promise<void> {

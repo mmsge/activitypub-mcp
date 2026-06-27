@@ -43,6 +43,20 @@ export const ImportPage: FC<{ error?: string }> = ({ error }) => (
       </form>
     </div>
     <div class="section">
+      <h2>Train Trips (CSV)</h2>
+      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
+        Upload a <strong>viaduct.world</strong> CSV export of your train journeys. Re-importing the
+        same export is safe — existing trips are skipped via a content hash.
+      </p>
+      <form method="post" action="/admin/import/trips" enctype="multipart/form-data">
+        <div class="filters">
+          <input type="file" name="file" accept=".csv,text/csv" required />
+          <button type="submit">Import Trips</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="section">
       <h2>Re-process Stored Bare Objects</h2>
       <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
         Re-runs processing on activities stored as bare Note/Review/etc. objects

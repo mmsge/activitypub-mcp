@@ -14,6 +14,10 @@ import {
   getScrobbleStatsSchema, getScrobbleStats,
 } from '../mcp/tools/scrobbles.js'
 import { getNowPlayingSchema, getNowPlaying } from '../mcp/tools/now-playing.js'
+import {
+  getTrainTripsSchema, getTrainTrips,
+  getTrainStatsSchema, getTrainStats,
+} from '../mcp/tools/train-trips.js'
 
 /**
  * One row per MCP tool. Each REST endpoint reuses the exact same (schema, handler)
@@ -142,6 +146,26 @@ export const endpoints: RestEndpoint[] = [
     schema: getNowPlayingSchema,
     handler: getNowPlaying,
     numbers: [],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/train-trips',
+    name: 'get_train_trips',
+    description: 'Query the locally-stored train travel history (imported from viaduct.world CSV exports). Filter by station (origin or destination), journey, operator, mode, status, tag, year, or a departure time window. Newest-first by default; pass sort_order=asc with limit=1 for the earliest match, and paginate deeply via next_cursor.',
+    schema: getTrainTripsSchema,
+    handler: getTrainTrips,
+    numbers: ['limit', 'page', 'year'],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/train-stats',
+    name: 'get_train_stats',
+    description: 'Aggregate metrics over the stored train trips: total count, total km, total time aboard, distinct stations/operators/journeys, travel span, a top-N breakdown (by journey, operator, mode, or year), and the next upcoming planned trip. Accepts journey/operator/mode/status/tag filters and a year scope.',
+    schema: getTrainStatsSchema,
+    handler: getTrainStats,
+    numbers: ['limit', 'year'],
     booleans: [],
     arrays: [],
   },

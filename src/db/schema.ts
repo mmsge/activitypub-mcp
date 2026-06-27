@@ -171,3 +171,57 @@ export const adminSessions = pgTable('admin_sessions', {
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+// Train journeys exported from viaduct.world (no live API — imported from CSV via /admin).
+export const trainTrips = pgTable('train_trips', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  fromStation: text('from_station').notNull(),
+  toStation: text('to_station').notNull(),
+  journey: text('journey'),
+  trainCode: text('train_code'),
+  lineNumber: text('line_number'),
+  trainName: text('train_name'),
+  operator: text('operator'),
+  mode: text('mode'), // Train, Ferry, …
+  travelClass: text('travel_class'),
+  seatType: text('seat_type'),
+  seat: text('seat'),
+  coach: text('coach'),
+  reason: text('reason'),
+  continent: text('continent'),
+  notes: text('notes'),
+  ticket: text('ticket'),
+  // Local wall-clock departure/arrival (date + time) plus the IANA zone they were
+  // recorded in. The absolute instants below are derived from these at insert time.
+  departureLocal: timestamp('departure_local').notNull(),
+  arrivalLocal: timestamp('arrival_local'),
+  fromTz: text('from_tz'),
+  toTz: text('to_tz'),
+  departureAt: timestamp('departure_at', { withTimezone: true }).notNull(),
+  arrivalAt: timestamp('arrival_at', { withTimezone: true }),
+  distanceKm: integer('distance_km'),
+  delay: integer('delay'),
+  departureDelay: integer('departure_delay'),
+  price: numeric('price'),
+  savings: numeric('savings'),
+  currency: text('currency'),
+  cycling: boolean('cycling').notNull().default(false),
+  wifi: boolean('wifi').notNull().default(false),
+  diningCar: boolean('dining_car').notNull().default(false),
+  night: boolean('night').notNull().default(false),
+  replacement: boolean('replacement').notNull().default(false),
+  reservation: boolean('reservation').notNull().default(false),
+  status: text('status'), // Completed, Planned
+  tags: text('tags').array(),
+  raw: jsonb('raw').notNull(),
+  // Stable content hash of the trip's identifying fields; the import dedupe key.
+  dedupeKey: text('dedupe_key').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('train_trips_departure_idx').on(t.departureAt),
+  index('train_trips_status_idx').on(t.status),
+  index('train_trips_journey_idx').on(t.journey),
+  index('train_trips_operator_idx').on(t.operator),
+  // Viaduct CSV rows carry no stable id; this hash is the re-import dedupe key.
+  uniqueIndex('train_trips_dedupe_idx').on(t.dedupeKey),
+])
