@@ -21,15 +21,46 @@ export interface GardenPage {
   tags: string[]
 }
 
+// Book-review frontmatter, keyed by the `bookwyrm` field (== a BookWyrm Edition
+// URL, i.e. the book_metadata.bookUrl join key). Markus curates these by hand on
+// markus.plus, so they're a trustworthy, edition-matched fallback for the ISBN and
+// gap-filler for language/pages/cover/series the BookWyrm Edition may lack.
+export interface ReviewMeta {
+  bookwyrmUrl: string
+  isbn: string | null
+  language: string[] | null // `språk`, e.g. ["danish","dansk"]
+  originalLanguage: string | null // `originalspråk`
+  pages: number | null // `Antal sider`
+  cover: string | null // `image`
+  authors: string[] | null // `forfattar`
+  series: string | null // `serie`
+  subtitle: string | null // `undertittel`
+  illustrator: string | null // `teiknar`
+  reviewUrl: string | null // markus.plus permalink
+}
+
 // Process-lifetime cache. The garden changes rarely and the consumer (msge.no)
 // already polls on a 6 h cadence, so a 6 h TTL keeps Obsidian out of the hot path.
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000
-let cache: { at: number; value: GardenPage[] } | null = null
+let cache: { at: number; pages: GardenPage[]; reviews: Map<string, ReviewMeta> } | null = null
 
 type AnyObject = Record<string, unknown>
 
 function str(v: unknown): string | null {
   return typeof v === 'string' && v.trim() ? v.trim() : null
+}
+
+function num(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' ? Number(v) : NaN
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : null
+}
+
+// Frontmatter fields that should be string arrays (`forfattar`, `språk`) arrive as
+// either a single string or an array; normalize to a trimmed string[] (or null).
+function strArray(v: unknown): string[] | null {
+  const arr = Array.isArray(v) ? v : v != null ? [v] : []
+  const out = arr.map((x) => str(x)).filter((x): x is string => x != null)
+  return out.length ? out : null
 }
 
 // Title is the note's filename (its human-readable basename), unless frontmatter
@@ -81,6 +112,37 @@ function parseCache(data: AnyObject): GardenPage[] {
   return [...byPath.values()]
 }
 
+/**
+ * Parse the Obsidian cache document into a map of book-review metadata keyed by the
+ * `bookwyrm` frontmatter URL (== a BookWyrm Edition id / book_metadata.bookUrl).
+ * Only notes carrying a `bookwyrm` field are emitted — that field is unique to the
+ * `Bøker/Meldingar` book reviews, so this naturally scopes to them. Pure (no I/O).
+ */
+export function parseGardenReviews(data: AnyObject): Map<string, ReviewMeta> {
+  const byUrl = new Map<string, ReviewMeta>()
+  for (const [, value] of Object.entries(data)) {
+    if (!value || typeof value !== 'object') continue
+    const fm = ((value as AnyObject).frontmatter as AnyObject) || {}
+    const bookwyrmUrl = str(fm.bookwyrm)
+    if (!bookwyrmUrl) continue // the join key; non-book notes lack it
+    const permalink = str(fm.permalink)
+    byUrl.set(bookwyrmUrl, {
+      bookwyrmUrl,
+      isbn: str(fm.isbn),
+      language: strArray(fm['språk']),
+      originalLanguage: str(fm['originalspråk']),
+      pages: num(fm['Antal sider']),
+      cover: str(fm.image),
+      authors: strArray(fm.forfattar),
+      series: str(fm.serie),
+      subtitle: str(fm.undertittel),
+      illustrator: str(fm.teiknar),
+      reviewUrl: permalink ? `${SITE_BASE}${permalink.startsWith('/') ? permalink : `/${permalink}`}` : null,
+    })
+  }
+  return byUrl
+}
+
 // Bare fallback: the RSS feed carries only <title> + <link>, no frontmatter, so
 // description/image/date are unavailable and the section is read off the link.
 async function fetchFromRss(): Promise<GardenPage[]> {
@@ -112,28 +174,46 @@ async function fetchFromRss(): Promise<GardenPage[]> {
   return pages
 }
 
-export async function fetchGarden(): Promise<GardenPage[]> {
-  if (cache && Date.now() - cache.at < CACHE_TTL_MS) return cache.value
+// Refresh the process-lifetime cache when stale. Parses both the page list and the
+// book-review map from the one cache document so neither needs a second fetch.
+async function refreshGarden(): Promise<void> {
+  if (cache && Date.now() - cache.at < CACHE_TTL_MS) return
 
   let pages: GardenPage[] = []
+  let reviews = new Map<string, ReviewMeta>()
   try {
     const res = await fetch(CACHE_URL, { headers: { Accept: 'application/json' } })
     if (!res.ok) throw new Error(`cache -> ${res.status}`)
-    pages = parseCache((await res.json()) as AnyObject)
+    const doc = (await res.json()) as AnyObject
+    pages = parseCache(doc)
+    reviews = parseGardenReviews(doc)
   } catch (e) {
     logger.warn({ error: e }, 'Obsidian cache fetch failed; falling back to rss.xml')
   }
   if (pages.length === 0) {
     try {
+      // RSS carries no frontmatter, so the review map stays empty (enrichment then
+      // simply skips the review layer).
       pages = await fetchFromRss()
     } catch (e) {
       logger.warn({ error: e }, 'Tankehav rss.xml fallback failed')
-      // Serve a stale cache if we have one rather than nothing.
-      if (cache) return cache.value
+      // Keep serving a stale cache if we have one rather than nothing.
+      if (cache) return
     }
   }
 
-  cache = { at: Date.now(), value: pages }
-  logger.info({ count: pages.length }, 'Tankehav garden refreshed')
-  return pages
+  cache = { at: Date.now(), pages, reviews }
+  logger.info({ count: pages.length, reviews: reviews.size }, 'Tankehav garden refreshed')
+}
+
+export async function fetchGarden(): Promise<GardenPage[]> {
+  await refreshGarden()
+  return cache?.pages ?? []
+}
+
+// Book-review metadata keyed by the `bookwyrm` Edition URL. Reuses fetchGarden's
+// cached cache document (no extra network fetch).
+export async function fetchGardenBookReviews(): Promise<Map<string, ReviewMeta>> {
+  await refreshGarden()
+  return cache?.reviews ?? new Map()
 }

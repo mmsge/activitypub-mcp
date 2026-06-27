@@ -24,6 +24,11 @@ const schema = z.object({
   // when BookWyrm's Edition has no page count). OpenLibrary needs no key; Google
   // Books works keyless but is more rate-limited, so a key is recommended.
   GOOGLE_BOOKS_API_KEY: z.string().default(''),
+  // One-time switch: when true, the book-metadata sync ignores the 30-day staleness
+  // filter and re-enriches every referenced book on its next run, so newly-added
+  // metadata fields backfill immediately after a deploy. Unset it once that pass has
+  // run to restore normal staleness-based refresh.
+  BOOKMETA_BACKFILL: z.coerce.boolean().default(false),
   PORT: z.coerce.number().default(3000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.string().default('info'),

@@ -11,6 +11,7 @@ import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleSt
 import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
 import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats } from './tools/train-trips.js'
 import { getGardenPagesSchema, getGardenPages } from './tools/garden-pages.js'
+import { getBookDetailsSchema, getBookDetails } from './tools/book-details.js'
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -164,6 +165,16 @@ export function createMcpServer(): McpServer {
     getGardenPagesSchema.shape,
     async (input) => {
       const result = await getGardenPages(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_book_details',
+    "Get full enriched metadata for one BookWyrm book from the local cache, resolved by book_url (the Edition AP id), isbn (13 or 10), or a partial title. Returns title, subtitle, series, authors-independent fields like pages, physical_format, isbn13/isbn10, pub_year, language and original_language, publisher, cover_url, description, and subjects — each matched to the edition's resolved ISBN. isbn_source/page_source/source_map record where each value came from (bookwyrm Edition, markus.plus review, OpenLibrary, or Google Books).",
+    getBookDetailsSchema.shape,
+    async (input) => {
+      const result = await getBookDetails(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

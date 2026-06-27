@@ -1116,6 +1116,65 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/book-details:
+    get:
+      tags: [REST API]
+      summary: Get enriched metadata for one book
+      description: |
+        Full enriched metadata for one BookWyrm book from the local cache,
+        resolved by `book_url` (the Edition AP id), `isbn` (13 or 10), or a
+        partial `title`. Returns title, subtitle, series, pages, physical_format,
+        isbn13/isbn10, pub_year, language, original_language, publisher,
+        cover_url, description and subjects — each matched to the edition's
+        resolved ISBN — plus isbn_source/page_source/source_map provenance.
+        Provide at least one of book_url, isbn, or title.
+      operationId: getBookDetailsGet
+      parameters:
+        - name: book_url
+          in: query
+          description: BookWyrm Edition AP id (exact match).
+          schema: { type: string }
+        - name: isbn
+          in: query
+          description: ISBN-13 or ISBN-10 (hyphens/spaces ignored).
+          schema: { type: string }
+        - name: title
+          in: query
+          description: Case-insensitive partial title match.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The enriched book metadata record, or an error object when not found.
+          content:
+            application/json:
+              schema: { type: object }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Get enriched metadata for one book (JSON body)
+      operationId: getBookDetailsPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                book_url: { type: string }
+                isbn: { type: string }
+                title: { type: string }
+      responses:
+        "200":
+          description: The enriched book metadata record, or an error object when not found.
+          content:
+            application/json:
+              schema: { type: object }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   # ------------------------------------------------------------- Discovery
   /.well-known/webfinger:
     get:

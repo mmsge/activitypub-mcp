@@ -20,6 +20,7 @@ import {
   getTrainStatsSchema, getTrainStats,
 } from '../mcp/tools/train-trips.js'
 import { getGardenPagesSchema, getGardenPages } from '../mcp/tools/garden-pages.js'
+import { getBookDetailsSchema, getBookDetails } from '../mcp/tools/book-details.js'
 
 /**
  * One row per MCP tool. Each REST endpoint reuses the exact same (schema, handler)
@@ -188,6 +189,16 @@ export const endpoints: RestEndpoint[] = [
     schema: getGardenPagesSchema,
     handler: getGardenPages,
     numbers: ['limit'],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/book-details',
+    name: 'get_book_details',
+    description: "Get full enriched metadata for one BookWyrm book from the local cache, resolved by book_url (the Edition AP id), isbn (13 or 10), or a partial title. Returns title, subtitle, series, pages, physical_format, isbn13/isbn10, pub_year, language, original_language, publisher, cover_url, description, and subjects — each matched to the edition's resolved ISBN, with isbn_source/page_source/source_map provenance.",
+    schema: getBookDetailsSchema,
+    handler: getBookDetails,
+    numbers: [],
     booleans: [],
     arrays: [],
   },

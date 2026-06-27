@@ -1,0 +1,11 @@
+ALTER TABLE "book_metadata" ADD COLUMN "subtitle" text;--> statement-breakpoint
+ALTER TABLE "book_metadata" ADD COLUMN "isbn10" text;--> statement-breakpoint
+ALTER TABLE "book_metadata" ADD COLUMN "original_language" text;--> statement-breakpoint
+ALTER TABLE "book_metadata" ADD COLUMN "publisher" text;--> statement-breakpoint
+ALTER TABLE "book_metadata" ADD COLUMN "series" text;--> statement-breakpoint
+ALTER TABLE "book_metadata" ADD COLUMN "cover_url" text;--> statement-breakpoint
+ALTER TABLE "book_metadata" ADD COLUMN "description" text;--> statement-breakpoint
+ALTER TABLE "book_metadata" ADD COLUMN "subjects" jsonb;--> statement-breakpoint
+ALTER TABLE "book_metadata" ADD COLUMN "isbn_source" text;--> statement-breakpoint
+ALTER TABLE "book_metadata" ADD COLUMN "source_map" jsonb;--> statement-breakpoint
+CREATE INDEX "book_metadata_isbn13_idx" ON "book_metadata" USING btree ("isbn13");

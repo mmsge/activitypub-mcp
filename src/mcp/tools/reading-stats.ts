@@ -44,6 +44,7 @@ export interface BookForStats {
   pages: number | null
   format: string | null
   pubYear: number | null
+  language: string | null
 }
 
 const isoDate = (d: Date | null): string | null => d?.toISOString().slice(0, 10) ?? null
@@ -135,6 +136,17 @@ export function aggregateReadingStats(books: BookForStats[], input: ReadingStats
     })
     .sort((a, b) => b.books - a.books)
 
+  // Per-language breakdown (small cardinality, unbounded), now that language is
+  // normalized and reliably populated from the enriched book_metadata cache.
+  const byLanguageMap = new Map<string, BookForStats[]>()
+  for (const b of filtered) {
+    const k = b.language ?? 'unknown'
+    ;(byLanguageMap.get(k) ?? byLanguageMap.set(k, []).get(k)!).push(b)
+  }
+  const by_language = [...byLanguageMap.entries()]
+    .map(([language, group]) => ({ language, books: group.length }))
+    .sort((a, b) => b.books - a.books)
+
   // Top-N breakdown by the requested dimension.
   const topMap = new Map<string, BookForStats[]>()
   for (const b of filtered) {
@@ -167,6 +179,7 @@ export function aggregateReadingStats(books: BookForStats[], input: ReadingStats
       distribution,
     },
     by_format,
+    by_language,
     group_by: input.group_by,
     top,
     filters: {
@@ -231,6 +244,7 @@ export async function getReadingStats(input: ReadingStatsInput) {
           pages: bookMetadata.pages,
           physicalFormat: bookMetadata.physicalFormat,
           pubYear: bookMetadata.pubYear,
+          language: bookMetadata.language,
         })
         .from(bookMetadata)
         .where(inArray(bookMetadata.bookUrl, urls))
@@ -250,6 +264,7 @@ export async function getReadingStats(input: ReadingStatsInput) {
       pages: m?.pages ?? null,
       format: m?.physicalFormat ?? null,
       pubYear: m?.pubYear ?? null,
+      language: m?.language ?? null,
     }
   })
 
