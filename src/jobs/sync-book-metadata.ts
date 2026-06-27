@@ -91,11 +91,15 @@ export async function syncBookMetadata(): Promise<void> {
         ).map((r) => r.bookUrl),
       )
 
-  const todo = referenced.filter((u) => !cachedFresh.has(u)).slice(0, MAX_PER_RUN)
+  // Normal runs cap each pass so a backfill doesn't hammer BookWyrm; but a one-time
+  // BOOKMETA_BACKFILL must reach every book in a single pass — with the cap on it
+  // would reprocess the same first MAX_PER_RUN URLs each run and never advance.
+  const cap = config.BOOKMETA_BACKFILL ? referenced.length : MAX_PER_RUN
+  const todo = referenced.filter((u) => !cachedFresh.has(u)).slice(0, cap)
 
   logger.info(
     {
-      referenced: referenced.length, stale_or_missing: todo.length, cap: MAX_PER_RUN,
+      referenced: referenced.length, stale_or_missing: todo.length, cap,
       reviews: reviews.size, backfill: config.BOOKMETA_BACKFILL,
     },
     'Starting book metadata sync',
