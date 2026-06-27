@@ -1549,6 +1549,12 @@ components:
       type: object
       properties:
         event_type: { $ref: "#/components/schemas/EventType" }
+        reading_status:
+          {
+            type: [string, "null"],
+            enum: [read, reading, to-read, null],
+            description: BookWyrm shelf state stamped on the post; "read" marks a finish on this date.,
+          }
         book_title: { type: [string, "null"] }
         book_author: { type: [string, "null"] }
         started_date: { type: [string, "null"] }

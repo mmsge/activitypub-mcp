@@ -348,9 +348,11 @@ format/author/rating breakdown):
   `isbn13`, and publication year in a `book_metadata` table. When an Edition has no page count
   (and isn't an audiobook), it falls back to OpenLibrary then Google Books by ISBN
   (`GOOGLE_BOOKS_API_KEY` optional).
-- **Finish dates** — for each actor listed in `BOOKWYRM_ACTORS`, the server walks the full
-  outbox on startup and every 6 hours, ingesting started/finished/review posts so finish dates
-  are complete even for activity that predates the follow.
+- **Finish dates** — derived from the `readingStatus` BookWyrm stamps on each post: a
+  `read` comment/review/finished-note marks a finish on that post's date (this is what BookWyrm
+  renders as "finished reading"), `reading` marks a start. For each actor listed in
+  `BOOKWYRM_ACTORS`, the server walks the full outbox on startup and every 6 hours so these are
+  complete even for activity that predates the follow.
 
 `get_reading_stats` defaults to the `read` shelf and `group_by=year`. Page averages are
 reported over books with a known page count (`pages_coverage`, e.g. "22/25 books with known

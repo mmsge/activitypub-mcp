@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
 import { objects, bookwyrmObjects } from '../../db/schema.js'
-import { and, eq, isNull, gte, type SQL } from 'drizzle-orm'
+import { and, eq, isNull, gte, sql, type SQL } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 import {
   classifyReadingEvent,
@@ -66,6 +66,8 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
       attachments: objects.attachments,
       publishedAt: objects.publishedAt,
       rating: bookwyrmObjects.rating,
+      readingStatus: sql<string | null>`${objects.raw}->>'readingStatus'`,
+      inReplyToBook: sql<string | null>`${objects.raw}->>'inReplyToBook'`,
     })
     .from(objects)
     .leftJoin(bookwyrmObjects, eq(bookwyrmObjects.objectApId, objects.apId))
@@ -94,10 +96,15 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
         content: r.contentText,
         tags: r.tags,
         attachments: r.attachments,
+        readingStatus: r.readingStatus,
+        inReplyToBook: r.inReplyToBook,
       })!
       const date = r.publishedAt?.toISOString().slice(0, 10) ?? null
       return {
         event_type: ev.event_type,
+        // BookWyrm's shelf state at post time: a "read" comment/review marks a
+        // finish on this date even without a standalone finished_reading note.
+        reading_status: ev.reading_status,
         book_title: ev.book_title,
         book_author: ev.book_author,
         started_date: ev.event_type === 'started_reading' ? date : null,

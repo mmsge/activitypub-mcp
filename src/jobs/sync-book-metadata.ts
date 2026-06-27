@@ -12,11 +12,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /**
  * Collect every BookWyrm Edition URL referenced by stored reading data:
- *  - bookwyrm_objects.book_url (ReadThrough/Review/… that were ingested), and
- *  - Edition tag hrefs on generic `objects` (the started/finished generatednotes
- *    carry `{ type: "Edition", href: <book url> }` in their tags jsonb).
- * Returns the distinct union. Raw SQL because the second source needs a guarded
- * jsonb array unnest that Drizzle's builder can't express cleanly.
+ *  - bookwyrm_objects.book_url (ReadThrough/Review/… that were ingested),
+ *  - Edition tag hrefs on generic `objects` (started/finished generatednotes carry
+ *    `{ type: "Edition", href: <book url> }` in their tags jsonb), and
+ *  - inReplyToBook on comments/reviews (which reference the book that way, not via a tag).
+ * Returns the distinct union. Raw SQL because the jsonb sources need a guarded
+ * array unnest / field extraction that Drizzle's builder can't express cleanly.
  */
 async function collectBookUrls(): Promise<string[]> {
   const db = getDb()
@@ -29,6 +30,10 @@ async function collectBookUrls(): Promise<string[]> {
       WHERE jsonb_typeof(objects.tags) = 'array'
         AND tag->>'type' = 'Edition'
         AND tag->>'href' IS NOT NULL
+      UNION
+      SELECT objects.raw->>'inReplyToBook' AS book_url
+      FROM objects
+      WHERE objects.raw->>'inReplyToBook' IS NOT NULL
     ) urls
     WHERE book_url <> ''
   `)

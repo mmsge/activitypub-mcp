@@ -3,6 +3,7 @@ import {
   classifyReadingEvent,
   collapseReadingEvents,
   normalizeTitle,
+  normalizeReadingStatus,
   type ReadingEvent,
   type DerivedReadingEvent,
 } from './bookwyrm-reading.js'
@@ -20,6 +21,7 @@ function derived(
       book_author: null,
       bookwyrm_book_url: null,
       comment: null,
+      reading_status: null,
       ...partial,
     },
     publishedAt: opts.at ? new Date(opts.at) : null,
@@ -184,5 +186,62 @@ describe('collapseReadingEvents — one row per book', () => {
   it('skips events with neither title nor url', () => {
     const books = collapseReadingEvents([derived({ event_type: 'note' }, { at: '2026-01-01T00:00:00Z' })])
     expect(books).toHaveLength(0)
+  })
+
+  it('treats a "read" comment as a finish (the BookWyrm "leste ferdig" case)', () => {
+    // A comment carrying readingStatus="read" is how BookWyrm marks a finish when
+    // no standalone finished_reading generatednote is produced.
+    const books = collapseReadingEvents([
+      derived(
+        { event_type: 'comment', book_title: 'Dungeon Anarchist’s Cookbook', bookwyrm_book_url: 'd', reading_status: 'read' },
+        { at: '2026-06-22T08:48:25Z' },
+      ),
+    ])
+    expect(books).toHaveLength(1)
+    expect(books[0].shelf).toBe('read')
+    expect(books[0].finished?.toISOString().slice(0, 10)).toBe('2026-06-22')
+  })
+
+  it('a "reading" comment marks started/shelf=reading, not finished', () => {
+    const books = collapseReadingEvents([
+      derived({ event_type: 'comment', book_title: 'X', bookwyrm_book_url: 'x', reading_status: 'reading' }, { at: '2026-02-01T00:00:00Z' }),
+    ])
+    expect(books[0].shelf).toBe('reading')
+    expect(books[0].started?.toISOString().slice(0, 10)).toBe('2026-02-01')
+    expect(books[0].finished).toBeNull()
+  })
+})
+
+describe('classifyReadingEvent — readingStatus field', () => {
+  it('keeps event_type as comment but surfaces reading_status=read', () => {
+    const ev = classifyReadingEvent({
+      apId: `${AP}/comment/99`,
+      content: 'done (comment on Foo)',
+      tags: [{ type: 'Edition', name: '@Foo', href: 'https://bookwyrm.social/book/1' }],
+      attachments: [],
+      readingStatus: 'read',
+    })
+    expect(ev?.event_type).toBe('comment')
+    expect(ev?.reading_status).toBe('read')
+  })
+
+  it('takes the book url from inReplyToBook when there is no Edition tag (comment case)', () => {
+    const ev = classifyReadingEvent({
+      apId: `${AP}/comment/100`,
+      content: 'Så mange tog! (comment on Dungeon Anarchist’s Cookbook)',
+      tags: [{ type: 'Hashtag', name: '#TogTut' }],
+      attachments: [{ name: 'Matt Dinniman: Dungeon Anarchist’s Cookbook (Hardcover, 2025)' }],
+      readingStatus: 'read',
+      inReplyToBook: 'https://bookwyrm.social/book/2308638',
+    })
+    expect(ev?.bookwyrm_book_url).toBe('https://bookwyrm.social/book/2308638')
+    expect(ev?.reading_status).toBe('read')
+    expect(ev?.book_author).toBe('Matt Dinniman')
+  })
+
+  it('normalizes a shelf-URL readingStatus and tolerates absent value', () => {
+    expect(normalizeReadingStatus('https://bookwyrm.social/user/x/shelf/to-read')).toBe('to-read')
+    expect(normalizeReadingStatus('read')).toBe('read')
+    expect(normalizeReadingStatus(undefined)).toBeNull()
   })
 })
