@@ -8,6 +8,8 @@ import { webfingerRouter } from './activitypub/webfinger.js'
 import { nodeinfoRouter } from './activitypub/nodeinfo.js'
 import { adminRouter } from './admin/router.js'
 import { mcpRouter } from './mcp/router.js'
+import { oauthRouter } from './oauth/router.js'
+import { oauthWellknownRouter } from './oauth/wellknown.js'
 import { restRouter } from './rest/router.js'
 import { startScheduler } from './jobs/scheduler.js'
 import { syncFollows } from './jobs/sync-follows.js'
@@ -19,13 +21,15 @@ const app = new Hono()
 
 // Well-known endpoints
 app.route('/.well-known', webfingerRouter)
+app.route('/.well-known', oauthWellknownRouter)
 app.route('', nodeinfoRouter)
 
 // ActivityPub
 app.route('', activityPubRouter)
 
-// MCP
+// MCP + its OAuth authorization server
 app.route('', mcpRouter)
+app.route('/oauth', oauthRouter)
 
 // REST API (same data as MCP, for non-MCP collectors)
 app.route('/api/v1', restRouter)

@@ -91,7 +91,7 @@ Here is what each variable means:
 | `FOLLOW_ACTORS` | Yes | Comma-separated list of handles to follow (see below) |
 | `ADMIN_PASSWORD_HASH` | Yes | The bcrypt hash you generated in step 3 |
 | `SESSION_SECRET` | Yes | A random 32-byte hex string (generate with the command below) |
-| `REST_API_KEY` | No | Shared secret gating both the MCP server at `/mcp` and the read-only REST API at `/api/v1`. Leave blank to keep both disabled (`503`). Generate like `SESSION_SECRET`. |
+| `REST_API_KEY` | No | Shared secret for header-based access. Required to enable the read-only REST API at `/api/v1` (blank ⇒ `503`). Also accepted as a static-header credential for `/mcp` (the CLI/Desktop path); blank just disables that path — `/mcp` stays protected by OAuth. Generate like `SESSION_SECRET`. |
 | `LASTFM_API_KEY` | No | Last.fm API key ([create one](https://www.last.fm/api/account/create)). Enables scrobble ingestion. |
 | `LASTFM_USERNAME` | No | The Last.fm username whose scrobbles are ingested. Required alongside `LASTFM_API_KEY`. |
 | `LASTFM_SYNC_INTERVAL_SECONDS` | No | How often to poll Last.fm for new scrobbles, in seconds. Default `60`, minimum `15`. |
@@ -239,21 +239,43 @@ The MCP endpoint is at `https://yourdomain.com/mcp`.
 
 ### Authentication
 
-The MCP endpoint is gated by `REST_API_KEY` (the same secret that gates the REST API). Clients
-must send it as either header:
+The MCP endpoint is never public. It accepts **two** kinds of credentials, so requests without
+a valid one get `401`:
 
-```
-Authorization: Bearer <REST_API_KEY>
-X-API-Key: <REST_API_KEY>
-```
+1. **OAuth 2.1 access token** — for browser/mobile clients like the **claude.ai connector** and
+   the Claude mobile app, which can only authenticate via OAuth (they cannot send a static
+   header). The server is a self-contained OAuth authorization server: it advertises discovery
+   metadata, supports Dynamic Client Registration, and gates the login/consent step behind your
+   **admin password** (`ADMIN_PASSWORD_HASH`). See [OAuth flow](#oauth-flow) below.
+2. **Static `REST_API_KEY`** — for the Claude Code **CLI** and Claude **Desktop**, which can send
+   a header. Same secret that gates the REST API, sent as `Authorization: Bearer <REST_API_KEY>`
+   or `X-API-Key: <REST_API_KEY>`.
 
-Requests without a valid key get `401`. If `REST_API_KEY` is unset, the MCP server is disabled
-and returns `503` — so it is never accidentally public.
+`REST_API_KEY` is optional: with it unset, the static-header path is simply disabled and OAuth
+remains the way in. (Unlike the REST API, the MCP endpoint does **not** 503 when the key is
+unset, because OAuth always protects it.)
 
-### Connecting from Claude Code
+### Connecting from the claude.ai app (web / mobile)
 
-Add it as a remote HTTP MCP server with the key supplied as a static header (replace
-`<REST_API_KEY>` with the value from your `.env`):
+In **Settings → Connectors → Add custom connector**, enter `https://yourdomain.com/mcp` and press
+**Connect**. Claude registers itself, then sends you to a consent page — enter your admin
+password to approve, and the connection completes. No keys to copy.
+
+<a id="oauth-flow"></a>The server implements these endpoints for that flow:
+
+| Endpoint | Purpose |
+|---|---|
+| `/.well-known/oauth-protected-resource` | Resource metadata (points clients at the auth server) |
+| `/.well-known/oauth-authorization-server` | Authorization server metadata (RFC 8414) |
+| `/oauth/register` | Dynamic Client Registration (RFC 7591) |
+| `/oauth/authorize` | Login + consent (admin password), issues a PKCE auth code |
+| `/oauth/token` | Exchanges the code (or a refresh token) for an access token |
+| `/oauth/revoke` | Token revocation (RFC 7009) |
+
+### Connecting from Claude Code (CLI) or Claude Desktop
+
+These can send a static header, so use `REST_API_KEY` (replace `<REST_API_KEY>` with the value
+from your `.env`):
 
 ```bash
 claude mcp add --transport http activitypub \
@@ -274,9 +296,6 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
   }
 }
 ```
-
-Other MCP-compatible clients (Claude Desktop, etc.) connect the same way — point them at the
-URL above and send the `Authorization` (or `X-API-Key`) header.
 
 ### Available tools
 
