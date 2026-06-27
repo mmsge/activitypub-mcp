@@ -80,7 +80,20 @@ describe('normalizeLanguage', () => {
   it('picks the first known token from an array', () => {
     expect(normalizeLanguage(['danish', 'dansk'])).toBe('da')
     expect(normalizeLanguage(['norsk', 'bokmål'])).toBe('no')
-    expect(normalizeLanguage(['nynorsk'])).toBe('nn')
+  })
+  it('collapses all Norwegian written forms to `no`', () => {
+    for (const v of ['Norwegian', 'Norsk', 'bokmål', 'Bokmål', 'nynorsk', 'Nynorsk', 'nb', 'nn']) {
+      expect(normalizeLanguage(v)).toBe('no')
+    }
+  })
+  it('resolves multi-word BookWyrm strings via their sub-words', () => {
+    expect(normalizeLanguage('Norwegian nynorsk')).toBe('no')
+    expect(normalizeLanguage('Norsk bokmål')).toBe('no')
+  })
+  it('maps less-common languages seen in the data', () => {
+    expect(normalizeLanguage('Korean')).toBe('ko')
+    expect(normalizeLanguage('Japansk')).toBe('ja')
+    expect(normalizeLanguage('Swedish')).toBe('sv')
   })
   it('passes through unknown tokens lower-cased and handles empty', () => {
     expect(normalizeLanguage('Klingon')).toBe('klingon')

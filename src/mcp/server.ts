@@ -31,7 +31,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_actor_reading_status',
-    "Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. With use_live: false, shelves (reading/read/to-read) are derived from the actor's stored reading note posts, collapsed to one row per book; ratings only appear if a federated review/rating carried one, and cover art is only available via the live shelf. Returns title, authors, cover, shelf, started_date, finished_date, rating, and bookwyrm_book_url per book.",
+    "Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. With use_live: false, shelves (reading/read/to-read) are derived from the actor's stored reading note posts, collapsed to one row per book; ratings only appear if a federated review/rating carried one. Cover, pages and language are backfilled from the cached book_metadata where that book has been enriched (so offline rows now carry covers for enriched books; the live shelf is still ground truth for cover art). Returns title, authors, cover, shelf, started_date, finished_date, rating, bookwyrm_book_url, pages, and language per book.",
     getActorReadingStatusSchema.shape,
     async (input) => {
       const result = await getActorReadingStatus(input as any)

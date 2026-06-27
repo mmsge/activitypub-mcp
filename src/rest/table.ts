@@ -55,7 +55,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/actor-reading-status',
     name: 'get_actor_reading_status',
-    description: 'Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. With use_live: false, shelves (reading/read/to-read) are derived from the actor\'s stored reading note posts; ratings and cover art are only available via the live shelf. Returns title, authors, cover, shelf, started_date, finished_date, rating, and bookwyrm_book_url per book.',
+    description: 'Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. With use_live: false, shelves (reading/read/to-read) are derived from the actor\'s stored reading note posts; ratings appear only when a federated review/rating carried one. Cover, pages and language are backfilled from the cached book_metadata for enriched books (so offline rows now carry covers where the book has been enriched; the live shelf remains ground truth for cover art). Returns title, authors, cover, shelf, started_date, finished_date, rating, bookwyrm_book_url, pages, and language per book.',
     schema: getActorReadingStatusSchema,
     handler: getActorReadingStatus,
     numbers: ['limit'],
