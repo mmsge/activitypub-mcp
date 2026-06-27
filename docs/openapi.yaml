@@ -1100,6 +1100,7 @@ components:
       properties:
         title: { type: [string, "null"] }
         authors: { type: [string, "null"] }
+        cover: { type: [string, "null"] }
         shelf: { type: [string, "null"], enum: [reading, read, to-read, null] }
         started_date: { type: [string, "null"] }
         finished_date: { type: [string, "null"] }

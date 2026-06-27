@@ -27,7 +27,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_actor_reading_status',
-    'Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. Returns title, authors, shelf, started_date, finished_date, rating, and bookwyrm_book_url per book.',
+    'Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. Returns title, authors, cover, shelf, started_date, finished_date, rating, and bookwyrm_book_url per book.',
     getActorReadingStatusSchema.shape,
     async (input) => {
       const result = await getActorReadingStatus(input as any)
