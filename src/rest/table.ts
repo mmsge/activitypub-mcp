@@ -21,6 +21,10 @@ import {
 } from '../mcp/tools/train-trips.js'
 import { getGardenPagesSchema, getGardenPages } from '../mcp/tools/garden-pages.js'
 import { getBookDetailsSchema, getBookDetails } from '../mcp/tools/book-details.js'
+import {
+  getHashtagStatsSchema, getHashtagStats,
+  getHashtagTrendsSchema, getHashtagTrends,
+} from '../mcp/tools/hashtag-stats.js'
 
 /**
  * One row per MCP tool. Each REST endpoint reuses the exact same (schema, handler)
@@ -199,6 +203,26 @@ export const endpoints: RestEndpoint[] = [
     schema: getBookDetailsSchema,
     handler: getBookDetails,
     numbers: [],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/hashtag-stats',
+    name: 'get_hashtag_stats',
+    description: "Aggregate hashtag usage across stored posts to surface which hashtags an actor uses and how. Scoped by default to your own posts (the configured OWNER_ACTOR) when no actor_handle is given; pass actor_handle to inspect another actor, or a tag to restrict the snapshot to posts carrying that hashtag. Optionally bounded by a from/to/since time window. Returns totals (total_hashtag_uses, distinct_hashtags), a posts-with-hashtags ratio (posts_total, posts_with_hashtags, posts_with_hashtags_pct, avg_hashtags_per_post), top_hashtags with per-tag first_used/last_used, and top_cooccurring_pairs (hashtags frequently used together). Use /hashtag-trends for usage over time.",
+    schema: getHashtagStatsSchema,
+    handler: getHashtagStats,
+    numbers: ['limit'],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/hashtag-trends',
+    name: 'get_hashtag_trends',
+    description: "Track hashtag usage over time as a time series. Scoped by default to your own posts (the configured OWNER_ACTOR) when no actor_handle is given. Bucket by group_by=week|month|year (default month) over an optional from/to/since window. Without a tag, each series point reports total hashtag uses and distinct_hashtags for that period; pass a specific tag to chart just that hashtag's count per period. Series runs oldest → newest.",
+    schema: getHashtagTrendsSchema,
+    handler: getHashtagTrends,
+    numbers: ['limit'],
     booleans: [],
     arrays: [],
   },
