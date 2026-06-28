@@ -589,7 +589,8 @@ paths:
               properties:
                 actor_handle: { type: string }
                 tag: { type: string }
-                group_by: { type: string, enum: [week, month, year], default: month }
+                group_by:
+                  { type: string, enum: [week, month, year], default: month }
                 from: { type: string, format: date-time }
                 to: { type: string, format: date-time }
                 since: { type: string, format: date-time }
