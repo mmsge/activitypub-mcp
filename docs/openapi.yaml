@@ -463,6 +463,149 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/hashtag-stats:
+    get:
+      tags: [REST API]
+      summary: Aggregate hashtag usage for an actor
+      description: |
+        Hashtag analytics over stored posts: totals, a posts-with-hashtags ratio,
+        top hashtags with per-tag first/last used, and top co-occurring pairs.
+        Scoped by default to the configured OWNER_ACTOR when actor_handle is omitted.
+      operationId: getHashtagStatsGet
+      parameters:
+        - name: actor_handle
+          in: query
+          description: Scope to an actor; omit for the configured owner (or all posts).
+          schema: { type: string }
+        - name: tag
+          in: query
+          description: Restrict the snapshot to posts carrying this hashtag.
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+        - name: limit
+          in: query
+          description: Top-N size for hashtags and co-occurring pairs.
+          schema: { type: integer, minimum: 1, maximum: 200, default: 30 }
+      responses:
+        "200":
+          description: Hashtag statistics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HashtagStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Aggregate hashtag usage for an actor (JSON body)
+      operationId: getHashtagStatsPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                actor_handle: { type: string }
+                tag: { type: string }
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+                since: { type: string, format: date-time }
+                limit: { type: integer, minimum: 1, maximum: 200, default: 30 }
+      responses:
+        "200":
+          description: Hashtag statistics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HashtagStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/hashtag-trends:
+    get:
+      tags: [REST API]
+      summary: Hashtag usage over time
+      description: |
+        Time series of hashtag usage bucketed by week, month, or year. Without a
+        tag, each point reports total uses and distinct hashtags; with a tag, the
+        per-period count for that hashtag. Series runs oldest to newest.
+      operationId: getHashtagTrendsGet
+      parameters:
+        - name: actor_handle
+          in: query
+          description: Scope to an actor; omit for the configured owner (or all posts).
+          schema: { type: string }
+        - name: tag
+          in: query
+          description: Chart a single hashtag's count per period.
+          schema: { type: string }
+        - name: group_by
+          in: query
+          schema: { type: string, enum: [week, month, year], default: month }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+        - name: limit
+          in: query
+          description: Maximum number of periods returned (newest kept).
+          schema: { type: integer, minimum: 1, maximum: 500, default: 120 }
+      responses:
+        "200":
+          description: Hashtag usage time series.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HashtagTrendsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Hashtag usage over time (JSON body)
+      operationId: getHashtagTrendsPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                actor_handle: { type: string }
+                tag: { type: string }
+                group_by:
+                  { type: string, enum: [week, month, year], default: month }
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+                since: { type: string, format: date-time }
+                limit: { type: integer, minimum: 1, maximum: 500, default: 120 }
+      responses:
+        "200":
+          description: Hashtag usage time series.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HashtagTrendsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/recent-activities:
     get:
       tags: [REST API]
@@ -1585,6 +1728,61 @@ components:
               count: { type: integer }
         with_attachments: { type: integer }
         since: { type: [string, "null"] }
+
+    HashtagScope:
+      type: object
+      properties:
+        actor: { type: [string, "null"] }
+        tag: { type: [string, "null"] }
+        from: { type: [string, "null"], format: date-time }
+        to: { type: [string, "null"], format: date-time }
+        since: { type: [string, "null"], format: date-time }
+
+    HashtagStatsResponse:
+      type: object
+      properties:
+        scope: { $ref: "#/components/schemas/HashtagScope" }
+        total_hashtag_uses: { type: integer }
+        distinct_hashtags: { type: integer }
+        posts_total: { type: integer }
+        posts_with_hashtags: { type: integer }
+        posts_with_hashtags_pct: { type: number }
+        avg_hashtags_per_post: { type: number }
+        top_hashtags:
+          type: array
+          items:
+            type: object
+            properties:
+              tag: { type: string }
+              count: { type: integer }
+              first_used: { type: [string, "null"], format: date-time }
+              last_used: { type: [string, "null"], format: date-time }
+        top_cooccurring_pairs:
+          type: array
+          items:
+            type: object
+            properties:
+              tag_a: { type: string }
+              tag_b: { type: string }
+              count: { type: integer }
+
+    HashtagTrendsResponse:
+      type: object
+      properties:
+        scope: { $ref: "#/components/schemas/HashtagScope" }
+        group_by: { type: string, enum: [week, month, year] }
+        series:
+          type: array
+          description: >-
+            Each point has `period` plus either `uses`/`distinct_hashtags`
+            (overall) or `count` (when a single tag is charted).
+          items:
+            type: object
+            properties:
+              period: { type: string }
+              uses: { type: integer }
+              distinct_hashtags: { type: integer }
+              count: { type: integer }
 
     RecentActivity:
       type: object

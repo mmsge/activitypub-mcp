@@ -6,6 +6,11 @@ const schema = z.object({
   APP_DISPLAY_NAME: z.string().default('ActivityPub MCP Bot'),
   DATABASE_URL: z.string().url(),
   FOLLOW_ACTORS: z.string().default(''),
+  // Your primary fediverse handle (@user@domain or actor URL). When set, the
+  // hashtag-analytics tools default their scope to this actor's posts when no
+  // actor_handle is passed, so "what hashtags I use" answers about you out of the
+  // box. Unset → those tools aggregate across all stored posts.
+  OWNER_ACTOR: z.string().default(''),
   ADMIN_PASSWORD_HASH: z.string().min(1),
   SESSION_SECRET: z.string().min(32),
   REST_API_KEY: z.string().default(''),
