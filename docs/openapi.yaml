@@ -1263,6 +1263,78 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/books:
+    get:
+      tags: [REST API]
+      summary: Browse all cached books
+      description: |
+        The cached BookWyrm book catalogue as a paginated list of compact rows
+        (book_url, title, subtitle, series, pages, physical_format, isbn13/isbn10,
+        pub_year, language, publisher, cover_url, fetched_at). Call
+        `/book-details` for the full record (description, subjects, provenance) of
+        one book. Filter by `title` (partial match), `format`, or `language`.
+        Most-recently-enriched first by default; each response carries `total`
+        (matching books across all pages) and a `next_cursor` for deep traversal.
+      operationId: getBooksGet
+      parameters:
+        - name: title
+          in: query
+          description: Case-insensitive partial title match.
+          schema: { type: string }
+        - name: format
+          in: query
+          description: Exact physical_format, e.g. Paperback, Hardcover, GraphicNovel, AudiobookFormat.
+          schema: { type: string }
+        - name: language
+          in: query
+          description: Exact language (normalized ISO-639-1 code, e.g. en, no).
+          schema: { type: string }
+        - $ref: "#/components/parameters/SortOrder"
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: page
+          in: query
+          description: Offset-based page (legacy). Ignored when `cursor` is supplied.
+          schema: { type: integer, minimum: 1, default: 1 }
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Page of books.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BooksResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Browse all cached books (JSON body)
+      operationId: getBooksPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                format: { type: string }
+                language: { type: string }
+                sort_order: { type: string, enum: [asc, desc], default: desc }
+                limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+                page: { type: integer, minimum: 1, default: 1 }
+                cursor: { type: string }
+      responses:
+        "200":
+          description: Page of books.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BooksResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/book-details:
     get:
       tags: [REST API]
@@ -1664,6 +1736,45 @@ components:
         finished_date: { type: [string, "null"] }
         rating: { type: [string, "null"] }
         bookwyrm_book_url: { type: [string, "null"] }
+
+    BookSummary:
+      type: object
+      properties:
+        book_url: { type: string }
+        work_url: { type: [string, "null"] }
+        title: { type: [string, "null"] }
+        subtitle: { type: [string, "null"] }
+        series: { type: [string, "null"] }
+        pages: { type: [integer, "null"] }
+        physical_format: { type: [string, "null"] }
+        isbn13: { type: [string, "null"] }
+        isbn10: { type: [string, "null"] }
+        pub_year: { type: [integer, "null"] }
+        language: { type: [string, "null"] }
+        original_language: { type: [string, "null"] }
+        publisher: { type: [string, "null"] }
+        cover_url: { type: [string, "null"] }
+        fetched_at: { type: [string, "null"], format: date-time }
+
+    BooksResponse:
+      type: object
+      properties:
+        count: { type: integer }
+        total:
+          type: integer
+          description: Total books matching the filters across all pages.
+        page: { type: [integer, "null"] }
+        next_cursor: { type: [string, "null"] }
+        sort_order: { type: string, enum: [asc, desc] }
+        filters:
+          type: object
+          properties:
+            title: { type: [string, "null"] }
+            format: { type: [string, "null"] }
+            language: { type: [string, "null"] }
+        books:
+          type: array
+          items: { $ref: "#/components/schemas/BookSummary" }
 
     MediaPost:
       type: object

@@ -21,6 +21,7 @@ import {
 } from '../mcp/tools/train-trips.js'
 import { getGardenPagesSchema, getGardenPages } from '../mcp/tools/garden-pages.js'
 import { getBookDetailsSchema, getBookDetails } from '../mcp/tools/book-details.js'
+import { getBooksSchema, getBooks } from '../mcp/tools/books.js'
 import {
   getHashtagStatsSchema, getHashtagStats,
   getHashtagTrendsSchema, getHashtagTrends,
@@ -203,6 +204,16 @@ export const endpoints: RestEndpoint[] = [
     schema: getBookDetailsSchema,
     handler: getBookDetails,
     numbers: [],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/books',
+    name: 'get_books',
+    description: "Browse all cached BookWyrm book metadata as a paginated catalogue. Returns compact rows (book_url, title, subtitle, series, pages, physical_format, isbn13/isbn10, pub_year, language, publisher, cover_url, fetched_at) — call get_book_details for the full record (description, subjects, provenance) of one book. Filter by title (partial match), format, or language. Most-recently-enriched first by default (sort_order='asc' for oldest first). Each response carries `total` (matching books across all pages) and a `next_cursor` token; pass it back as `cursor` for deep traversal, or use the legacy offset `page`.",
+    schema: getBooksSchema,
+    handler: getBooks,
+    numbers: ['limit', 'page'],
     booleans: [],
     arrays: [],
   },

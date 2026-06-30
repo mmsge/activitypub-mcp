@@ -311,6 +311,8 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_scrobbles` | "What did I listen to yesterday? Show my Aphex Twin scrobbles." |
 | `get_scrobble_stats` | "Who are my top artists this month? How many tracks have I scrobbled?" |
 | `get_reading_stats` | "What's the average length of the books I read in 2026? How many pages have I read this year?" |
+| `get_books` | "List every book in the cache. Show me all the graphic novels." |
+| `get_book_details` | "What's the page count and publisher for The Radleys?" |
 
 All tools are read-only queries against the local database — no requests go out to remote servers when you query the MCP server.
 
@@ -410,6 +412,8 @@ All paths accept `GET`, `QUERY`, and `POST`.
 | `/scrobbles` | `get_scrobbles` | `artist`, `album`, `track`, `from`, `to`, `since`, `sort_order`, `limit`, `page`, `cursor` |
 | `/scrobble-stats` | `get_scrobble_stats` | `artist`, `album`, `track`, `from`, `to`, `since`, `group_by`, `limit` |
 | `/reading-stats` | `get_reading_stats` | `actor_handle`, `status`, `year`, `from`, `to`, `format`, `author`, `rating`, `group_by`, `limit` |
+| `/books` | `get_books` | `title`, `format`, `language`, `sort_order`, `limit`, `page`, `cursor` |
+| `/book-details` | `get_book_details` | `book_url`, `isbn`, `title` |
 
 `GET /api/v1` returns a discovery document listing every endpoint and its parameters.
 
