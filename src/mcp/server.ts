@@ -12,6 +12,7 @@ import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
 import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats } from './tools/train-trips.js'
 import { getGardenPagesSchema, getGardenPages } from './tools/garden-pages.js'
 import { getBookDetailsSchema, getBookDetails } from './tools/book-details.js'
+import { getBooksSchema, getBooks } from './tools/books.js'
 import { getHashtagStatsSchema, getHashtagStats, getHashtagTrendsSchema, getHashtagTrends } from './tools/hashtag-stats.js'
 
 export function createMcpServer(): McpServer {
@@ -176,6 +177,16 @@ export function createMcpServer(): McpServer {
     getBookDetailsSchema.shape,
     async (input) => {
       const result = await getBookDetails(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_books',
+    "Browse all cached BookWyrm book metadata as a paginated catalogue. Returns compact rows (book_url, title, subtitle, series, pages, physical_format, isbn13/isbn10, pub_year, language, publisher, cover_url, fetched_at) — call get_book_details for the full record (description, subjects, provenance) of one book. Filter by title (partial match), format, or language. Most-recently-enriched first by default (sort_order='asc' for oldest first). Each response carries `total` (matching books across all pages) and a `next_cursor` token; pass it back as `cursor` for deep traversal, or use the legacy offset `page`.",
+    getBooksSchema.shape,
+    async (input) => {
+      const result = await getBooks(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )
