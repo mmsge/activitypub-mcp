@@ -11,6 +11,7 @@ import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleSt
 import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
 import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats } from './tools/train-trips.js'
 import { getGardenPagesSchema, getGardenPages } from './tools/garden-pages.js'
+import { getGardenPageSchema, getGardenPage } from './tools/garden-page.js'
 import { getBookDetailsSchema, getBookDetails } from './tools/book-details.js'
 import { getBooksSchema, getBooks } from './tools/books.js'
 import { getHashtagStatsSchema, getHashtagStats, getHashtagTrendsSchema, getHashtagTrends } from './tools/hashtag-stats.js'
@@ -163,10 +164,20 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_garden_pages',
-    'Get pages from the markus.plus "Tankehav" digital garden (an Obsidian Publish site): title, url, section, excerpt, image and an optional date per page, plus a section roll-up. Filter by section; dated pages sort by date, undated pages sort after alphabetically.',
+    'Get pages from the markus.plus "Tankehav" digital garden (an Obsidian Publish site): title, url, section, excerpt, image and an optional date per page, plus a section roll-up. Filter by section; dated pages sort by date, undated pages sort after alphabetically. Set include_content=true to also receive each page\'s full markdown text (content, frontmatter stripped; null when not yet synced — content_missing reports coverage). For a single page\'s full text (including the home page, path "/", which this list omits) use get_garden_page.',
     getGardenPagesSchema.shape,
     async (input) => {
       const result = await getGardenPages(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_garden_page',
+    'Get one markus.plus "Tankehav" garden page with its full markdown text, resolved by path (the permalink, e.g. "/reisar/interrail/2025"; "/" is the home page) or url. Returns title, url, path, section, description, image, date, tags, plus content (the complete note body as markdown, frontmatter stripped) and content_fetched_at. Content is served from a local cache synced every 6h from Obsidian Publish; a missing page is fetched live once. content is null with content_error set if the source is currently unreachable.',
+    getGardenPageSchema.shape,
+    async (input) => {
+      const result = await getGardenPage(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

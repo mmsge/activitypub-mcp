@@ -1,6 +1,7 @@
 import { getDb } from '../../db/client.js'
 import { objects, bookwyrmObjects } from '../../db/schema.js'
 import { stripHtml } from '../../lib/strip-html.js'
+import { extractContent } from '../../lib/object-content.js'
 import { logger } from '../../lib/logger.js'
 
 type AnyObject = Record<string, unknown>
@@ -19,7 +20,7 @@ export async function handleCreate(activity: AnyObject): Promise<void> {
 
   const type = (obj.type as string) ?? 'Note'
   const actorApId = activity.actor as string
-  const content = (obj.content as string) ?? ''
+  const content = extractContent(obj) ?? ''
   const contentText = content ? stripHtml(content) : ''
   const publishedStr = (obj.published as string) ?? null
   const publishedAt = publishedStr ? new Date(publishedStr) : null
@@ -76,9 +77,8 @@ async function handleBookwyrm(
     const finishDate = extractDate(obj, 'finishedDate')
     const progress = extractProgress(obj)
     const progressMode = extractProgressMode(obj)
-    const reviewContent = (obj.content as string)
-      ? stripHtml(obj.content as string)
-      : null
+    const reviewHtml = extractContent(obj)
+    const reviewContent = reviewHtml ? stripHtml(reviewHtml) : null
 
     await db.insert(bookwyrmObjects).values({
       objectApId,

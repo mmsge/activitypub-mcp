@@ -144,6 +144,30 @@ export const bookMetadata = pgTable('book_metadata', {
   index('book_metadata_isbn13_idx').on(t.isbn13),
 ])
 
+// Full markdown bodies of the markus.plus "Tankehav" notes, fetched from Obsidian
+// Publish's /access/ endpoint by sync-garden-content. The origin is flaky (500s on
+// edge-cache misses have been observed for extended periods), so content persists
+// here and only a successful 200 ever overwrites it; failures just record
+// fetch_error and are retried on later cycles.
+export const gardenNotes = pgTable('garden_notes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  sourcePath: text('source_path').notNull().unique(), // vault path == cache-doc key, e.g. "_publish/Personleg/Om meg.md"
+  path: text('path').notNull(), // permalink path, e.g. "/meg"; "/" for the home note
+  title: text('title').notNull(),
+  content: text('content'), // raw markdown incl. frontmatter; null until first successful fetch
+  etag: text('etag'), // verbatim ETag header from the last 200
+  lastModified: text('last_modified'), // verbatim Last-Modified header from the last 200
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }), // last successful content fetch (200)
+  lastCheckedAt: timestamp('last_checked_at', { withTimezone: true }), // last attempt of any outcome (200/304/failure)
+  fetchError: text('fetch_error'), // last failure ("HTTP 500", network message); null after 200/304
+  failCount: integer('fail_count').notNull().default(0), // consecutive failures; reset on 200/304
+  deletedAt: timestamp('deleted_at', { withTimezone: true }), // set when the note leaves the cache doc; cleared on return
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('garden_notes_path_idx').on(t.path),
+])
+
 export const deliveryQueue = pgTable('delivery_queue', {
   id: uuid('id').primaryKey().defaultRandom(),
   inboxUrl: text('inbox_url').notNull(),

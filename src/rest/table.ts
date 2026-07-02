@@ -20,6 +20,7 @@ import {
   getTrainStatsSchema, getTrainStats,
 } from '../mcp/tools/train-trips.js'
 import { getGardenPagesSchema, getGardenPages } from '../mcp/tools/garden-pages.js'
+import { getGardenPageSchema, getGardenPage } from '../mcp/tools/garden-page.js'
 import { getBookDetailsSchema, getBookDetails } from '../mcp/tools/book-details.js'
 import { getBooksSchema, getBooks } from '../mcp/tools/books.js'
 import {
@@ -190,10 +191,20 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/garden-pages',
     name: 'get_garden_pages',
-    description: 'Get pages from the markus.plus "Tankehav" digital garden (an Obsidian Publish site): title, url, section, excerpt, image and an optional date per page, plus a section roll-up. Filter by section; dated pages sort by date, undated pages sort after alphabetically.',
+    description: 'Get pages from the markus.plus "Tankehav" digital garden (an Obsidian Publish site): title, url, section, excerpt, image and an optional date per page, plus a section roll-up. Filter by section; dated pages sort by date, undated pages sort after alphabetically. Set include_content=true to also receive each page\'s full markdown text (content, frontmatter stripped; null when not yet synced — content_missing reports coverage). For a single page\'s full text (including the home page, path "/", which this list omits) use /garden-page.',
     schema: getGardenPagesSchema,
     handler: getGardenPages,
     numbers: ['limit'],
+    booleans: ['include_content'],
+    arrays: [],
+  },
+  {
+    path: '/garden-page',
+    name: 'get_garden_page',
+    description: 'Get one markus.plus "Tankehav" garden page with its full markdown text, resolved by path (the permalink, e.g. "/reisar/interrail/2025"; "/" is the home page) or url. Returns title, url, path, section, description, image, date, tags, plus content (the complete note body as markdown, frontmatter stripped) and content_fetched_at. Content is served from a local cache synced every 6h from Obsidian Publish; a missing page is fetched live once. content is null with content_error set if the source is currently unreachable.',
+    schema: getGardenPageSchema,
+    handler: getGardenPage,
+    numbers: [],
     booleans: [],
     arrays: [],
   },

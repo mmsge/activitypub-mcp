@@ -16,6 +16,8 @@ import { syncFollows } from './jobs/sync-follows.js'
 import { syncScrobbles } from './jobs/sync-scrobbles.js'
 import { syncBookMetadata } from './jobs/sync-book-metadata.js'
 import { syncReadingHistory } from './jobs/sync-reading-history.js'
+import { syncGardenContent } from './jobs/sync-garden-content.js'
+import { backfillContentText } from './jobs/backfill-content-text.js'
 import { runDeliveryWorker } from './jobs/deliver.js'
 import { getDb } from './db/client.js'
 
@@ -73,6 +75,26 @@ async function main() {
       await syncBookMetadata()
     } catch (e) {
       logger.error(e, 'Reading sync failed on startup')
+    }
+  })()
+
+  // Crawl the markus.plus garden note bodies in the background (the first pass
+  // over ~380 notes takes a couple of minutes at the polite fetch rate).
+  void (async () => {
+    try {
+      await syncGardenContent()
+    } catch (e) {
+      logger.error(e, 'Garden content sync failed on startup')
+    }
+  })()
+
+  // One-time re-derivation of stored post text after text-pipeline fixes
+  // (entity decoding, contentMap fallback). No-ops once the marker is set.
+  void (async () => {
+    try {
+      await backfillContentText()
+    } catch (e) {
+      logger.error(e, 'Content-text backfill failed on startup')
     }
   })()
 
