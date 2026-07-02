@@ -50,6 +50,13 @@
       "when": 1782595369457,
       "tag": "0006_modern_chronomancer",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782991630498,
+      "tag": "0007_clever_medusa",
+      "breakpoints": true
     }
   ]
 }

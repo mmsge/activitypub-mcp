@@ -2,6 +2,7 @@ import { getDb } from '../../db/client.js'
 import { objects } from '../../db/schema.js'
 import { eq } from 'drizzle-orm'
 import { stripHtml } from '../../lib/strip-html.js'
+import { extractContent } from '../../lib/object-content.js'
 
 type AnyObject = Record<string, unknown>
 
@@ -12,7 +13,7 @@ export async function handleUpdate(activity: AnyObject): Promise<void> {
   const apId = (obj.id ?? obj['@id']) as string
   if (!apId) return
 
-  const content = (obj.content as string) ?? null
+  const content = extractContent(obj)
   const db = getDb()
   await db.update(objects).set({
     content,

@@ -3,6 +3,7 @@ import { refreshStaleActors } from './refresh-actors.js'
 import { syncScrobbles } from './sync-scrobbles.js'
 import { syncBookMetadata } from './sync-book-metadata.js'
 import { syncReadingHistory } from './sync-reading-history.js'
+import { syncGardenContent } from './sync-garden-content.js'
 import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
 
@@ -33,6 +34,12 @@ export function startScheduler(): void {
       await syncReadingHistory()
       await syncBookMetadata()
     } catch (e) { logger.error(e, 'Reading sync error') }
+  }, SIX_HOURS_MS)
+
+  // Garden note-body crawl — every 6 hours, its own interval so a slow or
+  // failing Obsidian origin never couples with the reading chain.
+  setInterval(async () => {
+    try { await syncGardenContent() } catch (e) { logger.error(e, 'Garden content sync error') }
   }, SIX_HOURS_MS)
 
   logger.info({ scrobbleIntervalSeconds: config.LASTFM_SYNC_INTERVAL_SECONDS }, 'Scheduler started')

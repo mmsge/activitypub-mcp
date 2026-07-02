@@ -1216,7 +1216,12 @@ paths:
         Pages from the markus.plus "Tankehav" digital garden (an Obsidian
         Publish site): title, url, section, excerpt, image and an optional date
         per page, plus a section roll-up. Filter by `section`; dated pages sort
-        by date, undated pages sort after alphabetically.
+        by date, undated pages sort after alphabetically. Set
+        `include_content=true` to also receive each page's full markdown text
+        (`content`, frontmatter stripped; null when not yet synced —
+        `content_missing` reports coverage). For a single page's full text
+        (including the home page, path `/`, which this list omits) use
+        `/garden-page`.
       operationId: getGardenPagesGet
       parameters:
         - name: section
@@ -1229,6 +1234,12 @@ paths:
         - name: sort_order
           in: query
           schema: { type: string, enum: [asc, desc], default: desc }
+        - name: include_content
+          in: query
+          description: Attach each page's full markdown text as `content` plus
+            `content_fetched_at`. Responses can be large — filter by section or
+            lower the limit when collecting incrementally.
+          schema: { type: boolean, default: false }
       responses:
         "200":
           description: Garden pages with a section roll-up.
@@ -1253,6 +1264,7 @@ paths:
                 limit:
                   { type: integer, minimum: 1, maximum: 1000, default: 500 }
                 sort_order: { type: string, enum: [asc, desc], default: desc }
+                include_content: { type: boolean, default: false }
       responses:
         "200":
           description: Garden pages with a section roll-up.
@@ -1261,6 +1273,62 @@ paths:
               schema: { $ref: "#/components/schemas/GardenPagesResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/garden-page:
+    get:
+      tags: [REST API]
+      summary: Get one garden page with its full markdown text
+      description: |
+        One markus.plus "Tankehav" garden page resolved by `path` (the
+        permalink, e.g. `/reisar/interrail/2025`; `/` is the home page) or
+        `url`. Returns the page metadata plus `content` (the complete note body
+        as markdown, frontmatter stripped) and `content_fetched_at`. Content is
+        served from a local cache synced every 6h from Obsidian Publish; a
+        missing page is fetched live once. `content` is null with
+        `content_error` set if the source is currently unreachable.
+      operationId: getGardenPageGet
+      parameters:
+        - name: path
+          in: query
+          description: Permalink path, e.g. /reisar/interrail/2025 (leading slash optional; "/" for the home page).
+          schema: { type: string }
+        - name: url
+          in: query
+          description: Full markus.plus URL. Alternative to path.
+          schema: { type: string, format: uri }
+      responses:
+        "200":
+          description: The garden page with its full text.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GardenPageResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Get one garden page with its full markdown text (JSON body)
+      operationId: getGardenPagePost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path: { type: string }
+                url: { type: string, format: uri }
+      responses:
+        "200":
+          description: The garden page with its full text.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GardenPageResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "503": { $ref: "#/components/responses/Disabled" }
 
   /api/v1/books:
@@ -2154,6 +2222,11 @@ components:
             properties:
               section: { type: string }
               count: { type: integer }
+        content_missing:
+          type: integer
+          description:
+            Present only when include_content=true; number of returned pages
+            whose content is not yet synced (content is null).
         pages:
           type: array
           items:
@@ -2171,6 +2244,45 @@ components:
               tags:
                 type: array
                 items: { type: string }
+              content:
+                type: [string, "null"]
+                description:
+                  Present only when include_content=true. The page's full
+                  markdown text (frontmatter stripped); null when the note has
+                  not been synced yet.
+              content_fetched_at:
+                type: [string, "null"]
+                format: date-time
+                description:
+                  Present only when include_content=true. When the content was
+                  last fetched from Obsidian Publish.
+
+    GardenPageResponse:
+      type: object
+      properties:
+        title: { type: string }
+        url: { type: string, format: uri }
+        path:
+          type: string
+          description: Permalink, e.g. /reisar/interrail/2025 ("/" is the home page).
+        section:
+          type: [string, "null"]
+          description: Null for the home page, which the page list omits.
+        description: { type: [string, "null"] }
+        image: { type: [string, "null"] }
+        date: { type: [string, "null"] }
+        tags:
+          type: array
+          items: { type: string }
+        content:
+          type: [string, "null"]
+          description:
+            The complete note body as markdown (frontmatter stripped); null
+            when the source is currently unreachable.
+        content_fetched_at: { type: [string, "null"], format: date-time }
+        content_error:
+          type: [string, "null"]
+          description: Last fetch error when content is null; null otherwise.
 
     # ---- ActivityPub / discovery ----
     WebfingerJrd:

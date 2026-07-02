@@ -7,18 +7,35 @@ import { logger } from './logger.js'
 // a description (excerpt) and an image (thumbnail); dates are present on only
 // some notes (`dato`/`modified`), so they're treated as optional.
 const SITE_ID = '8528a8f5ceabc10547ce0121dbdada5d'
-const CACHE_URL = `https://publish-01.obsidian.md/cache/${SITE_ID}`
+const PUBLISH_HOST = 'https://publish-01.obsidian.md'
+const CACHE_URL = `${PUBLISH_HOST}/cache/${SITE_ID}`
 const SITE_BASE = 'https://markus.plus'
+
+// URL serving a note's full raw markdown (frontmatter included). Built exactly
+// how the official Obsidian Publish app does it: each path segment
+// percent-encoded, slashes literal.
+export function noteAccessUrl(sourcePath: string): string {
+  return `${PUBLISH_HOST}/access/${SITE_ID}/${sourcePath.split('/').map(encodeURIComponent).join('/')}`
+}
 
 export interface GardenPage {
   title: string
   url: string
   path: string // permalink, e.g. "/reisar/interrail/2025"
   section: string // first permalink segment, e.g. "reisar"
+  sourcePath: string | null // vault path (cache-doc key); null for RSS-fallback pages
   description: string | null
   image: string | null
   date: string | null // ISO-ish date string when the note carries one
   tags: string[]
+}
+
+// The crawlable identity of one published note. Unlike GardenPage this includes
+// the home page (permalink "/"), which the page list deliberately omits.
+export interface GardenNoteRef {
+  sourcePath: string
+  path: string
+  title: string
 }
 
 // Book-review frontmatter, keyed by the `bookwyrm` field (== a BookWyrm Edition
@@ -42,7 +59,12 @@ export interface ReviewMeta {
 // Process-lifetime cache. The garden changes rarely and the consumer (msge.no)
 // already polls on a 6 h cadence, so a 6 h TTL keeps Obsidian out of the hot path.
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000
-let cache: { at: number; pages: GardenPage[]; reviews: Map<string, ReviewMeta> } | null = null
+let cache: {
+  at: number
+  pages: GardenPage[]
+  reviews: Map<string, ReviewMeta>
+  noteRefs: GardenNoteRef[]
+} | null = null
 
 type AnyObject = Record<string, unknown>
 
@@ -101,6 +123,7 @@ function parseCache(data: AnyObject): GardenPage[] {
       url: `${SITE_BASE}${path}`,
       path,
       section,
+      sourcePath: key,
       description: str(fm.description),
       image: str(fm.image),
       date: str(fm.dato) || str(fm.modified) || str(fm.anskaffet),
@@ -110,6 +133,37 @@ function parseCache(data: AnyObject): GardenPage[] {
     if (!existing || (!existing.date && page.date)) byPath.set(path, page)
   }
   return [...byPath.values()]
+}
+
+/**
+ * Every published .md note as a crawlable ref, INCLUDING the home page
+ * (permalink "/"), keyed by its unique vault path. Notes without a permalink
+ * are skipped, same as parseCache. Pure (no I/O).
+ */
+export function parseNoteRefs(data: AnyObject): GardenNoteRef[] {
+  const refs: GardenNoteRef[] = []
+  for (const [key, value] of Object.entries(data)) {
+    if (!key.endsWith('.md') || !value || typeof value !== 'object') continue
+    const fm = ((value as AnyObject).frontmatter as AnyObject) || {}
+    const permalink = str(fm.permalink)
+    if (!permalink) continue
+    const path = permalink.startsWith('/') ? permalink : `/${permalink}`
+    refs.push({ sourcePath: key, path, title: str(fm.title) || titleFromKey(key) })
+  }
+  return refs
+}
+
+/**
+ * Remove a leading YAML frontmatter block from raw note markdown. Only strips
+ * when the document's very first line (after an optional BOM) is `---`; the
+ * block ends at the next line that is exactly `---` (trailing spaces / CRLF
+ * tolerated). An unterminated opening fence is not frontmatter — the input is
+ * returned unchanged — and `---` thematic breaks later in the body are
+ * untouched since only offset 0 is matched.
+ */
+export function stripFrontmatter(raw: string): string {
+  const m = raw.match(/^﻿?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*(?:\r?\n|$)/)
+  return m ? raw.slice(m[0].length).replace(/^\r?\n/, '') : raw
 }
 
 /**
@@ -165,6 +219,7 @@ async function fetchFromRss(): Promise<GardenPage[]> {
       url: link.trim(),
       path,
       section,
+      sourcePath: null,
       description: null,
       image: null,
       date: null,
@@ -181,19 +236,21 @@ async function refreshGarden(): Promise<void> {
 
   let pages: GardenPage[] = []
   let reviews = new Map<string, ReviewMeta>()
+  let noteRefs: GardenNoteRef[] = []
   try {
     const res = await fetch(CACHE_URL, { headers: { Accept: 'application/json' } })
     if (!res.ok) throw new Error(`cache -> ${res.status}`)
     const doc = (await res.json()) as AnyObject
     pages = parseCache(doc)
     reviews = parseGardenReviews(doc)
+    noteRefs = parseNoteRefs(doc)
   } catch (e) {
     logger.warn({ error: e }, 'Obsidian cache fetch failed; falling back to rss.xml')
   }
   if (pages.length === 0) {
     try {
       // RSS carries no frontmatter, so the review map stays empty (enrichment then
-      // simply skips the review layer).
+      // simply skips the review layer) and noteRefs stays empty (no vault paths).
       pages = await fetchFromRss()
     } catch (e) {
       logger.warn({ error: e }, 'Tankehav rss.xml fallback failed')
@@ -202,13 +259,21 @@ async function refreshGarden(): Promise<void> {
     }
   }
 
-  cache = { at: Date.now(), pages, reviews }
+  cache = { at: Date.now(), pages, reviews, noteRefs }
   logger.info({ count: pages.length, reviews: reviews.size }, 'Tankehav garden refreshed')
 }
 
 export async function fetchGarden(): Promise<GardenPage[]> {
   await refreshGarden()
   return cache?.pages ?? []
+}
+
+// Crawlable note refs from the cached cache document (no extra network fetch).
+// An empty array means "cache doc unavailable this cycle" — callers must treat
+// that as unknown, not as an empty garden.
+export async function fetchGardenNoteRefs(): Promise<GardenNoteRef[]> {
+  await refreshGarden()
+  return cache?.noteRefs ?? []
 }
 
 // Book-review metadata keyed by the `bookwyrm` Edition URL. Reuses fetchGarden's
