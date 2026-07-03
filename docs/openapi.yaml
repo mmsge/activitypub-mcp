@@ -606,6 +606,163 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/engagement:
+    get:
+      tags: [REST API]
+      summary: Live engagement counts for statuses
+      description: |
+        Current favourite/boost/reply counts for one or more public statuses,
+        read live from each status's origin instance (Mastodon REST API first,
+        ActivityPub collection totals as fallback). Accepts permalinks, AP
+        object ids, or bare numeric ids resolved against OWNER_INSTANCE.
+        NOTE: unless snapshot=false, every call — including GET — records a
+        snapshot row per status; skip_unchanged=true suppresses writes identical
+        to the latest snapshot. Failures are per-item, never the whole batch.
+      operationId: getEngagementGet
+      parameters:
+        - name: statuses
+          in: query
+          required: true
+          description: Status references; repeat the param or comma-separate.
+          schema: { type: array, items: { type: string } }
+        - name: snapshot
+          in: query
+          description: Record a snapshot row per successful read.
+          schema: { type: boolean, default: true }
+        - name: skip_unchanged
+          in: query
+          description: Skip the write when counts equal the latest snapshot.
+          schema: { type: boolean, default: false }
+        - name: prefer
+          in: query
+          description: Force a fetch path; `ap` swaps the fallback order.
+          schema: { type: string, enum: [rest, ap], default: rest }
+      responses:
+        "200":
+          description: Per-status engagement results, preserving input order.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EngagementResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Live engagement counts for statuses (JSON body)
+      operationId: getEngagementPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [statuses]
+              properties:
+                statuses: { type: array, items: { type: string } }
+                snapshot: { type: boolean, default: true }
+                skip_unchanged: { type: boolean, default: false }
+                prefer: { type: string, enum: [rest, ap], default: rest }
+      responses:
+        "200":
+          description: Per-status engagement results, preserving input order.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EngagementResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/engagement-trends:
+    get:
+      tags: [REST API]
+      summary: Engagement history for one status
+      description: |
+        A status's stored engagement snapshots as a time series (needs at least
+        one prior /engagement sample). Buckets by hour, day, week, or month;
+        each point carries the latest counts observed in the bucket plus the
+        delta vs the previous bucket. Deltas can be negative — favourites and
+        boosts can be undone. Series runs oldest to newest.
+      operationId: getEngagementTrendsGet
+      parameters:
+        - name: status
+          in: query
+          required: true
+          description: One status reference (permalink, AP id, or bare id).
+          schema: { type: string }
+        - name: group_by
+          in: query
+          schema: { type: string, enum: [hour, day, week, month], default: day }
+        - name: metric
+          in: query
+          description: Narrow the series to one count as `{value, delta}` points.
+          schema:
+            {
+              type: string,
+              enum: [favourites, reblogs, replies, all],
+              default: all,
+            }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+        - name: limit
+          in: query
+          description: Maximum number of buckets returned (newest kept).
+          schema: { type: integer, minimum: 1, maximum: 1000, default: 120 }
+      responses:
+        "200":
+          description: Engagement time series.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EngagementTrendsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Engagement history for one status (JSON body)
+      operationId: getEngagementTrendsPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string }
+                group_by:
+                  { type: string, enum: [hour, day, week, month], default: day }
+                metric:
+                  {
+                    type: string,
+                    enum: [favourites, reblogs, replies, all],
+                    default: all,
+                  }
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+                since: { type: string, format: date-time }
+                limit:
+                  { type: integer, minimum: 1, maximum: 1000, default: 120 }
+      responses:
+        "200":
+          description: Engagement time series.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EngagementTrendsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/recent-activities:
     get:
       tags: [REST API]
@@ -1962,6 +2119,92 @@ components:
               uses: { type: integer }
               distinct_hashtags: { type: integer }
               count: { type: integer }
+
+    EngagementResultItem:
+      type: object
+      description: >-
+        Success items carry the counts and snapshot state; failure items carry
+        `error` (unresolved_origin | not_found | unauthorized |
+        unsupported_software | rate_limited | fetch_failed) and `message`.
+      properties:
+        input: { type: string, description: The reference as passed in. }
+        status_ap_id:
+          type: string
+          description: Canonical AP object id, as reported by the origin.
+        status_id: { type: string, description: Origin-local status id. }
+        origin: { type: string, description: Origin instance hostname. }
+        url: { type: [string, "null"], description: Human-facing permalink. }
+        favourites_count: { type: integer }
+        reblogs_count: { type: integer }
+        replies_count: { type: integer }
+        quotes_count:
+          {
+            type: [integer, "null"],
+            description: Null when the origin doesn't report quote counts.,
+          }
+        source:
+          {
+            type: string,
+            enum: [rest, ap],
+            description: "`ap` collection totals can under-report vs REST.",
+          }
+        sampled_at: { type: string, format: date-time }
+        snapshot_id: { type: [string, "null"] }
+        snapshot: { type: string, enum: [written, skipped_unchanged, disabled] }
+        snapshot_error:
+          {
+            type: string,
+            description: Set when the live read succeeded but the write failed.,
+          }
+        error: { type: string }
+        message: { type: string }
+
+    EngagementResponse:
+      type: object
+      properties:
+        ok: { type: integer, description: Number of successful reads. }
+        failed: { type: integer, description: Number of per-item failures. }
+        results:
+          type: array
+          description: One item per input reference, in input order.
+          items: { $ref: "#/components/schemas/EngagementResultItem" }
+
+    EngagementTrendsResponse:
+      type: object
+      properties:
+        status_ap_id: { type: string }
+        group_by: { type: string, enum: [hour, day, week, month] }
+        metric: { type: string, enum: [favourites, reblogs, replies, all] }
+        series:
+          type: array
+          description: >-
+            Oldest to newest. With metric=all each point carries every count
+            plus `d_*` deltas vs the previous bucket; with a single metric,
+            `value` and `delta`. First bucket's deltas are null; negative
+            deltas are real (un-favourites, undone boosts).
+          items:
+            type: object
+            properties:
+              bucket: { type: string }
+              sampled_at:
+                {
+                  type: string,
+                  format: date-time,
+                  description: When the bucket's latest snapshot was taken.,
+                }
+              favourites: { type: integer }
+              reblogs: { type: integer }
+              replies: { type: integer }
+              quotes: { type: [integer, "null"] }
+              d_favourites: { type: [integer, "null"] }
+              d_reblogs: { type: [integer, "null"] }
+              d_replies: { type: [integer, "null"] }
+              d_quotes: { type: [integer, "null"] }
+              value: { type: integer }
+              delta: { type: [integer, "null"] }
+        first_sampled_at: { type: [string, "null"], format: date-time }
+        last_sampled_at: { type: [string, "null"], format: date-time }
+        snapshot_count: { type: integer }
 
     RecentActivity:
       type: object

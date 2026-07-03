@@ -34,6 +34,21 @@ const schema = z.object({
   // metadata fields backfill immediately after a deploy. Unset it once that pass has
   // run to restore normal staleness-based refresh.
   BOOKMETA_BACKFILL: z.coerce.boolean().default(false),
+  // Hostname (or URL) of your own Mastodon instance, e.g. "skvip.lol". Bare
+  // numeric status ids in get_engagement resolve against it, and the optional
+  // MASTODON_ACCESS_TOKEN is ONLY ever sent to this host — never to remote origins.
+  OWNER_INSTANCE: z.string().default(''),
+  // Optional Mastodon API token for OWNER_INSTANCE. Only needed if the instance
+  // sets DISALLOW_UNAUTHENTICATED_API_ACCESS; public statuses read fine without it.
+  MASTODON_ACCESS_TOKEN: z.string().default(''),
+  ENGAGEMENT_MAX_BATCH: z.coerce.number().int().min(1).max(200).default(50),
+  ENGAGEMENT_HTTP_TIMEOUT_MS: z.coerce.number().int().min(1_000).default(10_000),
+  // Cadence of the background sampler that snapshots engagement for the owner's
+  // recent posts. Snapshots are skipped when counts are unchanged, so an hourly
+  // default stays cheap once posts go quiet.
+  ENGAGEMENT_SAMPLE_INTERVAL_MINUTES: z.coerce.number().int().min(5).default(60),
+  // How many of the owner's most recent posts the sampler tracks. 0 disables it.
+  ENGAGEMENT_SAMPLE_RECENT_POSTS: z.coerce.number().int().min(0).max(50).default(20),
   PORT: z.coerce.number().default(3000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.string().default('info'),
@@ -57,6 +72,18 @@ export function getFollowActors(): string[] {
     .split(',')
     .map(s => s.trim())
     .filter(Boolean)
+}
+
+/** Normalise OWNER_INSTANCE ("skvip.lol" or "https://skvip.lol") to a lowercase
+ *  hostname; '' when unset or unparseable. */
+export function getOwnerInstanceHost(): string {
+  const v = config.OWNER_INSTANCE.trim()
+  if (!v) return ''
+  try {
+    return new URL(v.includes('://') ? v : `https://${v}`).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
 }
 
 export function getBookwyrmActors(): string[] {
