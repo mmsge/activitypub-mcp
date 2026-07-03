@@ -15,6 +15,7 @@ import { getGardenPageSchema, getGardenPage } from './tools/garden-page.js'
 import { getBookDetailsSchema, getBookDetails } from './tools/book-details.js'
 import { getBooksSchema, getBooks } from './tools/books.js'
 import { getHashtagStatsSchema, getHashtagStats, getHashtagTrendsSchema, getHashtagTrends } from './tools/hashtag-stats.js'
+import { getEngagementSchema, getEngagement, getEngagementTrendsSchema, getEngagementTrends } from './tools/engagement.js'
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -218,6 +219,26 @@ export function createMcpServer(): McpServer {
     getHashtagTrendsSchema.shape,
     async (input) => {
       const result = await getHashtagTrends(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_engagement',
+    "Fetch CURRENT favourite/boost/reply counts for one or more public statuses, read live from each status's origin instance (Mastodon REST API first, ActivityPub collection totals as fallback — source: 'ap' counts can under-report). Accepts permalinks (https://host/@user/id), AP object ids, or bare numeric ids (resolved against OWNER_INSTANCE). Each successful read is snapshotted to the engagement_snapshots table (disable with snapshot: false; skip_unchanged: true suppresses writes identical to the latest snapshot), so repeated calls build the history behind get_engagement_trends. Failures are per-item — one dead status never fails the batch. Counts are eventually-consistent and can go DOWN over time.",
+    getEngagementSchema.shape,
+    async (input) => {
+      const result = await getEngagement(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_engagement_trends',
+    "Read a status's stored engagement history back as a time series (the read side of get_engagement's snapshots — a status must have been sampled at least once). Buckets snapshots by group_by=hour|day|week|month (default day) over an optional from/to/since window; each bucket carries the latest counts observed in it plus the delta vs the previous bucket (deltas can be negative — un-favourites and undone boosts are real). metric=favourites|reblogs|replies narrows the series to {value, delta} points; 'all' (default) returns every count. Series runs oldest → newest. Note: buckets mixing source: 'rest' and 'ap' snapshots can jitter, as AP collection totals may under-report.",
+    getEngagementTrendsSchema.shape,
+    async (input) => {
+      const result = await getEngagementTrends(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

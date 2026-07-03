@@ -4,6 +4,7 @@ import { syncScrobbles } from './sync-scrobbles.js'
 import { syncBookMetadata } from './sync-book-metadata.js'
 import { syncReadingHistory } from './sync-reading-history.js'
 import { syncGardenContent } from './sync-garden-content.js'
+import { sampleEngagement } from './sample-engagement.js'
 import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
 
@@ -41,6 +42,12 @@ export function startScheduler(): void {
   setInterval(async () => {
     try { await syncGardenContent() } catch (e) { logger.error(e, 'Garden content sync error') }
   }, SIX_HOURS_MS)
+
+  // Engagement sampling for the owner's recent posts — skip_unchanged writes
+  // keep this cheap, so an hourly default builds smooth trends without bloat.
+  setInterval(async () => {
+    try { await sampleEngagement() } catch (e) { logger.error(e, 'Engagement sampling error') }
+  }, config.ENGAGEMENT_SAMPLE_INTERVAL_MINUTES * 60_000)
 
   logger.info({ scrobbleIntervalSeconds: config.LASTFM_SYNC_INTERVAL_SECONDS }, 'Scheduler started')
 }

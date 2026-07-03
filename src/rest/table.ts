@@ -27,6 +27,10 @@ import {
   getHashtagStatsSchema, getHashtagStats,
   getHashtagTrendsSchema, getHashtagTrends,
 } from '../mcp/tools/hashtag-stats.js'
+import {
+  getEngagementSchema, getEngagement,
+  getEngagementTrendsSchema, getEngagementTrends,
+} from '../mcp/tools/engagement.js'
 
 /**
  * One row per MCP tool. Each REST endpoint reuses the exact same (schema, handler)
@@ -244,6 +248,26 @@ export const endpoints: RestEndpoint[] = [
     description: "Track hashtag usage over time as a time series. Scoped by default to your own posts (the configured OWNER_ACTOR) when no actor_handle is given. Bucket by group_by=week|month|year (default month) over an optional from/to/since window. Without a tag, each series point reports total hashtag uses and distinct_hashtags for that period; pass a specific tag to chart just that hashtag's count per period. Series runs oldest → newest.",
     schema: getHashtagTrendsSchema,
     handler: getHashtagTrends,
+    numbers: ['limit'],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/engagement',
+    name: 'get_engagement',
+    description: "Fetch CURRENT favourite/boost/reply counts for one or more public statuses, read live from each status's origin instance (Mastodon REST first, ActivityPub totals as fallback). Accepts permalinks, AP object ids, or bare numeric ids (OWNER_INSTANCE). NOTE: unless snapshot=false, every call — including GET — writes a snapshot row per status; skip_unchanged=true suppresses writes identical to the latest snapshot. Failures are per-item, never the whole batch.",
+    schema: getEngagementSchema,
+    handler: getEngagement,
+    numbers: [],
+    booleans: ['snapshot', 'skip_unchanged'],
+    arrays: ['statuses'],
+  },
+  {
+    path: '/engagement-trends',
+    name: 'get_engagement_trends',
+    description: "Read a status's stored engagement history as a time series (needs at least one prior get_engagement sample). Buckets by group_by=hour|day|week|month (default day) over an optional from/to/since window; each bucket carries the latest observed counts plus the delta vs the previous bucket (negative deltas are real: un-favourites happen). metric narrows to {value, delta} points. Series runs oldest → newest.",
+    schema: getEngagementTrendsSchema,
+    handler: getEngagementTrends,
     numbers: ['limit'],
     booleans: [],
     arrays: [],

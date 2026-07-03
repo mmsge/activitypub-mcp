@@ -225,6 +225,31 @@ export const scrobbles = pgTable('scrobbles', {
   uniqueIndex('scrobbles_dedupe_idx').on(t.playedAt, t.trackName, t.artistName),
 ])
 
+// Point-in-time favourite/boost/reply counts for public statuses, read live from
+// each status's ORIGIN instance by the get_engagement tool (REST /api/v1/statuses/:id
+// first, ActivityPub collection totals as fallback). One row per successful read,
+// unless skip_unchanged suppressed a write identical to the latest row. Counts are
+// eventually-consistent and can go DOWN (un-favourite / undo-boost) — negative
+// deltas between snapshots are correct, not corruption.
+export const engagementSnapshots = pgTable('engagement_snapshots', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  statusApId: text('status_ap_id').notNull(), // canonical AP object id (REST `uri` / AP `id`)
+  statusId: text('status_id').notNull(), // origin-local id (Mastodon snowflake, GtS ULID, …)
+  origin: text('origin').notNull(), // origin hostname, lowercase
+  favourites: integer('favourites').notNull(),
+  reblogs: integer('reblogs').notNull(),
+  replies: integer('replies').notNull(),
+  quotes: integer('quotes'), // null when the origin doesn't report quotes_count
+  source: text('source').notNull(), // 'rest' | 'ap' — AP-sourced counts can under-report
+  sampledAt: timestamp('sampled_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('engagement_snapshots_status_sampled_idx').on(t.statusApId, t.sampledAt),
+  // Secondary match key: every ref form (permalink / AP id / bare id) normalises to
+  // (origin, status_id) offline, so trends can find rows even when the canonical AP
+  // id can't be re-synthesized from the caller's ref (non-Mastodon software).
+  index('engagement_snapshots_origin_status_idx').on(t.origin, t.statusId),
+])
+
 export const adminSessions = pgTable('admin_sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
   tokenHash: text('token_hash').notNull().unique(),
