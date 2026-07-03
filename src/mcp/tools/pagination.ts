@@ -12,6 +12,9 @@ import { type PgColumn } from 'drizzle-orm/pg-core'
 
 export type SortOrder = 'asc' | 'desc'
 
+/** A client sent a cursor token we can't decode — a caller error, not a server fault. */
+export class InvalidCursorError extends Error {}
+
 type CursorPayload = { p: string | null; id: string }
 
 export function encodeCursor(ts: Date | null, id: string): string {
@@ -24,12 +27,12 @@ export function decodeCursor(token: string): CursorPayload {
   try {
     parsed = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'))
   } catch {
-    throw new Error('Invalid cursor: not a valid token')
+    throw new InvalidCursorError('Invalid cursor: not a valid token')
   }
   const c = parsed as CursorPayload
   const pOk = c && (c.p === null || (typeof c.p === 'string' && !Number.isNaN(Date.parse(c.p))))
   if (!c || typeof c.id !== 'string' || !pOk) {
-    throw new Error('Invalid cursor: malformed payload')
+    throw new InvalidCursorError('Invalid cursor: malformed payload')
   }
   return c
 }
@@ -58,8 +61,10 @@ export function keysetCondition(
       ? sql`(${tsCol} IS NULL AND ${idCol} > ${cursor.id}::uuid)`
       : sql`(${tsCol} IS NULL AND ${idCol} < ${cursor.id}::uuid)`
   }
-  const p = new Date(cursor.p)
+  // Bind the ISO string, not a Date: raw sql`` params have no column to drive
+  // drizzle's type mapping, so a Date reaches the driver as its toString() form,
+  // which Postgres can't cast to timestamptz. The explicit cast handles the string.
   return order === 'asc'
-    ? sql`(${tsCol} > ${p}::timestamptz OR (${tsCol} = ${p}::timestamptz AND ${idCol} > ${cursor.id}::uuid) OR ${tsCol} IS NULL)`
-    : sql`(${tsCol} < ${p}::timestamptz OR (${tsCol} = ${p}::timestamptz AND ${idCol} < ${cursor.id}::uuid) OR ${tsCol} IS NULL)`
+    ? sql`(${tsCol} > ${cursor.p}::timestamptz OR (${tsCol} = ${cursor.p}::timestamptz AND ${idCol} > ${cursor.id}::uuid) OR ${tsCol} IS NULL)`
+    : sql`(${tsCol} < ${cursor.p}::timestamptz OR (${tsCol} = ${cursor.p}::timestamptz AND ${idCol} < ${cursor.id}::uuid) OR ${tsCol} IS NULL)`
 }
