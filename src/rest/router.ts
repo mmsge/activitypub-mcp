@@ -1,6 +1,7 @@
 import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from '../lib/logger.js'
+import { InvalidCursorError } from '../mcp/tools/pagination.js'
 import { requireApiKey } from './auth.js'
 import { coerceQuery } from './coerce.js'
 import { endpoints, type RestEndpoint } from './table.js'
@@ -35,6 +36,11 @@ async function run(endpoint: RestEndpoint, input: unknown, c: Context) {
       && typeof (result as { error?: unknown }).error === 'string'
     return c.json(result as any, isErr ? 404 : 200)
   } catch (e) {
+    // A bad cursor token is a caller error — surface the reason so clients can
+    // recover (re-fetch page 1) instead of seeing an opaque 500.
+    if (e instanceof InvalidCursorError) {
+      return c.json({ error: e.message }, 400)
+    }
     logger.error(e, `REST ${endpoint.path} failed`)
     return c.json({ error: 'Internal error' }, 500)
   }
