@@ -41,6 +41,16 @@ app.route('/api/v1', restRouter)
 // Admin UI
 app.route('/admin', adminRouter)
 
+// Root discovery document — the app's only surfaces are the mounted routers,
+// so give the bare domain something better than a 404.
+app.get('/', (c) =>
+  c.json({
+    service: 'activitypub-mcp',
+    actor: `https://${config.APP_DOMAIN}/actor`,
+    endpoints: { rest: '/api/v1', mcp: '/mcp', nodeinfo: '/nodeinfo/2.0', health: '/health' },
+  })
+)
+
 // Health check
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }))
 
