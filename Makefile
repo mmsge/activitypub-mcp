@@ -33,16 +33,16 @@ ssh:
 .PHONY: msge markescence skjenelangs daggerheart hetzner
 
 msge:
-	cd /var/www/msge-no && exec $$SHELL
+	cd /srv/msge && exec $$SHELL
 
 markescence:
-	cd /var/www/markescence && exec $$SHELL
+	cd /srv/markescence && exec $$SHELL
 
 skjenelangs:
-	cd /var/www/skjenelangs.no && exec $$SHELL
+	cd /srv/skjenelangs && exec $$SHELL
 
 daggerheart:
-	cd /var/www/daggerheart-app/river-sky && exec $$SHELL
+	cd /srv/rpg && exec $$SHELL
 
 hetzner:
 	cd /root/hetzner-server && exec $$SHELL

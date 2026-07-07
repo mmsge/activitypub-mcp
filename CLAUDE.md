@@ -6,7 +6,7 @@ This service runs on a shared Hetzner VPS (SSH alias `msge`, IP `157.180.66.111`
 
 | Key | Value |
 |-----|-------|
-| Server path | `/opt/activitypub-mcp` |
+| Server path | `/srv/bot` |
 | Domain | `bot.skvip.lol` |
 | Host port | `3000` (must be `0.0.0.0:3000`, not `127.0.0.1:3000`) |
 | Runtime | Docker Compose |
@@ -39,5 +39,5 @@ Hono + TypeScript, PostgreSQL. The `db` service (postgres) is internal-only and 
 
 ## Environment
 
-Requires `.env` on the server at `/opt/activitypub-mcp/.env`.
+Requires `.env` on the server at `/srv/bot/.env`.
 Never commit `.env` to git.
