@@ -49,8 +49,8 @@ docker compose version
 ### 2. Clone the repository
 
 ```bash
-git clone <your-repo-url> /opt/activitypub-mcp
-cd /opt/activitypub-mcp
+git clone <your-repo-url> /srv/bot
+cd /srv/bot
 ```
 
 ### 3. Generate the admin password hash
