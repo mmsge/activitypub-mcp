@@ -31,6 +31,15 @@ services:
     # External access is blocked by the Hetzner cloud firewall.
     ports:
       - "3000:3000"
+    # main() runs blocking startup syncs before serve() binds the port, so give
+    # the probe a generous grace period before failures count. node:22-alpine
+    # ships busybox wget; probe the container-internal port 3000.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 180s
 
 volumes:
   postgres_data:

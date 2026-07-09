@@ -43,6 +43,7 @@ app.route('/admin', adminRouter)
 
 // Health check
 app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }))
+app.get('/healthz', (c) => c.text('ok'))
 
 async function main() {
   // Verify DB connection
