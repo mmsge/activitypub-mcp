@@ -16,6 +16,10 @@ export const actors = pgTable('actors', {
   handle: text('handle'),
   username: text('username'),
   domain: text('domain').notNull(),
+  // Fediverse software running the origin server ('mastodon', 'pixelfed', 'bookwyrm',
+  // 'loops', …), read from the server's NodeInfo. Lets callers map an account to its
+  // service. Null until probed (NodeInfo unreachable or not yet backfilled).
+  software: text('software'),
   displayName: text('display_name'),
   summary: text('summary'),
   iconUrl: text('icon_url'),

@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import { sql, type SQL } from 'drizzle-orm'
 import { getDb } from '../../db/client.js'
-import { config } from '../../config.js'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 
 /**
@@ -37,7 +36,7 @@ export const getActorEngagementTrendsSchema = z.object({
   actor_handle: z
     .string()
     .optional()
-    .describe('Actor handle (@user@domain) or actor URL. Defaults to the configured OWNER_ACTOR.'),
+    .describe('Actor handle (@user@domain) or actor URL to narrow to one account. Omit to aggregate across ALL followed actors (every account this server follows — i.e. all your accounts across services).'),
   metric: z.enum(['favourites', 'reblogs', 'replies', 'all']).default('favourites'),
   aggregate: z.enum(['mean', 'sum', 'median', 'max']).default('mean')
     .describe("How each bucket's per-post counts are combined into `value`. 'mean' answers avg-per-post; 'sum' answers total reach."),
@@ -120,33 +119,39 @@ export function buildActorTrendSeries(
   return { series, summary }
 }
 
-async function resolveActor(
+/**
+ * Resolve the actor scope. An explicit actor_handle (URL or @user@domain) narrows to
+ * one account; omitting it aggregates across ALL followed actors — every actor stored
+ * in `objects` is a followed+accepted account (the inbox rejects everyone else), so for
+ * this server that union is exactly the owner's own accounts across services.
+ */
+async function resolveScope(
   actorHandle: string | undefined,
-): Promise<{ apId: string; handle: string } | { error: string }> {
-  const handle = actorHandle ?? (config.OWNER_ACTOR || undefined)
-  if (!handle) return { error: 'No actor_handle given and OWNER_ACTOR is not configured' }
-  if (handle.startsWith('http')) return { apId: handle, handle }
-  const actor = await resolveActorByHandle(handle)
-  if (!actor) return { error: `Could not resolve actor: ${handle}` }
-  return { apId: actor.apId, handle }
+): Promise<{ actorApId: string | null; actor: string | null } | { error: string }> {
+  if (!actorHandle) return { actorApId: null, actor: null }
+  if (actorHandle.startsWith('http')) return { actorApId: actorHandle, actor: actorHandle }
+  const actor = await resolveActorByHandle(actorHandle)
+  if (!actor) return { error: `Could not resolve actor: ${actorHandle}` }
+  return { actorApId: actor.apId, actor: actorHandle }
 }
 
 export async function getActorEngagementTrends(
   input: z.infer<typeof getActorEngagementTrendsSchema>,
 ) {
-  const actor = await resolveActor(input.actor_handle)
-  if ('error' in actor) return actor
+  const scope = await resolveScope(input.actor_handle)
+  if ('error' in scope) return scope
 
   const db = getDb()
 
   // Qualifying posts joined to their latest snapshot. A LEFT JOIN LATERAL keeps posts
   // with no snapshot (favourites IS NULL) so `coverage` can count them; the series and
-  // window totals below then filter to snapshotted posts (the contributors).
+  // window totals below then filter to snapshotted posts (the contributors). With no
+  // actor scope the aggregate spans every stored (followed) actor.
   const conds: SQL[] = [
     sql`o.deleted_at IS NULL`,
-    sql`o.actor_ap_id = ${actor.apId}`,
     sql`o.published_at IS NOT NULL`,
   ]
+  if (scope.actorApId) conds.push(sql`o.actor_ap_id = ${scope.actorApId}`)
   if (input.object_types.length) {
     const types = sql.join(input.object_types.map((t) => sql`${t}`), sql`, `)
     conds.push(sql`o.type IN (${types})`)
@@ -257,8 +262,8 @@ export async function getActorEngagementTrends(
   )
 
   return {
-    actor: actor.handle,
-    actor_ap_id: actor.apId,
+    actor: scope.actor,
+    actor_ap_id: scope.actorApId,
     metric: input.metric,
     aggregate: input.aggregate,
     group_by: input.group_by,

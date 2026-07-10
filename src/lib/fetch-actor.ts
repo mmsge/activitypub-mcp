@@ -1,7 +1,8 @@
 import { getDb } from '../db/client.js'
 import { actors } from '../db/schema.js'
-import { eq } from 'drizzle-orm'
+import { eq, sql } from 'drizzle-orm'
 import { logger } from './logger.js'
+import { fetchSoftwareName } from './fetch-nodeinfo.js'
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000 // 24h
 
@@ -87,6 +88,10 @@ export async function fetchActor(url: string): Promise<ActorRecord> {
     headers: { Accept: 'application/activity+json' },
   }).then(r => r.json())
 
+  // Best-effort NodeInfo probe so the actor carries its origin software. A null result
+  // (host down / no endpoint) must not clobber a previously-detected value on refresh.
+  const software = await fetchSoftwareName(remote.domain)
+
   const handle = remote.username && remote.domain
     ? `@${remote.username}@${remote.domain}`
     : null
@@ -96,6 +101,7 @@ export async function fetchActor(url: string): Promise<ActorRecord> {
     handle,
     username: remote.username,
     domain: remote.domain,
+    software,
     displayName: remote.displayName,
     summary: remote.summary,
     iconUrl: remote.iconUrl,
@@ -109,6 +115,7 @@ export async function fetchActor(url: string): Promise<ActorRecord> {
     set: {
       handle,
       username: remote.username,
+      software: sql`coalesce(${software}, ${actors.software})`,
       displayName: remote.displayName,
       summary: remote.summary,
       iconUrl: remote.iconUrl,
