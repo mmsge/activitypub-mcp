@@ -16,6 +16,7 @@ import { getBookDetailsSchema, getBookDetails } from './tools/book-details.js'
 import { getBooksSchema, getBooks } from './tools/books.js'
 import { getHashtagStatsSchema, getHashtagStats, getHashtagTrendsSchema, getHashtagTrends } from './tools/hashtag-stats.js'
 import { getEngagementSchema, getEngagement, getEngagementTrendsSchema, getEngagementTrends } from './tools/engagement.js'
+import { getActorEngagementTrendsSchema, getActorEngagementTrends } from './tools/actor-engagement-trends.js'
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -239,6 +240,16 @@ export function createMcpServer(): McpServer {
     getEngagementTrendsSchema.shape,
     async (input) => {
       const result = await getEngagementTrends(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_actor_engagement_trends',
+    "Chart an actor's engagement (favourites/reblogs/replies) aggregated into time buckets across their posts — the actor-scoped sibling of get_engagement_trends. Joins each qualifying post to its LATEST engagement snapshot and buckets by the post's PUBLISHED date (group_by=day|week|month, default day). Scoped by default to your own posts (OWNER_ACTOR) when no actor_handle is given. metric=favourites|reblogs|replies|all (default favourites); aggregate=mean|sum|median|max (default mean — 'mean' answers avg-per-post, 'sum' answers total reach). exclude_replies (default true) drops posts with a non-null in_reply_to; object_types (default [\"Note\",\"Question\"]) excludes boosts/announces. Bound by from/to/since on published_at. Each bucket carries post_count plus value/sum/min/max; empty buckets are omitted (client can zero-fill). A `coverage` block reports how many in-window posts actually have a snapshot — posts must be sampled by get_engagement first, and only sampled posts contribute to the aggregate. Series runs oldest → newest. Counts are eventually-consistent and can go down; AP-collection totals can under-report.",
+    getActorEngagementTrendsSchema.shape,
+    async (input) => {
+      const result = await getActorEngagementTrends(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )
