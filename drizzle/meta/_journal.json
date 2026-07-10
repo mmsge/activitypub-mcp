@@ -64,6 +64,13 @@
       "when": 1783061043012,
       "tag": "0008_minor_harpoon",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783680475217,
+      "tag": "0009_common_maestro",
+      "breakpoints": true
     }
   ]
 }

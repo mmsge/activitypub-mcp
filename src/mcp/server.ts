@@ -66,7 +66,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_follows',
-    'List the actors this server is following, with follow status',
+    "List the actors this server is following, with follow status. Each entry includes `software` (the origin's NodeInfo software name, e.g. 'mastodon', 'pixelfed', 'bookwyrm', 'loops') and a human-facing `service` label (e.g. \"BookWyrm\") so you can tell which followed account belongs to which service — handy for picking the right actor_handle to scope other tools. software/service are null until probed.",
     getFollowsSchema.shape,
     async (input) => {
       const result = await getFollows(input as any)
