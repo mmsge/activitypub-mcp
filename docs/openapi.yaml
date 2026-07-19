@@ -146,6 +146,13 @@ paths:
           in: query
           description: Filter by object type, e.g. `Note,Article`.
           schema: { type: array, items: { type: string } }
+        - name: tag
+          in: query
+          description: |
+            Only posts carrying this hashtag (case-insensitive, leading `#`
+            optional), e.g. `togselfie`. Filtered in SQL so `limit` counts
+            matching posts and pagination stays correct.
+          schema: { type: string }
         - $ref: "#/components/parameters/SortOrder"
         - $ref: "#/components/parameters/Cursor"
       responses:
@@ -1916,6 +1923,12 @@ components:
         since: { type: string, format: date-time }
         until: { type: string, format: date-time }
         object_types: { type: array, items: { type: string } }
+        tag:
+          type: string
+          description: |
+            Only posts carrying this hashtag (case-insensitive, leading `#`
+            optional), e.g. `togselfie`. Filtered in SQL so `limit` counts
+            matching posts.
         sort_order: { type: string, enum: [asc, desc], default: desc }
         cursor: { type: string }
 
@@ -1946,6 +1959,7 @@ components:
             since: { type: [string, "null"] }
             until: { type: [string, "null"] }
             object_types: { type: [array, "null"], items: { type: string } }
+            tag: { type: [string, "null"] }
         posts:
           type: array
           items: { $ref: "#/components/schemas/Post" }
