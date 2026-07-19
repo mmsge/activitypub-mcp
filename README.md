@@ -403,7 +403,7 @@ All paths accept `GET`, `QUERY`, and `POST`.
 
 | REST path (under `/api/v1`) | MCP tool | Key parameters |
 |---|---|---|
-| `/actor-posts` | `get_actor_posts` | `actor_handle`, `limit`, `since`, `until`, `object_types`, `sort_order`, `cursor` |
+| `/actor-posts` | `get_actor_posts` | `actor_handle`, `limit`, `since`, `until`, `object_types`, `tag`, `sort_order`, `cursor` |
 | `/actor-reading-status` | `get_actor_reading_status` | `actor_handle`, `status`, `limit`, `use_live` |
 | `/actor-media` | `get_actor_media` | `actor_handle`, `media_type`, `limit`, `since` |
 | `/search-actor-content` | `search_actor_content` | `query`, `actor_handle`, `limit`, `object_types` |
@@ -425,6 +425,10 @@ All paths accept `GET`, `QUERY`, and `POST`.
 # GET with query-string params
 curl -H 'X-API-Key: YOUR_KEY' \
   'https://yourdomain.com/api/v1/scrobbles?artist=Aphex%20Twin&limit=10'
+
+# GET only the posts carrying a hashtag (leading # optional, case-insensitive)
+curl -H 'X-API-Key: YOUR_KEY' \
+  'https://yourdomain.com/api/v1/actor-posts?actor_handle=@alice@mastodon.social&tag=togselfie&limit=50'
 
 # QUERY (RFC 10008) — JSON body, identical to the MCP tool input
 curl -X QUERY -H 'Authorization: Bearer YOUR_KEY' -H 'Content-Type: application/json' \
