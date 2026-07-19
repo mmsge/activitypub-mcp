@@ -2,6 +2,7 @@ import { getDb } from '../../db/client.js'
 import { objects, bookwyrmObjects } from '../../db/schema.js'
 import { stripHtml } from '../../lib/strip-html.js'
 import { extractContent } from '../../lib/object-content.js'
+import { extractAttachments, extractTags, extractLanguage } from '../../lib/object-fields.js'
 import { logger } from '../../lib/logger.js'
 
 type AnyObject = Record<string, unknown>
@@ -50,7 +51,11 @@ export async function handleCreate(activity: AnyObject): Promise<void> {
     raw: obj,
   }).onConflictDoUpdate({
     target: objects.apId,
-    set: { content, contentText, summary, updatedAt: new Date(), raw: obj },
+    // Re-ingesting an object (a redelivery, an outbox re-crawl, or a Create that
+    // arrives after an edit) must refresh the mutable fields too — not just the
+    // text. Freezing `tags`/`attachments` at first-seen is what let a hashtag
+    // added in an edit go missing from the `tag=` filter.
+    set: { content, contentText, summary, attachments, tags, sensitive, language, updatedAt: new Date(), raw: obj },
   })
 
   // BookWyrm-specific extra data
@@ -110,24 +115,6 @@ async function handleBookwyrm(
   } catch (e) {
     logger.warn({ objectApId, error: e }, 'Failed to parse BookWyrm object')
   }
-}
-
-function extractLanguage(obj: AnyObject): string | null {
-  const ct = obj.contentMap as Record<string, string> | null
-  if (ct) return Object.keys(ct)[0] ?? null
-  return null
-}
-
-function extractAttachments(obj: AnyObject): unknown[] {
-  const att = obj.attachment
-  if (!att) return []
-  return Array.isArray(att) ? att : [att]
-}
-
-function extractTags(obj: AnyObject): unknown[] {
-  const t = obj.tag
-  if (!t) return []
-  return Array.isArray(t) ? t : [t]
 }
 
 function extractBookTitle(obj: AnyObject): string | null {

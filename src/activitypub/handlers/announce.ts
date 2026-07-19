@@ -1,5 +1,6 @@
 import { getDb } from '../../db/client.js'
 import { objects } from '../../db/schema.js'
+import { extractAttachments, extractTags } from '../../lib/object-fields.js'
 import { logger } from '../../lib/logger.js'
 
 type AnyObject = Record<string, unknown>
@@ -46,14 +47,4 @@ async function storeAnnouncedObject(obj: AnyObject, actorApId: string): Promise<
     tags: extractTags(obj),
     raw: obj,
   }).onConflictDoNothing()
-}
-
-function extractAttachments(obj: AnyObject): unknown[] {
-  const a = obj.attachment
-  return a ? (Array.isArray(a) ? a : [a]) : []
-}
-
-function extractTags(obj: AnyObject): unknown[] {
-  const t = obj.tag
-  return t ? (Array.isArray(t) ? t : [t]) : []
 }
