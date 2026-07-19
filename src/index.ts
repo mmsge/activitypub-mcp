@@ -18,6 +18,7 @@ import { syncBookMetadata } from './jobs/sync-book-metadata.js'
 import { syncReadingHistory } from './jobs/sync-reading-history.js'
 import { syncGardenContent } from './jobs/sync-garden-content.js'
 import { backfillContentText } from './jobs/backfill-content-text.js'
+import { backfillTags } from './jobs/backfill-tags.js'
 import { runDeliveryWorker } from './jobs/deliver.js'
 import { getDb } from './db/client.js'
 
@@ -96,6 +97,18 @@ async function main() {
       await backfillContentText()
     } catch (e) {
       logger.error(e, 'Content-text backfill failed on startup')
+    }
+  })()
+
+  // One-time re-derivation of stored `tags`/`attachments` from raw jsonb, to
+  // repair rows whose structured hashtags went stale before the edit handler
+  // refreshed them (e.g. selfies tagged #TogSelfie after the fact). No-ops once
+  // the marker is set.
+  void (async () => {
+    try {
+      await backfillTags()
+    } catch (e) {
+      logger.error(e, 'Tags backfill failed on startup')
     }
   })()
 
