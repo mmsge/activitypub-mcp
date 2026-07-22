@@ -1,14 +1,15 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
 import { objects } from '../../db/schema.js'
-import { and, eq, isNull, desc, like, or } from 'drizzle-orm'
+import { and, eq, isNull, desc, ilike, inArray, or } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 
 export const searchActorContentSchema = z.object({
   query: z.string().min(1).describe('Search terms'),
   actor_handle: z.string().optional().describe('Scope to a specific actor; omit to search all followed actors'),
   limit: z.number().int().min(1).max(50).default(20),
-  object_types: z.array(z.string()).optional(),
+  object_types: z.array(z.string()).optional()
+    .describe('Filter by AP object type, e.g. ["Note", "Article"]. Omit to search every type — BookWyrm reading statuses federate as plain Notes, so they are included by default.'),
 })
 
 export async function searchActorContent(input: z.infer<typeof searchActorContentSchema>) {
@@ -23,14 +24,22 @@ export async function searchActorContent(input: z.infer<typeof searchActorConten
     conditions.push(eq(objects.actorApId, actor.apId))
   }
 
-  // Simple ILIKE search — works without tsvector for portability
-  const term = `%${input.query.toLowerCase()}%`
+  // Simple ILIKE search — works without tsvector for portability. Must be ILIKE:
+  // Postgres LIKE is case-sensitive, so a lowercased term against mixed-case
+  // content ("Dungeon Crawler Carl") would never match.
+  const term = `%${input.query}%`
   conditions.push(
     or(
-      like(objects.contentText, term),
-      like(objects.summary, term),
+      ilike(objects.contentText, term),
+      ilike(objects.summary, term),
     )!
   )
+
+  // Filter in SQL so `limit` applies after the type filter — filtering the
+  // limited page in memory silently dropped matches beyond the first `limit` rows.
+  if (input.object_types?.length) {
+    conditions.push(inArray(objects.type, input.object_types))
+  }
 
   const rows = await db.select({
     apId: objects.apId,
@@ -45,9 +54,5 @@ export async function searchActorContent(input: z.infer<typeof searchActorConten
     .orderBy(desc(objects.publishedAt))
     .limit(input.limit)
 
-  const filtered = input.object_types?.length
-    ? rows.filter(r => input.object_types!.includes(r.type))
-    : rows
-
-  return { count: filtered.length, results: filtered }
+  return { count: rows.length, results: rows }
 }

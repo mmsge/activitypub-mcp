@@ -226,7 +226,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/book-details',
     name: 'get_book_details',
-    description: "Get full enriched metadata for one BookWyrm book from the local cache, resolved by book_url (the Edition AP id), isbn (13 or 10), or a partial title. Returns title, subtitle, series, pages, physical_format, isbn13/isbn10, pub_year, language, original_language, publisher, cover_url, description, and subjects — each matched to the edition's resolved ISBN, with isbn_source/page_source/source_map provenance.",
+    description: "Get full enriched metadata for one BookWyrm book from the local cache, resolved by book_url (the Edition AP id), isbn (13 or 10), or a partial title. Returns title, subtitle, author, series, pages, physical_format, isbn13/isbn10, pub_year, language, original_language, publisher, cover_url, description, and subjects — each matched to the edition's resolved ISBN, with isbn_source/page_source/source_map provenance.",
     schema: getBookDetailsSchema,
     handler: getBookDetails,
     numbers: [],
@@ -236,7 +236,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/books',
     name: 'get_books',
-    description: "Browse all cached BookWyrm book metadata as a paginated catalogue. Returns compact rows (book_url, title, subtitle, series, pages, physical_format, isbn13/isbn10, pub_year, language, publisher, cover_url, subjects, fetched_at) — call get_book_details for the full record (description, provenance) of one book. Filter by title (partial match), format, language, series (partial match), or subject (partial match against any subject/genre). Most-recently-enriched first by default (sort_order='asc' for oldest first). Each response carries `total` (matching books across all pages) and a `next_cursor` token; pass it back as `cursor` for deep traversal, or use the legacy offset `page`.",
+    description: "Browse all cached BookWyrm book metadata as a paginated catalogue. Returns compact rows (book_url, title, subtitle, author, series, pages, physical_format, isbn13/isbn10, pub_year, language, publisher, cover_url, subjects, fetched_at) — call get_book_details for the full record (description, provenance) of one book. Filter by title (partial match), author (partial match), format, language, series (partial match), or subject (partial match against any subject/genre). Most-recently-enriched first by default (sort_order='asc' for oldest first). Each response carries `total` (matching books across all pages) and a `next_cursor` token; pass it back as `cursor` for deep traversal, or use the legacy offset `page`.",
     schema: getBooksSchema,
     handler: getBooks,
     numbers: ['limit', 'page'],

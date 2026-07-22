@@ -1,5 +1,5 @@
 import { logger } from './logger.js'
-import { BOOKWYRM_AP_HEADERS } from './bookwyrm-fetch.js'
+import { BOOKWYRM_AP_HEADERS, resolveBookwyrmAuthorName } from './bookwyrm-fetch.js'
 
 type AnyObject = Record<string, unknown>
 
@@ -14,27 +14,6 @@ export interface ShelfItem {
 }
 
 const AP_HEADERS = BOOKWYRM_AP_HEADERS
-
-// Author AP objects are immutable for our purposes; cache resolved names for the
-// process lifetime so a shelf with many books by the same author costs one fetch.
-const authorNameCache = new Map<string, string | null>()
-
-async function resolveAuthorName(url: string): Promise<string | null> {
-  const cached = authorNameCache.get(url)
-  if (cached !== undefined) return cached
-  let name: string | null = null
-  try {
-    const res = await fetch(url, { headers: AP_HEADERS })
-    if (res.ok) {
-      const data = (await res.json()) as AnyObject
-      name = typeof data.name === 'string' ? data.name : null
-    }
-  } catch (e) {
-    logger.warn({ url, error: e }, 'Failed to resolve BookWyrm author')
-  }
-  authorNameCache.set(url, name)
-  return name
-}
 
 function extractShelfItem(obj: AnyObject): ShelfItem {
   // BookWyrm shelf orderedItems are Edition objects directly (not ShelfBook wrappers).
@@ -114,7 +93,7 @@ export async function fetchBookwyrmShelf(
       if (item.bookAuthor) return
       const authors = item.raw.authors
       const first = Array.isArray(authors) ? authors[0] : undefined
-      if (typeof first === 'string') item.bookAuthor = await resolveAuthorName(first)
+      if (typeof first === 'string') item.bookAuthor = await resolveBookwyrmAuthorName(first)
     }),
   )
 

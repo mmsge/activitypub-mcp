@@ -4,6 +4,7 @@ import { bookMetadata } from '../../db/schema.js'
 import { inArray } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 import { loadCollapsedBooks } from '../../lib/reading-query.js'
+import { fillNamesFromLiveShelf } from '../../lib/book-identity.js'
 
 // Formats whose page count isn't a prose-comparable "length", so the prose-only
 // average excludes them (comics/graphic novels and audiobooks). Poetry has no
@@ -217,6 +218,8 @@ export async function getReadingStats(input: ReadingStatsInput) {
     ? await db
         .select({
           bookUrl: bookMetadata.bookUrl,
+          title: bookMetadata.title,
+          author: bookMetadata.author,
           pages: bookMetadata.pages,
           physicalFormat: bookMetadata.physicalFormat,
           pubYear: bookMetadata.pubYear,
@@ -230,14 +233,18 @@ export async function getReadingStats(input: ReadingStatsInput) {
   const metaByUrl = new Map<string, (typeof metaRows)[number]>()
   for (const m of metaRows) metaByUrl.set(m.bookUrl, m)
 
+  // Identity precedence mirrors get_reading_pace: cache's canonical Edition
+  // title/author first (so e.g. the `author` filter matches books whose stored
+  // statuses never carried an author), parsed status fields next, live shelf
+  // merge last for any book still nameless.
   const books: BookForStats[] = collapsed.map((b) => {
     const m = b.url ? metaByUrl.get(b.url) : undefined
     const subjects = Array.isArray(m?.subjects)
       ? (m.subjects as unknown[]).filter((s): s is string => typeof s === 'string')
       : null
     return {
-      title: b.title,
-      author: b.author,
+      title: m?.title ?? b.title,
+      author: m?.author ?? b.author,
       url: b.url,
       shelf: b.shelf,
       finished: b.finished,
@@ -250,6 +257,7 @@ export async function getReadingStats(input: ReadingStatsInput) {
       subjects: subjects?.length ? subjects : null,
     }
   })
+  await fillNamesFromLiveShelf(actor.apId, books)
 
   return aggregateReadingStats(books, input)
 }

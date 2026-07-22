@@ -107,7 +107,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_reading_stats',
-    "Aggregate reading statistics for an actor's BookWyrm books: total/average/median page counts, reading span, ratings distribution, and a per-format breakdown, with a top-N breakdown by year, month, format, author, rating, series, or subject (subject is multi-valued: a book counts once per subject). Page/format/year/series/subject data comes from cached BookWyrm Edition metadata; finish dates are derived from the actor's public statuses (a \"read\" comment or a review marks the finish). Defaults to the \"read\" shelf and group_by=year; filter by year/from/to (on finish date), format, author, or rating. Page averages are reported over books with known page counts (see pages_coverage), and avg_pages_prose excludes comics/graphic novels and audiobooks so a comics-heavy span doesn't skew the prose number.",
+    "Aggregate reading statistics for an actor's BookWyrm books: total/average/median page counts, reading span, ratings distribution, and a per-format breakdown, with a top-N breakdown by year, month, format, author, rating, series, or subject (subject is multi-valued: a book counts once per subject). Page/format/year/series/subject data — and each book's canonical title/author — comes from cached BookWyrm Edition metadata (with the parsed status and live shelf as fallbacks); finish dates are derived from the actor's public statuses (a \"read\" comment or a review marks the finish). Defaults to the \"read\" shelf and group_by=year; filter by year/from/to (on finish date), format, author, or rating. Page averages are reported over books with known page counts (see pages_coverage), and avg_pages_prose excludes comics/graphic novels and audiobooks so a comics-heavy span doesn't skew the prose number.",
     getReadingStatsSchema.shape,
     async (input) => {
       const result = await getReadingStats(input as any)
@@ -117,7 +117,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_reading_pace',
-    "Reading pace and session analytics for an actor's BookWyrm books, computed over derived start→finish reading cycles (day granularity, from public statuses): per finished cycle days_to_finish and pages_per_day (needs a known start date and page count — coverage is reported in start_coverage), reread detection (a book with multiple cycles), overlap periods where 2+ books were being read at once, and summary aggregates (avg/median days to finish, avg pages/day, fastest/slowest, max concurrent books). Filter by year/from/to on the cycle's finish date; sort by finished (default, most recent first), fastest, or slowest.",
+    "Reading pace and session analytics for an actor's BookWyrm books, computed over derived start→finish reading cycles (day granularity, from public statuses): per finished cycle days_to_finish and pages_per_day (needs a known start date and page count — coverage is reported in start_coverage), reread detection (a book with multiple cycles), overlap periods where 2+ books were being read at once, and summary aggregates (avg/median days to finish, avg pages/day, fastest/slowest, max concurrent books). Every cycle carries the book's title/author, resolved from cached Edition metadata (parsed status and live shelf as fallbacks), so series questions need no extra lookups. Filter by year/from/to on the cycle's finish date; sort by finished (default, most recent first), fastest, or slowest.",
     getReadingPaceSchema.shape,
     async (input) => {
       const result = await getReadingPace(input as any)
@@ -197,7 +197,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_book_details',
-    "Get full enriched metadata for one BookWyrm book from the local cache, resolved by book_url (the Edition AP id), isbn (13 or 10), or a partial title. Returns title, subtitle, series, authors-independent fields like pages, physical_format, isbn13/isbn10, pub_year, language and original_language, publisher, cover_url, description, and subjects — each matched to the edition's resolved ISBN. isbn_source/page_source/source_map record where each value came from (bookwyrm Edition, markus.plus review, OpenLibrary, or Google Books).",
+    "Get full enriched metadata for one BookWyrm book from the local cache, resolved by book_url (the Edition AP id), isbn (13 or 10), or a partial title. Returns title, subtitle, author, series, pages, physical_format, isbn13/isbn10, pub_year, language and original_language, publisher, cover_url, description, and subjects — each matched to the edition's resolved ISBN. isbn_source/page_source/source_map record where each value came from (bookwyrm Edition, markus.plus review, OpenLibrary, or Google Books).",
     getBookDetailsSchema.shape,
     async (input) => {
       const result = await getBookDetails(input as any)
@@ -207,7 +207,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_books',
-    "Browse all cached BookWyrm book metadata as a paginated catalogue. Returns compact rows (book_url, title, subtitle, series, pages, physical_format, isbn13/isbn10, pub_year, language, publisher, cover_url, subjects, fetched_at) — call get_book_details for the full record (description, provenance) of one book. Filter by title (partial match), format, language, series (partial match), or subject (partial match against any subject/genre). Most-recently-enriched first by default (sort_order='asc' for oldest first). Each response carries `total` (matching books across all pages) and a `next_cursor` token; pass it back as `cursor` for deep traversal, or use the legacy offset `page`.",
+    "Browse all cached BookWyrm book metadata as a paginated catalogue. Returns compact rows (book_url, title, subtitle, author, series, pages, physical_format, isbn13/isbn10, pub_year, language, publisher, cover_url, subjects, fetched_at) — call get_book_details for the full record (description, provenance) of one book. Filter by title (partial match), author (partial match), format, language, series (partial match), or subject (partial match against any subject/genre). Most-recently-enriched first by default (sort_order='asc' for oldest first). Each response carries `total` (matching books across all pages) and a `next_cursor` token; pass it back as `cursor` for deep traversal, or use the legacy offset `page`.",
     getBooksSchema.shape,
     async (input) => {
       const result = await getBooks(input as any)

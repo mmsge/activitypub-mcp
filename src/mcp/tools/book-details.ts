@@ -50,6 +50,7 @@ export async function getBookDetails(input: BookDetailsInput) {
     work_url: b.workUrl,
     title: b.title,
     subtitle: b.subtitle,
+    author: b.author,
     series: b.series,
     pages: b.pages,
     physical_format: b.physicalFormat,
