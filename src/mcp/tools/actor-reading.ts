@@ -44,6 +44,8 @@ async function enrichWithMetadata(results: ReadingResult[]): Promise<void> {
   const rows = await db
     .select({
       bookUrl: bookMetadata.bookUrl,
+      title: bookMetadata.title,
+      author: bookMetadata.author,
       pages: bookMetadata.pages,
       language: bookMetadata.language,
       coverUrl: bookMetadata.coverUrl,
@@ -57,6 +59,9 @@ async function enrichWithMetadata(results: ReadingResult[]): Promise<void> {
     r.pages = m.pages ?? r.pages
     r.language = m.language ?? r.language
     r.cover = r.cover ?? m.coverUrl ?? null
+    // Gap-fill only — live shelf / derived values stay authoritative here.
+    r.title ??= m.title
+    r.authors ??= m.author
   }
 }
 

@@ -1,16 +1,94 @@
 import { getDb } from '../db/client.js'
 import { bookMetadata, bookwyrmObjects } from '../db/schema.js'
-import { fetchEditionMetadata } from '../lib/fetch-bookwyrm-edition.js'
+import { fetchEditionMetadata, type BookMetadata } from '../lib/fetch-bookwyrm-edition.js'
 import { fetchGardenBookReviews } from '../lib/fetch-garden.js'
 import { logger } from '../lib/logger.js'
 import { config } from '../config.js'
-import { sql, and, gte, inArray, isNotNull } from 'drizzle-orm'
+import { sql, and, eq, gte, inArray, isNotNull } from 'drizzle-orm'
 
 const MAX_PER_RUN = 200 // bound a single pass so a backfill doesn't hammer BookWyrm
 const FETCH_DELAY_MS = 200
 const STALE_AFTER_MS = 30 * 24 * 60 * 60 * 1000 // re-fetch metadata older than 30 days
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+async function upsertBookMetadata(meta: BookMetadata): Promise<void> {
+  const db = getDb()
+  const values = {
+    bookUrl: meta.bookUrl,
+    workUrl: meta.workUrl,
+    title: meta.title,
+    subtitle: meta.subtitle,
+    author: meta.author,
+    pages: meta.pages,
+    physicalFormat: meta.physicalFormat,
+    isbn13: meta.isbn13,
+    isbn10: meta.isbn10,
+    pubYear: meta.pubYear,
+    language: meta.language,
+    originalLanguage: meta.originalLanguage,
+    publisher: meta.publisher,
+    series: meta.series,
+    coverUrl: meta.coverUrl,
+    description: meta.description,
+    subjects: meta.subjects as unknown as Record<string, unknown>,
+    pageSource: meta.pageSource,
+    isbnSource: meta.isbnSource,
+    sourceMap: meta.sourceMap as unknown as Record<string, unknown>,
+    raw: meta as unknown as Record<string, unknown>,
+    fetchedAt: new Date(),
+  }
+  await db
+    .insert(bookMetadata)
+    .values(values)
+    .onConflictDoUpdate({ target: bookMetadata.bookUrl, set: values })
+}
+
+// --- On-ingest enrichment ----------------------------------------------------
+//
+// When a status referencing a not-yet-cached Edition URL is ingested (live
+// federation or the outbox backfill — both funnel through handleCreate), its
+// metadata is fetched right away instead of waiting for the next 6-hourly sync
+// pass. `attempted` dedupes a burst of statuses about the same book to one
+// fetch; the promise chain serializes fetches so a large backfill can't stampede
+// BookWyrm. Failures are left to the periodic sync, which retries every
+// referenced-but-uncached URL anyway.
+
+const attempted = new Set<string>()
+let ingestQueue: Promise<void> = Promise.resolve()
+
+export function queueBookMetadataEnrichment(bookUrl: string): void {
+  if (!bookUrl || attempted.has(bookUrl)) return
+  attempted.add(bookUrl)
+  ingestQueue = ingestQueue
+    .then(() => enrichIfMissing(bookUrl))
+    .catch((e) => logger.warn({ bookUrl, error: e }, 'On-ingest book enrichment failed'))
+}
+
+async function enrichIfMissing(bookUrl: string): Promise<void> {
+  const db = getDb()
+  const existing = await db
+    .select({ bookUrl: bookMetadata.bookUrl })
+    .from(bookMetadata)
+    .where(eq(bookMetadata.bookUrl, bookUrl))
+    .limit(1)
+  if (existing.length > 0) return
+
+  // Same context the periodic pass provides: the markus.plus review (the fetch
+  // is process-cached for 6 h) and any ISBN federated on this book's objects.
+  const reviews = await fetchGardenBookReviews().catch(() => new Map<string, never>())
+  const isbnRow = await db
+    .select({ isbn: bookwyrmObjects.bookIsbn })
+    .from(bookwyrmObjects)
+    .where(and(eq(bookwyrmObjects.bookUrl, bookUrl), isNotNull(bookwyrmObjects.bookIsbn)))
+    .limit(1)
+
+  const meta = await fetchEditionMetadata(bookUrl, reviews.get(bookUrl) ?? null, isbnRow[0]?.isbn ?? null)
+  if (!meta) return
+  await upsertBookMetadata(meta)
+  logger.info({ bookUrl, pages: meta.pages, author: meta.author }, 'Enriched book metadata on ingest')
+  await sleep(FETCH_DELAY_MS)
+}
 
 /**
  * Collect every BookWyrm Edition URL referenced by stored reading data:
@@ -113,33 +191,7 @@ export async function syncBookMetadata(): Promise<void> {
   for (const bookUrl of todo) {
     const meta = await fetchEditionMetadata(bookUrl, reviews.get(bookUrl) ?? null, objectIsbns.get(bookUrl) ?? null)
     if (!meta) continue
-    const values = {
-      bookUrl: meta.bookUrl,
-      workUrl: meta.workUrl,
-      title: meta.title,
-      subtitle: meta.subtitle,
-      pages: meta.pages,
-      physicalFormat: meta.physicalFormat,
-      isbn13: meta.isbn13,
-      isbn10: meta.isbn10,
-      pubYear: meta.pubYear,
-      language: meta.language,
-      originalLanguage: meta.originalLanguage,
-      publisher: meta.publisher,
-      series: meta.series,
-      coverUrl: meta.coverUrl,
-      description: meta.description,
-      subjects: meta.subjects as unknown as Record<string, unknown>,
-      pageSource: meta.pageSource,
-      isbnSource: meta.isbnSource,
-      sourceMap: meta.sourceMap as unknown as Record<string, unknown>,
-      raw: meta as unknown as Record<string, unknown>,
-      fetchedAt: new Date(),
-    }
-    await db
-      .insert(bookMetadata)
-      .values(values)
-      .onConflictDoUpdate({ target: bookMetadata.bookUrl, set: values })
+    await upsertBookMetadata(meta)
     enriched++
     if (meta.pages != null) withPages++
     if (meta.coverUrl != null) withCover++

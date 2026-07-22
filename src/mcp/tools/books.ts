@@ -8,6 +8,7 @@ import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pa
 
 function buildConditions(input: {
   title?: string
+  author?: string
   format?: string
   language?: string
   series?: string
@@ -15,6 +16,7 @@ function buildConditions(input: {
 }): SQL[] {
   const conditions: SQL[] = []
   if (input.title) conditions.push(ilike(bookMetadata.title, `%${input.title}%`))
+  if (input.author) conditions.push(ilike(bookMetadata.author, `%${input.author}%`))
   if (input.format) conditions.push(eq(bookMetadata.physicalFormat, input.format))
   if (input.language) conditions.push(eq(bookMetadata.language, input.language))
   if (input.series) conditions.push(ilike(bookMetadata.series, `%${input.series}%`))
@@ -34,6 +36,7 @@ function buildConditions(input: {
 
 export const getBooksSchema = z.object({
   title: z.string().optional().describe('Filter by title (case-insensitive, partial match)'),
+  author: z.string().optional().describe('Filter by author (case-insensitive, partial match)'),
   format: z.string().optional().describe('Filter by exact physical_format, e.g. "Paperback", "Hardcover", "GraphicNovel", "AudiobookFormat"'),
   language: z.string().optional().describe('Filter by exact language (normalized ISO-639-1 code, e.g. "en", "no")'),
   series: z.string().optional().describe('Filter by series name (case-insensitive, partial match)'),
@@ -73,6 +76,7 @@ export async function getBooks(input: z.infer<typeof getBooksSchema>) {
       workUrl: bookMetadata.workUrl,
       title: bookMetadata.title,
       subtitle: bookMetadata.subtitle,
+      author: bookMetadata.author,
       series: bookMetadata.series,
       pages: bookMetadata.pages,
       physicalFormat: bookMetadata.physicalFormat,
@@ -110,6 +114,7 @@ export async function getBooks(input: z.infer<typeof getBooksSchema>) {
     sort_order: input.sort_order,
     filters: {
       title: input.title ?? null,
+      author: input.author ?? null,
       format: input.format ?? null,
       language: input.language ?? null,
       series: input.series ?? null,
@@ -120,6 +125,7 @@ export async function getBooks(input: z.infer<typeof getBooksSchema>) {
       work_url: b.workUrl,
       title: b.title,
       subtitle: b.subtitle,
+      author: b.author,
       series: b.series,
       pages: b.pages,
       physical_format: b.physicalFormat,

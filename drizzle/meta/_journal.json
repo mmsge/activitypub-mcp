@@ -71,6 +71,13 @@
       "when": 1783680475217,
       "tag": "0009_common_maestro",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784733333028,
+      "tag": "0010_shocking_mindworm",
+      "breakpoints": true
     }
   ]
 }

@@ -124,6 +124,9 @@ export const bookMetadata = pgTable('book_metadata', {
   workUrl: text('work_url'), // canonical Work id, for per-work dedup later
   title: text('title'),
   subtitle: text('subtitle'),
+  // Display string, all authors joined with ", ". BookWyrm Editions carry authors
+  // as AP URLs, so the enrichment job dereferences them to names at fetch time.
+  author: text('author'),
   pages: integer('pages'),
   physicalFormat: text('physical_format'), // Paperback | Hardcover | GraphicNovel | AudiobookFormat | …
   isbn13: text('isbn13'),

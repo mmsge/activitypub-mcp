@@ -1595,11 +1595,12 @@ paths:
       summary: Browse all cached books
       description: |
         The cached BookWyrm book catalogue as a paginated list of compact rows
-        (book_url, title, subtitle, series, pages, physical_format, isbn13/isbn10,
+        (book_url, title, subtitle, author, series, pages, physical_format, isbn13/isbn10,
         pub_year, language, publisher, cover_url, subjects, fetched_at). Call
         `/book-details` for the full record (description, provenance) of one
-        book. Filter by `title` (partial match), `format`, `language`, `series`
-        (partial match), or `subject` (partial match against any subject/genre).
+        book. Filter by `title` (partial match), `author` (partial match), `format`,
+        `language`, `series` (partial match), or `subject` (partial match
+        against any subject/genre).
         Most-recently-enriched first by default; each response carries `total`
         (matching books across all pages) and a `next_cursor` for deep traversal.
       operationId: getBooksGet
@@ -1607,6 +1608,10 @@ paths:
         - name: title
           in: query
           description: Case-insensitive partial title match.
+          schema: { type: string }
+        - name: author
+          in: query
+          description: Case-insensitive partial author match.
           schema: { type: string }
         - name: format
           in: query
@@ -1654,6 +1659,7 @@ paths:
               type: object
               properties:
                 title: { type: string }
+                author: { type: string }
                 format: { type: string }
                 language: { type: string }
                 series: { type: string }
@@ -1679,7 +1685,7 @@ paths:
       description: |
         Full enriched metadata for one BookWyrm book from the local cache,
         resolved by `book_url` (the Edition AP id), `isbn` (13 or 10), or a
-        partial `title`. Returns title, subtitle, series, pages, physical_format,
+        partial `title`. Returns title, subtitle, author, series, pages, physical_format,
         isbn13/isbn10, pub_year, language, original_language, publisher,
         cover_url, description and subjects — each matched to the edition's
         resolved ISBN — plus isbn_source/page_source/source_map provenance.
@@ -2103,6 +2109,11 @@ components:
         work_url: { type: [string, "null"] }
         title: { type: [string, "null"] }
         subtitle: { type: [string, "null"] }
+        author:
+          {
+            type: [string, "null"],
+            description: All authors as one comma-joined display string.,
+          }
         series: { type: [string, "null"] }
         pages: { type: [integer, "null"] }
         physical_format: { type: [string, "null"] }
@@ -2130,6 +2141,7 @@ components:
           type: object
           properties:
             title: { type: [string, "null"] }
+            author: { type: [string, "null"] }
             format: { type: [string, "null"] }
             language: { type: [string, "null"] }
             series: { type: [string, "null"] }

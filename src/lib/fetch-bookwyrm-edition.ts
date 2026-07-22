@@ -1,7 +1,7 @@
 import { config } from '../config.js'
 import { logger } from './logger.js'
 import { stripHtml } from './strip-html.js'
-import { BOOKWYRM_AP_HEADERS } from './bookwyrm-fetch.js'
+import { BOOKWYRM_AP_HEADERS, resolveBookwyrmAuthorName } from './bookwyrm-fetch.js'
 import {
   resolveBestIsbn, normalizeLanguage, isbn13to10, type IsbnSource,
 } from './isbn.js'
@@ -19,6 +19,11 @@ export interface EditionMetadata {
   workUrl: string | null
   title: string | null
   subtitle: string | null
+  // BookWyrm federates Edition authors as AP URLs; names only appear inline on
+  // non-standard payloads. `authorUrls` is resolved to names by the (impure)
+  // fetcher and appended to `authorNames` before the merge.
+  authorUrls: string[]
+  authorNames: string[]
   pages: number | null
   physicalFormat: string | null
   isbn13: string | null
@@ -39,6 +44,7 @@ export interface BookMetadata {
   workUrl: string | null
   title: string | null
   subtitle: string | null
+  author: string | null // all authors, joined with ", "
   pages: number | null
   physicalFormat: string | null
   isbn13: string | null
@@ -66,6 +72,7 @@ export interface ExternalBookData {
   publishedDate: string | null
   language: string | null
   subjects: string[] | null
+  authors: string[] | null
   isbn10: string | null
   isbn13: string | null
 }
@@ -112,6 +119,17 @@ function strArray(v: unknown): string[] | null {
 export function mapEdition(obj: AnyObject): EditionMetadata {
   const bookUrl = ((obj.id as string) ?? (obj.url as string)) ?? ''
   const pages = posInt(obj.pages)
+  const authorUrls: string[] = []
+  const authorNames: string[] = []
+  for (const a of Array.isArray(obj.authors) ? obj.authors : []) {
+    if (typeof a === 'string') {
+      if (/^https?:\/\//.test(a)) authorUrls.push(a)
+      else if (a.trim()) authorNames.push(a.trim())
+    } else {
+      const name = str((a as AnyObject)?.name)
+      if (name) authorNames.push(name)
+    }
+  }
   const physicalFormat = (typeof obj.physicalFormat === 'string' && obj.physicalFormat) || null
   const languages = Array.isArray(obj.languages) ? obj.languages : []
   const language = typeof languages[0] === 'string' ? (languages[0] as string) : null
@@ -123,6 +141,8 @@ export function mapEdition(obj: AnyObject): EditionMetadata {
     workUrl: (typeof obj.work === 'string' && obj.work) || null,
     title: ((obj.title as string) ?? (obj.name as string)) || null,
     subtitle: str(obj.subtitle),
+    authorUrls,
+    authorNames,
     pages,
     physicalFormat,
     isbn13: str(obj.isbn13),
@@ -159,6 +179,7 @@ export function mapOpenLibrary(entry: AnyObject, isbn: string): ExternalBookData
     publishedDate: str(entry.publish_date),
     language: normalizeLanguage(entry.languages),
     subjects: strArray(entry.subjects),
+    authors: strArray(entry.authors),
     isbn13,
     isbn10,
   }
@@ -194,6 +215,7 @@ export function mapGoogleBooks(
     publishedDate: str(volumeInfo.publishedDate),
     language: normalizeLanguage(volumeInfo.language),
     subjects: strArray(volumeInfo.categories),
+    authors: strArray(volumeInfo.authors),
     isbn13: expected.isbn13,
     isbn10: expected.isbn10,
   }
@@ -344,6 +366,15 @@ export function mergeBookMetadata(inputs: MergeInputs): BookMetadata {
     [review?.subtitle ?? null, 'review'],
   ])
 
+  const joined = (names: string[] | null | undefined): string | null =>
+    names?.length ? [...new Set(names)].join(', ') : null
+  const author = pick<string>('author', [
+    [joined(edition.authorNames), 'bookwyrm'],
+    [joined(review?.authors), 'review'],
+    [joined(ol?.authors), 'openlibrary'],
+    [joined(gb?.authors), 'googlebooks'],
+  ])
+
   const series = pick<string>('series', [
     [edition.series, 'bookwyrm'],
     [review?.series ?? null, 'review'],
@@ -362,6 +393,7 @@ export function mergeBookMetadata(inputs: MergeInputs): BookMetadata {
     workUrl: edition.workUrl,
     title,
     subtitle,
+    author,
     pages,
     physicalFormat: edition.physicalFormat,
     isbn13: resolved.isbn13,
@@ -383,7 +415,7 @@ export function mergeBookMetadata(inputs: MergeInputs): BookMetadata {
 // Fields we'd still like to fill from Google Books if missing after Edition+review+OL.
 function hasGaps(m: BookMetadata): boolean {
   return (
-    m.pages == null || m.coverUrl == null || m.description == null ||
+    m.pages == null || m.coverUrl == null || m.description == null || m.author == null ||
     m.publisher == null || m.subjects == null || m.language == null || m.pubYear == null
   )
 }
@@ -413,6 +445,12 @@ export async function fetchEditionMetadata(
   const obj = (await res.json()) as AnyObject
   const edition = mapEdition(obj)
   edition.bookUrl ||= bookUrl
+
+  // Dereference the Edition's author AP objects to names (process-lifetime cached).
+  for (const url of edition.authorUrls) {
+    const name = await resolveBookwyrmAuthorName(url)
+    if (name && !edition.authorNames.includes(name)) edition.authorNames.push(name)
+  }
 
   const resolved = resolveBestIsbn([
     { value: edition.isbn13, source: 'bookwyrm' },

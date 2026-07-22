@@ -101,6 +101,23 @@ describe('mapOpenLibrary', () => {
   })
 })
 
+describe('mapEdition — authors', () => {
+  it('splits author refs into AP URLs (to dereference) and inline names', () => {
+    const m = mapEdition({
+      type: 'Edition',
+      id: 'https://bookwyrm.social/book/2324175',
+      title: 'Dungeon Crawler Carl',
+      authors: [
+        'https://bookwyrm.social/author/174961',
+        { name: 'Inline Name' },
+        'Plain Name',
+      ],
+    })
+    expect(m.authorUrls).toEqual(['https://bookwyrm.social/author/174961'])
+    expect(m.authorNames).toEqual(['Inline Name', 'Plain Name'])
+  })
+})
+
 describe('mapGoogleBooks', () => {
   const expected = { isbn13: '9780241988268', isbn10: '0241988268' }
   it('maps thumbnail/categories/description/language', () => {
@@ -129,6 +146,7 @@ describe('mapGoogleBooks', () => {
 describe('mergeBookMetadata — precedence (Edition authoritative)', () => {
   const baseEdition = (over: Partial<EditionMetadata> = {}): EditionMetadata => ({
     bookUrl: 'https://bookwyrm.social/book/1', workUrl: null, title: 'T', subtitle: null,
+    authorUrls: [], authorNames: [],
     pages: null, physicalFormat: 'Paperback', isbn13: null, isbn10: null, pubYear: null,
     language: null, publisher: null, series: null, coverUrl: null, description: null,
     subjects: null, pageSource: null, ...over,
@@ -140,7 +158,38 @@ describe('mergeBookMetadata — precedence (Edition authoritative)', () => {
   })
   const external = (over: Partial<ExternalBookData> = {}): ExternalBookData => ({
     pages: null, coverUrl: null, description: null, publisher: null, publishedDate: null,
-    language: null, subjects: null, isbn10: null, isbn13: null, ...over,
+    language: null, subjects: null, authors: null, isbn10: null, isbn13: null, ...over,
+  })
+
+  it('author: resolved Edition author names win; review, then external fill the gap', () => {
+    const withEdition = mergeBookMetadata({
+      edition: baseEdition({ authorNames: ['Matt Dinniman'] }),
+      review: review({ authors: ['Somebody Else'] }),
+      googleBooks: external({ authors: ['G. Books'] }),
+    })
+    expect(withEdition.author).toBe('Matt Dinniman')
+    expect(withEdition.sourceMap.author).toBe('bookwyrm')
+
+    const fromReview = mergeBookMetadata({
+      edition: baseEdition(),
+      review: review({ authors: ['Maria Turtschaninoff'] }),
+    })
+    expect(fromReview.author).toBe('Maria Turtschaninoff')
+    expect(fromReview.sourceMap.author).toBe('review')
+
+    const fromExternal = mergeBookMetadata({
+      edition: baseEdition(),
+      openLibrary: external({ authors: ['Ann Leckie'] }),
+    })
+    expect(fromExternal.author).toBe('Ann Leckie')
+    expect(fromExternal.sourceMap.author).toBe('openlibrary')
+  })
+
+  it('author: multiple authors join with ", " and dedupe', () => {
+    const m = mergeBookMetadata({
+      edition: baseEdition({ authorNames: ['A. One', 'B. Two', 'A. One'] }),
+    })
+    expect(m.author).toBe('A. One, B. Two')
   })
 
   it('Edition wins pages/language/cover over review and external', () => {

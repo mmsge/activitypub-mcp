@@ -3,6 +3,7 @@ import { objects, bookwyrmObjects } from '../../db/schema.js'
 import { stripHtml } from '../../lib/strip-html.js'
 import { extractContent } from '../../lib/object-content.js'
 import { extractAttachments, extractTags, extractLanguage } from '../../lib/object-fields.js'
+import { queueBookMetadataEnrichment } from '../../jobs/sync-book-metadata.js'
 import { logger } from '../../lib/logger.js'
 
 type AnyObject = Record<string, unknown>
@@ -64,6 +65,28 @@ export async function handleCreate(activity: AnyObject): Promise<void> {
   if (BOOKWYRM_TYPES.has(type)) {
     await handleBookwyrm(apId, type, obj, actorApId)
   }
+
+  // Kick off metadata enrichment for any Edition this object references that we
+  // haven't cached yet (fire-and-forget — never blocks inbox handling).
+  for (const bookUrl of collectEditionUrls(obj, tags)) {
+    queueBookMetadataEnrichment(bookUrl)
+  }
+}
+
+// Every way an ingested object can reference a BookWyrm Edition: comments and
+// reviews carry `inReplyToBook`, generatednotes an Edition tag href, ReadThroughs
+// a nested `book` object.
+function collectEditionUrls(obj: AnyObject, tags: unknown): string[] {
+  const urls = new Set<string>()
+  if (typeof obj.inReplyToBook === 'string' && obj.inReplyToBook) urls.add(obj.inReplyToBook)
+  const book = obj.book as AnyObject | null
+  const bookUrl = (book?.id ?? book?.url) as string | undefined
+  if (typeof bookUrl === 'string' && bookUrl) urls.add(bookUrl)
+  for (const t of Array.isArray(tags) ? tags : []) {
+    const tag = t as AnyObject
+    if (tag?.type === 'Edition' && typeof tag.href === 'string' && tag.href) urls.add(tag.href)
+  }
+  return [...urls]
 }
 
 async function handleBookwyrm(
