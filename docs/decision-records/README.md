@@ -12,3 +12,4 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | # | Title |
 |---|-------|
 | [0001](0001-refresh-structured-fields-on-edit.md) | Refresh structured fields (tags/attachments) when a post is edited |
+| [0002](0002-derive-reading-dates-from-public-ap.md) | Derive reading dates from public ActivityPub statuses, not authenticated BookWyrm access |
