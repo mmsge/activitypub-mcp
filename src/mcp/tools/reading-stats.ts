@@ -5,6 +5,7 @@ import { inArray } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 import { loadCollapsedBooks } from '../../lib/reading-query.js'
 import { fillNamesFromLiveShelf } from '../../lib/book-identity.js'
+import { normalizeSubjects } from '../../lib/subjects.js'
 
 // Formats whose page count isn't a prose-comparable "length", so the prose-only
 // average excludes them (comics/graphic novels and audiobooks). Poetry has no
@@ -239,9 +240,7 @@ export async function getReadingStats(input: ReadingStatsInput) {
   // merge last for any book still nameless.
   const books: BookForStats[] = collapsed.map((b) => {
     const m = b.url ? metaByUrl.get(b.url) : undefined
-    const subjects = Array.isArray(m?.subjects)
-      ? (m.subjects as unknown[]).filter((s): s is string => typeof s === 'string')
-      : null
+    const subjects = normalizeSubjects(m?.subjects)
     return {
       title: m?.title ?? b.title,
       author: m?.author ?? b.author,

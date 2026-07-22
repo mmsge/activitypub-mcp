@@ -2,6 +2,7 @@ import { config } from '../config.js'
 import { logger } from './logger.js'
 import { stripHtml } from './strip-html.js'
 import { BOOKWYRM_AP_HEADERS, resolveBookwyrmAuthorName } from './bookwyrm-fetch.js'
+import { normalizeSubjects } from './subjects.js'
 import {
   resolveBestIsbn, normalizeLanguage, isbn13to10, type IsbnSource,
 } from './isbn.js'
@@ -405,7 +406,7 @@ export function mergeBookMetadata(inputs: MergeInputs): BookMetadata {
     series,
     coverUrl,
     description,
-    subjects,
+    subjects: normalizeSubjects(subjects),
     pageSource: sourceMap.pages ?? null,
     isbnSource: resolved.source,
     sourceMap,
