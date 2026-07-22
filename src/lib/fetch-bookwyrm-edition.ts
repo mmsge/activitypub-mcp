@@ -1,6 +1,7 @@
 import { config } from '../config.js'
 import { logger } from './logger.js'
 import { stripHtml } from './strip-html.js'
+import { BOOKWYRM_AP_HEADERS } from './bookwyrm-fetch.js'
 import {
   resolveBestIsbn, normalizeLanguage, isbn13to10, type IsbnSource,
 } from './isbn.js'
@@ -69,9 +70,7 @@ export interface ExternalBookData {
   isbn13: string | null
 }
 
-const AP_HEADERS = {
-  Accept: 'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
-}
+const AP_HEADERS = BOOKWYRM_AP_HEADERS
 
 // Formats that legitimately have no page count, so we don't waste ISBN-fallback
 // calls (and later, prose-average exclusions) on them.

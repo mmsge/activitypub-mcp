@@ -15,6 +15,8 @@ function book(partial: Partial<BookForStats>): BookForStats {
     format: null,
     pubYear: null,
     language: null,
+    series: null,
+    subjects: null,
     ...partial,
   }
 }
@@ -91,5 +93,32 @@ describe('aggregateReadingStats', () => {
     expect(r.avg_pages).toBeNull()
     expect(r.median_pages).toBeNull()
     expect(r.pages_coverage).toBe('0/0 books with known page counts')
+  })
+})
+
+describe('group_by=series and group_by=subject', () => {
+  const SERIES_SAMPLE: BookForStats[] = [
+    book({ title: 'DCC 1', series: 'Dungeon Crawler Carl', subjects: ['Fantasy', 'LitRPG'], finished: new Date('2026-01-01') }),
+    book({ title: 'DCC 2', series: 'Dungeon Crawler Carl', subjects: ['Fantasy', 'LitRPG'], finished: new Date('2026-02-01') }),
+    book({ title: 'Solo', series: null, subjects: ['Romance'], finished: new Date('2026-03-01') }),
+    book({ title: 'Bare', series: null, subjects: null, finished: new Date('2026-04-01') }),
+  ]
+
+  it('groups by series with unknown fallback', () => {
+    const out = aggregateReadingStats(SERIES_SAMPLE, withDefaults({ group_by: 'series' }))
+    const dcc = out.top.find((t) => t.key === 'Dungeon Crawler Carl')
+    const unknown = out.top.find((t) => t.key === 'unknown')
+    expect(dcc?.books).toBe(2)
+    expect(unknown?.books).toBe(2)
+  })
+
+  it('counts a book once per subject (multi-valued explosion)', () => {
+    const out = aggregateReadingStats(SERIES_SAMPLE, withDefaults({ group_by: 'subject' }))
+    expect(out.top.find((t) => t.key === 'Fantasy')?.books).toBe(2)
+    expect(out.top.find((t) => t.key === 'LitRPG')?.books).toBe(2)
+    expect(out.top.find((t) => t.key === 'Romance')?.books).toBe(1)
+    expect(out.top.find((t) => t.key === 'unknown')?.books).toBe(1)
+    // total_books is still per-book, not per-subject
+    expect(out.total_books).toBe(4)
   })
 })

@@ -58,6 +58,7 @@ export async function processActivity(activity: AnyObject): Promise<void> {
     case 'Work':
     case 'ShelfBook':
     case 'Comment':
+    case 'Quotation':
     case 'GeneratedNote':
       // Bare object from BookWyrm outbox — wrap in synthetic Create
       await handleCreate({

@@ -1,13 +1,9 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
-import { objects, bookwyrmObjects, bookMetadata } from '../../db/schema.js'
-import { and, eq, isNull, desc, inArray, sql } from 'drizzle-orm'
+import { bookMetadata } from '../../db/schema.js'
+import { inArray } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
-import {
-  classifyReadingEvent,
-  collapseReadingEvents,
-  readingEventBaseCondition,
-} from '../../lib/bookwyrm-reading.js'
+import { loadCollapsedBooks } from '../../lib/reading-query.js'
 
 // Formats whose page count isn't a prose-comparable "length", so the prose-only
 // average excludes them (comics/graphic novels and audiobooks). Poetry has no
@@ -26,8 +22,8 @@ export const getReadingStatsSchema = z.object({
     .describe('Filter by physical format, e.g. "Paperback" or "GraphicNovel" (exact match)'),
   author: z.string().optional().describe('Filter by author (case-insensitive, partial match)'),
   rating: z.number().optional().describe('Filter to books rated exactly this (rounded to whole stars)'),
-  group_by: z.enum(['year', 'month', 'format', 'author', 'rating']).default('year')
-    .describe('Dimension for the top-N breakdown returned in "top".'),
+  group_by: z.enum(['year', 'month', 'format', 'author', 'rating', 'series', 'subject']).default('year')
+    .describe('Dimension for the top-N breakdown returned in "top". "subject" counts a book once per subject (multi-valued), so subject group sizes can sum to more than total_books.'),
   limit: z.number().int().min(1).max(100).default(20),
 })
 
@@ -45,6 +41,8 @@ export interface BookForStats {
   format: string | null
   pubYear: number | null
   language: string | null
+  series: string | null
+  subjects: string[] | null
 }
 
 const isoDate = (d: Date | null): string | null => d?.toISOString().slice(0, 10) ?? null
@@ -62,18 +60,24 @@ function mean(values: number[]): number | null {
   return round(values.reduce((a, b) => a + b, 0) / values.length)
 }
 
-function groupKey(book: BookForStats, dim: ReadingStatsInput['group_by']): string {
+// A book's key(s) in the requested dimension. Every dimension is single-valued
+// except `subject`, where a book counts once per subject it carries.
+function groupKeys(book: BookForStats, dim: ReadingStatsInput['group_by']): string[] {
   switch (dim) {
     case 'year':
-      return book.finished ? String(book.finished.getUTCFullYear()) : 'unknown'
+      return [book.finished ? String(book.finished.getUTCFullYear()) : 'unknown']
     case 'month':
-      return book.finished ? isoDate(book.finished)!.slice(0, 7) : 'unknown'
+      return [book.finished ? isoDate(book.finished)!.slice(0, 7) : 'unknown']
     case 'format':
-      return book.format ?? 'unknown'
+      return [book.format ?? 'unknown']
     case 'author':
-      return book.author ?? 'unknown'
+      return [book.author ?? 'unknown']
     case 'rating':
-      return book.rating != null ? String(round(Number(book.rating))) : 'unrated'
+      return [book.rating != null ? String(round(Number(book.rating))) : 'unrated']
+    case 'series':
+      return [book.series ?? 'unknown']
+    case 'subject':
+      return book.subjects?.length ? book.subjects : ['unknown']
   }
 }
 
@@ -150,8 +154,9 @@ export function aggregateReadingStats(books: BookForStats[], input: ReadingStats
   // Top-N breakdown by the requested dimension.
   const topMap = new Map<string, BookForStats[]>()
   for (const b of filtered) {
-    const k = groupKey(b, input.group_by)
-    ;(topMap.get(k) ?? topMap.set(k, []).get(k)!).push(b)
+    for (const k of groupKeys(b, input.group_by)) {
+      ;(topMap.get(k) ?? topMap.set(k, []).get(k)!).push(b)
+    }
   }
   const top = [...topMap.entries()]
     .map(([key, group]) => {
@@ -201,41 +206,12 @@ export async function getReadingStats(input: ReadingStatsInput) {
     : await resolveActorByHandle(input.actor_handle)
   if (!actor) return { error: `Could not resolve actor: ${input.actor_handle}` }
 
-  const db = getDb()
-
-  // Collapse the actor's stored reading events to one row per book (same source
-  // and helpers as get_actor_reading_status's offline path).
-  const rows = await db
-    .select({
-      apId: objects.apId,
-      contentText: objects.contentText,
-      tags: objects.tags,
-      attachments: objects.attachments,
-      publishedAt: objects.publishedAt,
-      rating: bookwyrmObjects.rating,
-      readingStatus: sql<string | null>`${objects.raw}->>'readingStatus'`,
-      inReplyToBook: sql<string | null>`${objects.raw}->>'inReplyToBook'`,
-    })
-    .from(objects)
-    .leftJoin(bookwyrmObjects, eq(bookwyrmObjects.objectApId, objects.apId))
-    .where(and(eq(objects.actorApId, actor.apId), isNull(objects.deletedAt), readingEventBaseCondition()))
-    .orderBy(desc(objects.publishedAt))
-
-  const collapsed = collapseReadingEvents(
-    rows.flatMap((r) => {
-      const event = classifyReadingEvent({
-        apId: r.apId,
-        content: r.contentText,
-        tags: r.tags,
-        attachments: r.attachments,
-        readingStatus: r.readingStatus,
-        inReplyToBook: r.inReplyToBook,
-      })
-      return event ? [{ event, publishedAt: r.publishedAt, rating: r.rating }] : []
-    }),
-  )
+  // Collapse the actor's stored reading events to one row per book (same shared
+  // loader as get_actor_reading_status's offline path and get_reading_pace).
+  const collapsed = await loadCollapsedBooks(actor.apId)
 
   // Join cached per-edition metadata by book URL.
+  const db = getDb()
   const urls = collapsed.map((b) => b.url).filter((u): u is string => !!u)
   const metaRows = urls.length
     ? await db
@@ -245,6 +221,8 @@ export async function getReadingStats(input: ReadingStatsInput) {
           physicalFormat: bookMetadata.physicalFormat,
           pubYear: bookMetadata.pubYear,
           language: bookMetadata.language,
+          series: bookMetadata.series,
+          subjects: bookMetadata.subjects,
         })
         .from(bookMetadata)
         .where(inArray(bookMetadata.bookUrl, urls))
@@ -254,6 +232,9 @@ export async function getReadingStats(input: ReadingStatsInput) {
 
   const books: BookForStats[] = collapsed.map((b) => {
     const m = b.url ? metaByUrl.get(b.url) : undefined
+    const subjects = Array.isArray(m?.subjects)
+      ? (m.subjects as unknown[]).filter((s): s is string => typeof s === 'string')
+      : null
     return {
       title: b.title,
       author: b.author,
@@ -265,6 +246,8 @@ export async function getReadingStats(input: ReadingStatsInput) {
       format: m?.physicalFormat ?? null,
       pubYear: m?.pubYear ?? null,
       language: m?.language ?? null,
+      series: m?.series ?? null,
+      subjects: subjects?.length ? subjects : null,
     }
   })
 

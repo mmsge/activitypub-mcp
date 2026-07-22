@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   classifyReadingEvent,
   collapseReadingEvents,
+  deriveReadingCycles,
+  indexCollapsedBooks,
   normalizeTitle,
   normalizeReadingStatus,
   type ReadingEvent,
@@ -22,6 +24,10 @@ function derived(
       bookwyrm_book_url: null,
       comment: null,
       reading_status: null,
+      quote: null,
+      review_title: null,
+      progress: null,
+      progress_mode: null,
       ...partial,
     },
     publishedAt: opts.at ? new Date(opts.at) : null,
@@ -243,5 +249,175 @@ describe('classifyReadingEvent — readingStatus field', () => {
     expect(normalizeReadingStatus('https://bookwyrm.social/user/x/shelf/to-read')).toBe('to-read')
     expect(normalizeReadingStatus('read')).toBe('read')
     expect(normalizeReadingStatus(undefined)).toBeNull()
+  })
+})
+
+describe('classifyReadingEvent — quotation', () => {
+  it('classifies a /quotation/ segment and strips the quote HTML', () => {
+    const ev = classifyReadingEvent({
+      apId: `${AP}/quotation/1`,
+      content: '"To be or not to be" — Hamlet, min kommentar',
+      tags: [],
+      attachments: [],
+      quote: '<p>To be or not to be</p>',
+      readingStatus: 'reading',
+      inReplyToBook: 'https://bookwyrm.social/book/42',
+    })
+    expect(ev?.event_type).toBe('quotation')
+    expect(ev?.quote).toBe('To be or not to be')
+    expect(ev?.comment).toContain('min kommentar')
+    expect(ev?.bookwyrm_book_url).toBe('https://bookwyrm.social/book/42')
+    expect(ev?.reading_status).toBe('reading')
+  })
+
+  it('leaves quote null on non-quotation events even if raw carried one', () => {
+    const ev = classifyReadingEvent({
+      apId: `${AP}/comment/2`,
+      content: 'a comment',
+      tags: [],
+      attachments: [],
+      quote: '<p>stray</p>',
+    })
+    expect(ev?.quote).toBeNull()
+  })
+})
+
+describe('classifyReadingEvent — review title and progress', () => {
+  it('surfaces the review title from the AP name field', () => {
+    const ev = classifyReadingEvent({
+      apId: `${AP}/review/3`,
+      content: 'body',
+      tags: [],
+      attachments: [],
+      name: 'Review of "Chanta" (5 stars)',
+    })
+    expect(ev?.review_title).toBe('Review of "Chanta" (5 stars)')
+  })
+
+  it('parses progress as a number and carries progress_mode', () => {
+    const ev = classifyReadingEvent({
+      apId: `${AP}/comment/4`,
+      content: 'halfway!',
+      tags: [],
+      attachments: [],
+      progress: '150',
+      progressMode: 'PG',
+    })
+    expect(ev?.progress).toBe(150)
+    expect(ev?.progress_mode).toBe('PG')
+  })
+
+  it('leaves progress null for absent or junk values', () => {
+    const none = classifyReadingEvent({ apId: `${AP}/comment/5`, content: 'x', tags: [], attachments: [] })
+    const junk = classifyReadingEvent({ apId: `${AP}/comment/6`, content: 'x', tags: [], attachments: [], progress: 'abc' })
+    expect(none?.progress).toBeNull()
+    expect(junk?.progress).toBeNull()
+  })
+})
+
+describe('collapseReadingEvents — review as finish + cycle-derived dates', () => {
+  it('a review finishes the book (shelf=read, finished = review date)', () => {
+    const books = collapseReadingEvents([
+      derived({ event_type: 'started_reading', book_title: 'Chanta', reading_status: 'reading' }, { at: '2026-05-01T10:00:00Z' }),
+      derived({ event_type: 'review', book_title: 'Chanta' }, { at: '2026-05-10T10:00:00Z', rating: '4' }),
+    ])
+    expect(books).toHaveLength(1)
+    expect(books[0].shelf).toBe('read')
+    expect(books[0].started?.toISOString().slice(0, 10)).toBe('2026-05-01')
+    expect(books[0].finished?.toISOString().slice(0, 10)).toBe('2026-05-10')
+    expect(books[0].rating).toBe('4')
+  })
+
+  it('a post-finish comment does not drag the finish date later', () => {
+    const books = collapseReadingEvents([
+      derived({ event_type: 'comment', book_title: 'Foo', reading_status: 'reading' }, { at: '2026-07-11T10:00:00Z' }),
+      derived({ event_type: 'comment', book_title: 'Foo', reading_status: 'read' }, { at: '2026-07-20T10:00:00Z' }),
+      derived({ event_type: 'comment', book_title: 'Foo', reading_status: 'read' }, { at: '2026-07-25T10:00:00Z' }),
+    ])
+    expect(books[0].finished?.toISOString().slice(0, 10)).toBe('2026-07-20')
+    expect(books[0].cycles).toHaveLength(1)
+  })
+
+  it('a reread produces two cycles; collapsed dates span first start → last finish', () => {
+    const books = collapseReadingEvents([
+      derived({ event_type: 'started_reading', book_title: 'Dune', reading_status: 'reading' }, { at: '2024-01-01T00:00:00Z' }),
+      derived({ event_type: 'finished_reading', book_title: 'Dune', reading_status: 'read' }, { at: '2024-01-20T00:00:00Z' }),
+      derived({ event_type: 'started_reading', book_title: 'Dune', reading_status: 'reading' }, { at: '2026-06-01T00:00:00Z' }),
+      derived({ event_type: 'finished_reading', book_title: 'Dune', reading_status: 'read' }, { at: '2026-06-15T00:00:00Z' }),
+    ])
+    expect(books[0].cycles).toHaveLength(2)
+    expect(books[0].cycles[1].cycle).toBe(2)
+    expect(books[0].started?.toISOString().slice(0, 10)).toBe('2024-01-01')
+    expect(books[0].finished?.toISOString().slice(0, 10)).toBe('2026-06-15')
+  })
+})
+
+describe('deriveReadingCycles', () => {
+  const ev = (
+    type: ReadingEvent['event_type'],
+    rs: 'read' | 'reading' | 'to-read' | null,
+    at: string,
+  ): DerivedReadingEvent =>
+    derived({ event_type: type, book_title: 'B', reading_status: rs }, { at })
+
+  it('derives a single start→finish cycle', () => {
+    const cycles = deriveReadingCycles([
+      ev('started_reading', 'reading', '2026-01-01T00:00:00Z'),
+      ev('finished_reading', 'read', '2026-01-10T00:00:00Z'),
+    ])
+    expect(cycles).toHaveLength(1)
+    expect(cycles[0].started?.toISOString().slice(0, 10)).toBe('2026-01-01')
+    expect(cycles[0].finished?.toISOString().slice(0, 10)).toBe('2026-01-10')
+  })
+
+  it('progress comments while reading do not reset the start', () => {
+    const cycles = deriveReadingCycles([
+      ev('started_reading', 'reading', '2026-01-01T00:00:00Z'),
+      ev('comment', 'reading', '2026-01-05T00:00:00Z'),
+      ev('finished_reading', 'read', '2026-01-10T00:00:00Z'),
+    ])
+    expect(cycles).toHaveLength(1)
+    expect(cycles[0].started?.toISOString().slice(0, 10)).toBe('2026-01-01')
+  })
+
+  it('a finish with no recorded start is a finish-only cycle; later re-affirmations are ignored', () => {
+    const cycles = deriveReadingCycles([
+      ev('comment', 'read', '2026-02-01T00:00:00Z'),
+      ev('comment', 'read', '2026-02-10T00:00:00Z'),
+    ])
+    expect(cycles).toHaveLength(1)
+    expect(cycles[0].started).toBeNull()
+    expect(cycles[0].finished?.toISOString().slice(0, 10)).toBe('2026-02-01')
+  })
+
+  it('an unfinished current read is an open cycle', () => {
+    const cycles = deriveReadingCycles([
+      ev('finished_reading', 'read', '2025-01-10T00:00:00Z'),
+      ev('started_reading', 'reading', '2026-03-01T00:00:00Z'),
+    ])
+    expect(cycles).toHaveLength(2)
+    expect(cycles[1].started?.toISOString().slice(0, 10)).toBe('2026-03-01')
+    expect(cycles[1].finished).toBeNull()
+  })
+
+  it('events without a publish time are skipped', () => {
+    const cycles = deriveReadingCycles([
+      derived({ event_type: 'started_reading', book_title: 'B', reading_status: 'reading' }),
+    ])
+    expect(cycles).toHaveLength(0)
+  })
+})
+
+describe('indexCollapsedBooks', () => {
+  it('indexes by both url and normalized title', () => {
+    const books = collapseReadingEvents([
+      derived(
+        { event_type: 'started_reading', book_title: 'Paper Girls', reading_status: 'reading', bookwyrm_book_url: 'https://b/book/1' },
+        { at: '2026-01-01T00:00:00Z' },
+      ),
+    ])
+    const index = indexCollapsedBooks(books)
+    expect(index.get('https://b/book/1')?.title).toBe('Paper Girls')
+    expect(index.get('paper girls')?.title).toBe('Paper Girls')
   })
 })

@@ -1,10 +1,11 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
-import { objects, bookwyrmObjects, bookMetadata } from '../../db/schema.js'
-import { and, eq, isNull, desc, or, sql, inArray } from 'drizzle-orm'
+import { bookMetadata } from '../../db/schema.js'
+import { inArray } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 import { fetchBookwyrmShelf, type ShelfItem } from '../../lib/fetch-bookwyrm-shelf.js'
-import { classifyReadingEvent, collapseReadingEvents, readingEventBaseCondition } from '../../lib/bookwyrm-reading.js'
+import { normalizeTitle, indexCollapsedBooks, type CollapsedBook } from '../../lib/bookwyrm-reading.js'
+import { loadCollapsedBooks } from '../../lib/reading-query.js'
 
 export const getActorReadingStatusSchema = z.object({
   actor_handle: z.string().describe('Actor handle (@user@domain) or full actor URL'),
@@ -16,18 +17,23 @@ export const getActorReadingStatusSchema = z.object({
   ),
 })
 
+type Shelf = 'reading' | 'read' | 'to-read'
+
 type ReadingResult = {
   title: string | null
   authors: string | null
   cover: string | null
-  shelf: 'reading' | 'read' | 'to-read' | null
+  shelf: Shelf | null
   started_date: string | null
   finished_date: string | null
   rating: string | null
   bookwyrm_book_url: string | null
   pages: number | null
   language: string | null
+  shelved_date: string | null
 }
+
+const isoDate = (d: Date | null): string | null => d?.toISOString().slice(0, 10) ?? null
 
 // Fill pages/language (and, offline, the cover) from the enriched book_metadata
 // cache, joined by Edition URL. Mutates the results in place.
@@ -69,16 +75,45 @@ export async function getActorReadingStatus(input: z.infer<typeof getActorReadin
   return results
 }
 
+/**
+ * Merge live shelf rows (ground truth for shelf membership + cover art) with the
+ * locally derived per-book reading state (dates, rating — BookWyrm's shelf
+ * collections are bare Edition objects and carry neither). Matched by Edition
+ * URL first, normalized title as fallback. Pure, exported for tests.
+ */
+export function mergeShelfWithDerived(
+  items: (ShelfItem & { shelf: Shelf })[],
+  collapsed: CollapsedBook[],
+): ReadingResult[] {
+  const index = indexCollapsedBooks(collapsed)
+  return items.map((item) => {
+    const byUrl = item.bookUrl ? index.get(item.bookUrl) : undefined
+    const titleKey = normalizeTitle(item.bookTitle)
+    const derived = byUrl ?? (titleKey ? index.get(titleKey) : undefined)
+    return {
+      title: item.bookTitle,
+      authors: item.bookAuthor ?? derived?.author ?? null,
+      cover: item.bookCover,
+      shelf: item.shelf,
+      started_date: isoDate(derived?.started ?? null),
+      finished_date: isoDate(derived?.finished ?? null),
+      rating: derived?.rating ?? null,
+      bookwyrm_book_url: item.bookUrl,
+      pages: null,
+      language: null,
+      shelved_date: item.shelvedDate?.slice(0, 10) ?? null,
+    }
+  })
+}
+
 async function fetchLiveShelf(
   actorApId: string,
-  statusFilter: 'reading' | 'read' | 'to-read' | undefined,
+  statusFilter: Shelf | undefined,
   limit: number,
 ): Promise<ReadingResult[] | { error: string }> {
-  const shelves: ('reading' | 'read' | 'to-read')[] = statusFilter
-    ? [statusFilter]
-    : ['reading', 'read', 'to-read']
+  const shelves: Shelf[] = statusFilter ? [statusFilter] : ['reading', 'read', 'to-read']
 
-  const allItems: (ShelfItem & { shelf: 'reading' | 'read' | 'to-read' })[] = []
+  const allItems: (ShelfItem & { shelf: Shelf })[] = []
   for (const shelf of shelves) {
     const items = await fetchBookwyrmShelf(actorApId, shelf)
     for (const item of items) allItems.push({ ...item, shelf })
@@ -86,103 +121,25 @@ async function fetchLiveShelf(
 
   if (allItems.length === 0) return []
 
-  // Cross-reference DB for start/finish dates and ratings from stored ReadThrough/Rating activities
-  const db = getDb()
-  const dbRows = await db
-    .select({
-      bookTitle: bookwyrmObjects.bookTitle,
-      bookAuthor: bookwyrmObjects.bookAuthor,
-      startDate: bookwyrmObjects.startDate,
-      finishDate: bookwyrmObjects.finishDate,
-      rating: bookwyrmObjects.rating,
-      bwType: bookwyrmObjects.bwType,
-    })
-    .from(bookwyrmObjects)
-    .innerJoin(objects, eq(bookwyrmObjects.objectApId, objects.apId))
-    .where(
-      and(
-        eq(objects.actorApId, actorApId),
-        isNull(objects.deletedAt),
-        or(eq(bookwyrmObjects.bwType, 'ReadThrough'), eq(bookwyrmObjects.bwType, 'Rating')),
-      )
-    )
-
-  // Index DB rows by normalised title for quick lookup
-  const dbByTitle = new Map<string, typeof dbRows[number]>()
-  for (const row of dbRows) {
-    if (row.bookTitle) {
-      const key = row.bookTitle.toLowerCase().trim()
-      const existing = dbByTitle.get(key)
-      // Prefer ReadThrough over Rating; prefer rows with more data
-      if (!existing || (row.bwType === 'ReadThrough' && existing.bwType !== 'ReadThrough')) {
-        dbByTitle.set(key, row)
-      }
-    }
-  }
-
-  const results: ReadingResult[] = allItems.slice(0, limit).map((item) => {
-    const key = item.bookTitle?.toLowerCase().trim() ?? ''
-    const dbRow = dbByTitle.get(key)
-    return {
-      title: item.bookTitle,
-      authors: item.bookAuthor ?? dbRow?.bookAuthor ?? null,
-      cover: item.bookCover,
-      shelf: item.shelf,
-      started_date: dbRow?.startDate ?? null,
-      finished_date: dbRow?.finishDate ?? null,
-      rating: dbRow?.rating ?? null,
-      bookwyrm_book_url: item.bookUrl,
-      pages: null,
-      language: null,
-    }
-  })
-
-  return results
+  // BookWyrm shelf collections are bare Edition objects — no readthrough dates,
+  // no ratings. Derive those from the actor's stored reading posts (the same
+  // collapse the offline path uses) and merge per book.
+  const collapsed = await loadCollapsedBooks(actorApId)
+  return mergeShelfWithDerived(allItems.slice(0, limit), collapsed)
 }
 
 // Offline shelf derivation. BookWyrm federates shelf changes as plain `Note`
 // generatednote posts ("…wants to read X" / "…started reading X" / "…finished
 // reading X"), so we derive each book's current shelf from those events in the
-// generic post store (see lib/bookwyrm-reading.ts) rather than the rarely-populated
-// bookwyrm_objects table. Every reading action is its own Note, so we collapse the
-// event stream to one row per book (collapseReadingEvents). Ratings aren't carried
-// in the Note payloads, but a review/rating that was ingested into bookwyrm_objects
-// surfaces via the LEFT JOIN below; use use_live=true for live cover art.
+// generic post store (see lib/bookwyrm-reading.ts), collapsed to one row per
+// book with derived start/finish dates and any inline review rating. Use
+// use_live=true for live cover art and authoritative shelf membership.
 async function fetchFromDb(
   actorApId: string,
-  statusFilter: 'reading' | 'read' | 'to-read' | undefined,
+  statusFilter: Shelf | undefined,
   limit: number,
 ): Promise<ReadingResult[]> {
-  const db = getDb()
-  const rows = await db
-    .select({
-      apId: objects.apId,
-      contentText: objects.contentText,
-      tags: objects.tags,
-      attachments: objects.attachments,
-      publishedAt: objects.publishedAt,
-      rating: bookwyrmObjects.rating,
-      readingStatus: sql<string | null>`${objects.raw}->>'readingStatus'`,
-      inReplyToBook: sql<string | null>`${objects.raw}->>'inReplyToBook'`,
-    })
-    .from(objects)
-    .leftJoin(bookwyrmObjects, eq(bookwyrmObjects.objectApId, objects.apId))
-    .where(and(eq(objects.actorApId, actorApId), isNull(objects.deletedAt), readingEventBaseCondition()))
-    .orderBy(desc(objects.publishedAt))
-
-  const books = collapseReadingEvents(
-    rows.flatMap((r) => {
-      const event = classifyReadingEvent({
-        apId: r.apId,
-        content: r.contentText,
-        tags: r.tags,
-        attachments: r.attachments,
-        readingStatus: r.readingStatus,
-        inReplyToBook: r.inReplyToBook,
-      })
-      return event ? [{ event, publishedAt: r.publishedAt, rating: r.rating }] : []
-    }),
-  )
+  const books = await loadCollapsedBooks(actorApId)
 
   let results: ReadingResult[] = books
     .sort((a, b) => (b.lastActivity?.getTime() ?? 0) - (a.lastActivity?.getTime() ?? 0))
@@ -191,12 +148,13 @@ async function fetchFromDb(
       authors: a.author,
       cover: a.cover,
       shelf: a.shelf,
-      started_date: a.started?.toISOString().slice(0, 10) ?? null,
-      finished_date: a.finished?.toISOString().slice(0, 10) ?? null,
+      started_date: isoDate(a.started),
+      finished_date: isoDate(a.finished),
       rating: a.rating,
       bookwyrm_book_url: a.url,
       pages: null,
       language: null,
+      shelved_date: null,
     }))
   if (statusFilter) results = results.filter((r) => r.shelf === statusFilter)
   return results.slice(0, limit)

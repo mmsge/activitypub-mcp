@@ -7,6 +7,7 @@ import { getFollowsSchema, getFollows } from './tools/follows.js'
 import { getActivityStatsSchema, getActivityStats, getRecentActivitiesSchema, getRecentActivities } from './tools/activity-stats.js'
 import { getReadingEventsSchema, getReadingEvents } from './tools/reading-events.js'
 import { getReadingStatsSchema, getReadingStats } from './tools/reading-stats.js'
+import { getReadingPaceSchema, getReadingPace } from './tools/reading-pace.js'
 import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleStats } from './tools/scrobbles.js'
 import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
 import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats } from './tools/train-trips.js'
@@ -36,7 +37,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_actor_reading_status',
-    "Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. With use_live: false, shelves (reading/read/to-read) are derived from the actor's stored reading note posts, collapsed to one row per book; ratings only appear if a federated review/rating carried one. Cover, pages and language are backfilled from the cached book_metadata where that book has been enriched (so offline rows now carry covers for enriched books; the live shelf is still ground truth for cover art). Returns title, authors, cover, shelf, started_date, finished_date, rating, bookwyrm_book_url, pages, and language per book.",
+    "Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. BookWyrm shelf collections are bare Edition objects, so BOTH modes derive started_date/finished_date/rating from the actor's stored public statuses (day granularity: the first \"reading\" status starts a book; a \"read\" status or a review finishes it) — the live mode merges those onto the authoritative shelf rows by Edition URL (title fallback) and adds shelved_date when the shelf carries it. Cover, pages and language are backfilled from the cached book_metadata where that book has been enriched (the live shelf is still ground truth for cover art). Returns title, authors, cover, shelf, started_date, finished_date, rating, bookwyrm_book_url, pages, language, and shelved_date per book.",
     getActorReadingStatusSchema.shape,
     async (input) => {
       const result = await getActorReadingStatus(input as any)
@@ -96,7 +97,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_reading_events',
-    "Get BookWyrm reading events for an actor, derived from stored note posts with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved. The `rating` event_type requires BookWyrm to federate a standalone /rating/ activity (many actors never produce these); an inline rating on a review is surfaced on that event's `rating` field. Useful for building a reading timeline or finding when a book was started vs finished. Defaults to newest-first; set sort_order='asc' with limit=1 to fetch the earliest reading event in one call, and follow the next_cursor token for deep traversal.",
+    "Get BookWyrm reading events for an actor, derived from stored note posts with a normalized event_type field: started_reading, finished_reading, review, rating, comment, quotation, note, shelved. Every event carries the derived signal dates (started_date/finished_date when THIS event marks a start/finish — a \"read\"-status comment or a review counts as a finish) plus the book's overall derived window (book_started_date/book_finished_date, day granularity from public statuses). Reviews carry rating (inline, coalesced from the raw AP object) and review_title; quotations carry the quoted passage in `quote`; comments/quotations may carry progress/progress_mode when the reader logged a position. Useful for building a reading timeline or finding when a book was started vs finished. Defaults to newest-first; set sort_order='asc' with limit=1 to fetch the earliest reading event in one call, and follow the next_cursor token for deep traversal.",
     getReadingEventsSchema.shape,
     async (input) => {
       const result = await getReadingEvents(input as any)
@@ -106,10 +107,20 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_reading_stats',
-    "Aggregate reading statistics for an actor's BookWyrm books: total/average/median page counts, reading span, ratings distribution, and a per-format breakdown, with a top-N breakdown by year, month, format, author, or rating. Page/format/year data comes from cached BookWyrm Edition metadata; finish dates from the actor's finished-reading posts. Defaults to the \"read\" shelf and group_by=year; filter by year/from/to (on finish date), format, author, or rating. Page averages are reported over books with known page counts (see pages_coverage), and avg_pages_prose excludes comics/graphic novels and audiobooks so a comics-heavy span doesn't skew the prose number.",
+    "Aggregate reading statistics for an actor's BookWyrm books: total/average/median page counts, reading span, ratings distribution, and a per-format breakdown, with a top-N breakdown by year, month, format, author, rating, series, or subject (subject is multi-valued: a book counts once per subject). Page/format/year/series/subject data comes from cached BookWyrm Edition metadata; finish dates are derived from the actor's public statuses (a \"read\" comment or a review marks the finish). Defaults to the \"read\" shelf and group_by=year; filter by year/from/to (on finish date), format, author, or rating. Page averages are reported over books with known page counts (see pages_coverage), and avg_pages_prose excludes comics/graphic novels and audiobooks so a comics-heavy span doesn't skew the prose number.",
     getReadingStatsSchema.shape,
     async (input) => {
       const result = await getReadingStats(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_reading_pace',
+    "Reading pace and session analytics for an actor's BookWyrm books, computed over derived start→finish reading cycles (day granularity, from public statuses): per finished cycle days_to_finish and pages_per_day (needs a known start date and page count — coverage is reported in start_coverage), reread detection (a book with multiple cycles), overlap periods where 2+ books were being read at once, and summary aggregates (avg/median days to finish, avg pages/day, fastest/slowest, max concurrent books). Filter by year/from/to on the cycle's finish date; sort by finished (default, most recent first), fastest, or slowest.",
+    getReadingPaceSchema.shape,
+    async (input) => {
+      const result = await getReadingPace(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )
@@ -196,7 +207,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_books',
-    "Browse all cached BookWyrm book metadata as a paginated catalogue. Returns compact rows (book_url, title, subtitle, series, pages, physical_format, isbn13/isbn10, pub_year, language, publisher, cover_url, fetched_at) — call get_book_details for the full record (description, subjects, provenance) of one book. Filter by title (partial match), format, or language. Most-recently-enriched first by default (sort_order='asc' for oldest first). Each response carries `total` (matching books across all pages) and a `next_cursor` token; pass it back as `cursor` for deep traversal, or use the legacy offset `page`.",
+    "Browse all cached BookWyrm book metadata as a paginated catalogue. Returns compact rows (book_url, title, subtitle, series, pages, physical_format, isbn13/isbn10, pub_year, language, publisher, cover_url, subjects, fetched_at) — call get_book_details for the full record (description, provenance) of one book. Filter by title (partial match), format, language, series (partial match), or subject (partial match against any subject/genre). Most-recently-enriched first by default (sort_order='asc' for oldest first). Each response carries `total` (matching books across all pages) and a `next_cursor` token; pass it back as `cursor` for deep traversal, or use the legacy offset `page`.",
     getBooksSchema.shape,
     async (input) => {
       const result = await getBooks(input as any)

@@ -1,4 +1,5 @@
 import { logger } from './logger.js'
+import { BOOKWYRM_AP_HEADERS } from './bookwyrm-fetch.js'
 
 type AnyObject = Record<string, unknown>
 
@@ -12,9 +13,7 @@ export interface ShelfItem {
   raw: AnyObject
 }
 
-const AP_HEADERS = {
-  Accept: 'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
-}
+const AP_HEADERS = BOOKWYRM_AP_HEADERS
 
 // Author AP objects are immutable for our purposes; cache resolved names for the
 // process lifetime so a shelf with many books by the same author costs one fetch.
