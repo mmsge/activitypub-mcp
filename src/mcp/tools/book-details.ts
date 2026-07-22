@@ -3,6 +3,7 @@ import { getDb } from '../../db/client.js'
 import { bookMetadata } from '../../db/schema.js'
 import { eq, or, ilike, desc } from 'drizzle-orm'
 import { normalizeIsbn, isbn10to13 } from '../../lib/isbn.js'
+import { normalizeSubjects } from '../../lib/subjects.js'
 
 // Look up the full enriched metadata for one book from the book_metadata cache,
 // resolved by Edition URL (exact), ISBN (13 or 10), or a partial title match.
@@ -62,7 +63,7 @@ export async function getBookDetails(input: BookDetailsInput) {
     publisher: b.publisher,
     cover_url: b.coverUrl,
     description: b.description,
-    subjects: b.subjects ?? null,
+    subjects: normalizeSubjects(b.subjects),
     isbn_source: b.isbnSource,
     page_source: b.pageSource,
     source_map: b.sourceMap ?? null,

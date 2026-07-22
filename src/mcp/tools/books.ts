@@ -3,6 +3,7 @@ import { getDb } from '../../db/client.js'
 import { bookMetadata } from '../../db/schema.js'
 import { and, eq, ilike, count, sql, type SQL } from 'drizzle-orm'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
+import { normalizeSubjects } from '../../lib/subjects.js'
 
 // ---- shared filter handling ------------------------------------------------
 
@@ -136,7 +137,7 @@ export async function getBooks(input: z.infer<typeof getBooksSchema>) {
       original_language: b.originalLanguage,
       publisher: b.publisher,
       cover_url: b.coverUrl,
-      subjects: Array.isArray(b.subjects) ? b.subjects : null,
+      subjects: normalizeSubjects(b.subjects),
       fetched_at: b.fetchedAt?.toISOString() ?? null,
     })),
   }
