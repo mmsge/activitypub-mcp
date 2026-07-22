@@ -7,7 +7,12 @@ import {
   classifyReadingEvent,
   readingEventBaseCondition,
   readingEventTypeCondition,
+  indexCollapsedBooks,
+  normalizeTitle,
+  isStartSignal,
+  isFinishSignal,
 } from '../../lib/bookwyrm-reading.js'
+import { loadCollapsedBooks } from '../../lib/reading-query.js'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
 
 const eventTypeEnum = z.enum([
@@ -16,6 +21,7 @@ const eventTypeEnum = z.enum([
   'review',
   'rating',
   'comment',
+  'quotation',
   'note',
   'shelved',
 ])
@@ -65,9 +71,16 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
       tags: objects.tags,
       attachments: objects.attachments,
       publishedAt: objects.publishedAt,
-      rating: bookwyrmObjects.rating,
+      // Structured bookwyrm_objects row first (full-flavor federation only),
+      // falling back to the raw AP object's `rating` — the field survives
+      // BookWyrm's "pure" serialization, so inline review ratings are kept.
+      rating: sql<string | null>`coalesce(${bookwyrmObjects.rating}::text, ${objects.raw}->>'rating')`,
       readingStatus: sql<string | null>`${objects.raw}->>'readingStatus'`,
       inReplyToBook: sql<string | null>`${objects.raw}->>'inReplyToBook'`,
+      quote: sql<string | null>`${objects.raw}->>'quote'`,
+      name: sql<string | null>`${objects.raw}->>'name'`,
+      progress: sql<string | null>`${objects.raw}->>'progress'`,
+      progressMode: sql<string | null>`${objects.raw}->>'progressMode'`,
     })
     .from(objects)
     .leftJoin(bookwyrmObjects, eq(bookwyrmObjects.objectApId, objects.apId))
@@ -79,6 +92,11 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
   const nextCursor = rows.length === input.limit && last
     ? encodeCursor(last.publishedAt, last.id)
     : null
+
+  // Per-book derived reading state (started/finished across the whole history),
+  // so every event carries its book's dates — not just the events that ARE the
+  // start/finish signal.
+  const bookIndex = indexCollapsedBooks(await loadCollapsedBooks(actor.apId))
 
   return {
     count: rows.length,
@@ -98,8 +116,16 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
         attachments: r.attachments,
         readingStatus: r.readingStatus,
         inReplyToBook: r.inReplyToBook,
+        quote: r.quote,
+        name: r.name,
+        progress: r.progress,
+        progressMode: r.progressMode,
       })!
       const date = r.publishedAt?.toISOString().slice(0, 10) ?? null
+      const titleKey = normalizeTitle(ev.book_title)
+      const book =
+        (ev.bookwyrm_book_url ? bookIndex.get(ev.bookwyrm_book_url) : undefined) ??
+        (titleKey ? bookIndex.get(titleKey) : undefined)
       return {
         event_type: ev.event_type,
         // BookWyrm's shelf state at post time: a "read" comment/review marks a
@@ -107,14 +133,19 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
         reading_status: ev.reading_status,
         book_title: ev.book_title,
         book_author: ev.book_author,
-        started_date: ev.event_type === 'started_reading' ? date : null,
-        finished_date: ev.event_type === 'finished_reading' ? date : null,
-        // Standalone `rating` events depend on BookWyrm federating `/rating/`
-        // activities (classified via SEG_RATING). The numeric value isn't in the
-        // Note payload, but a review/rating ingested into bookwyrm_objects surfaces
-        // its inline rating here via the LEFT JOIN rather than being lost.
+        // Event-level signal dates: this event marks a start/finish on this day.
+        started_date: isStartSignal(ev) ? date : null,
+        finished_date: isFinishSignal(ev) ? date : null,
+        // The book's derived overall reading window (first start, last finish),
+        // present on every event of that book.
+        book_started_date: book?.started?.toISOString().slice(0, 10) ?? null,
+        book_finished_date: book?.finished?.toISOString().slice(0, 10) ?? null,
         rating: r.rating,
+        review_title: ev.review_title,
         comment: ev.comment,
+        quote: ev.quote,
+        progress: ev.progress,
+        progress_mode: ev.progress_mode,
         published_at: r.publishedAt?.toISOString() ?? null,
         ap_id: r.apId,
         bookwyrm_book_url: ev.bookwyrm_book_url,

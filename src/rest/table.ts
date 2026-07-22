@@ -10,6 +10,7 @@ import {
 } from '../mcp/tools/activity-stats.js'
 import { getReadingEventsSchema, getReadingEvents } from '../mcp/tools/reading-events.js'
 import { getReadingStatsSchema, getReadingStats } from '../mcp/tools/reading-stats.js'
+import { getReadingPaceSchema, getReadingPace } from '../mcp/tools/reading-pace.js'
 import {
   getScrobblesSchema, getScrobbles,
   getScrobbleStatsSchema, getScrobbleStats,
@@ -65,7 +66,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/actor-reading-status',
     name: 'get_actor_reading_status',
-    description: 'Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. With use_live: false, shelves (reading/read/to-read) are derived from the actor\'s stored reading note posts; ratings appear only when a federated review/rating carried one. Cover, pages and language are backfilled from the cached book_metadata for enriched books (so offline rows now carry covers where the book has been enriched; the live shelf remains ground truth for cover art). Returns title, authors, cover, shelf, started_date, finished_date, rating, bookwyrm_book_url, pages, and language per book.',
+    description: 'Get BookWyrm reading status for an actor by querying the live shelf (use_live: true, default) or local DB. BookWyrm shelf collections are bare Edition objects, so BOTH modes derive started_date/finished_date/rating from the actor\'s stored public statuses (day granularity; a "read" comment or a review marks the finish) — live mode merges those onto the authoritative shelf rows by Edition URL (title fallback) and adds shelved_date when present. Cover, pages and language are backfilled from the cached book_metadata for enriched books (the live shelf remains ground truth for cover art). Returns title, authors, cover, shelf, started_date, finished_date, rating, bookwyrm_book_url, pages, language, and shelved_date per book.',
     schema: getActorReadingStatusSchema,
     handler: getActorReadingStatus,
     numbers: ['limit'],
@@ -125,7 +126,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/reading-events',
     name: 'get_reading_events',
-    description: 'Get BookWyrm reading events for an actor, derived from stored note posts with a normalized event_type field: started_reading, finished_reading, review, rating, comment, note, shelved. Defaults to newest-first; set sort_order=asc with limit=1 for the earliest event, and follow next_cursor for deep traversal.',
+    description: 'Get BookWyrm reading events for an actor, derived from stored note posts with a normalized event_type field: started_reading, finished_reading, review, rating, comment, quotation, note, shelved. Events carry derived signal dates (started_date/finished_date), the book\'s overall window (book_started_date/book_finished_date), inline rating, review_title, quote (for quotations), and progress/progress_mode when present. Defaults to newest-first; set sort_order=asc with limit=1 for the earliest event, and follow next_cursor for deep traversal.',
     schema: getReadingEventsSchema,
     handler: getReadingEvents,
     numbers: ['limit'],
@@ -135,10 +136,20 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/reading-stats',
     name: 'get_reading_stats',
-    description: "Aggregate reading statistics for an actor's BookWyrm books: total/average/median page counts, reading span, ratings distribution, a per-format breakdown, and a top-N breakdown by year, month, format, author, or rating. Defaults to the read shelf and group_by=year; filter by year/from/to (on finish date), format, author, or rating. Page averages report coverage (pages_coverage), and avg_pages_prose excludes comics and audiobooks.",
+    description: "Aggregate reading statistics for an actor's BookWyrm books: total/average/median page counts, reading span, ratings distribution, a per-format breakdown, and a top-N breakdown by year, month, format, author, rating, series, or subject (subject is multi-valued: a book counts once per subject). Defaults to the read shelf and group_by=year; filter by year/from/to (on finish date), format, author, or rating. Page averages report coverage (pages_coverage), and avg_pages_prose excludes comics and audiobooks.",
     schema: getReadingStatsSchema,
     handler: getReadingStats,
     numbers: ['limit', 'year', 'rating'],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/reading-pace',
+    name: 'get_reading_pace',
+    description: "Reading pace and session analytics over derived start→finish reading cycles (day granularity, from public statuses): per finished cycle days_to_finish and pages_per_day, reread detection, overlap periods where 2+ books were open at once, and summary aggregates (avg/median days to finish, avg pages/day, fastest/slowest, max concurrent books, start_coverage). Filter by year/from/to on the cycle's finish date; sort=finished (default) | fastest | slowest.",
+    schema: getReadingPaceSchema,
+    handler: getReadingPace,
+    numbers: ['limit', 'year'],
     booleans: [],
     arrays: [],
   },
@@ -225,7 +236,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/books',
     name: 'get_books',
-    description: "Browse all cached BookWyrm book metadata as a paginated catalogue. Returns compact rows (book_url, title, subtitle, series, pages, physical_format, isbn13/isbn10, pub_year, language, publisher, cover_url, fetched_at) — call get_book_details for the full record (description, subjects, provenance) of one book. Filter by title (partial match), format, or language. Most-recently-enriched first by default (sort_order='asc' for oldest first). Each response carries `total` (matching books across all pages) and a `next_cursor` token; pass it back as `cursor` for deep traversal, or use the legacy offset `page`.",
+    description: "Browse all cached BookWyrm book metadata as a paginated catalogue. Returns compact rows (book_url, title, subtitle, series, pages, physical_format, isbn13/isbn10, pub_year, language, publisher, cover_url, subjects, fetched_at) — call get_book_details for the full record (description, provenance) of one book. Filter by title (partial match), format, language, series (partial match), or subject (partial match against any subject/genre). Most-recently-enriched first by default (sort_order='asc' for oldest first). Each response carries `total` (matching books across all pages) and a `next_cursor` token; pass it back as `cursor` for deep traversal, or use the legacy offset `page`.",
     schema: getBooksSchema,
     handler: getBooks,
     numbers: ['limit', 'page'],

@@ -191,14 +191,16 @@ paths:
       summary: Get BookWyrm reading status for an actor
       description: |
         Reading status for an actor by querying the live shelf (`use_live=true`,
-        default) or the local DB. With `use_live=false`, shelves
-        (`reading`/`read`/`to-read`) are derived from the actor's stored reading
-        note posts; ratings appear only when a federated review/rating carried one.
-        Cover, pages and language are backfilled from the cached book metadata for
-        enriched books (offline rows now carry covers where the book has been
-        enriched; the live shelf remains ground truth for cover art). Returns one
-        entry per book (title, authors, cover, shelf, dates, rating,
-        bookwyrm_book_url, pages, language).
+        default) or the local DB. BookWyrm shelf collections are bare Edition
+        objects, so BOTH modes derive `started_date`/`finished_date`/`rating`
+        from the actor's stored public statuses (day granularity; a "read"
+        comment or a review marks the finish) — live mode merges those onto the
+        authoritative shelf rows by Edition URL (title fallback) and adds
+        `shelved_date` when the shelf carries it. Cover, pages and language are
+        backfilled from the cached book metadata for enriched books (the live
+        shelf remains ground truth for cover art). Returns one entry per book
+        (title, authors, cover, shelf, dates, rating, bookwyrm_book_url, pages,
+        language, shelved_date).
       operationId: getActorReadingStatusGet
       parameters:
         - $ref: "#/components/parameters/ActorHandleRequired"
@@ -830,8 +832,12 @@ paths:
       summary: BookWyrm reading events
       description: |
         Reading events derived from the actor's stored note posts, with a
-        normalized `event_type`. Defaults to newest-first; follow `next_cursor`
-        for deep traversal.
+        normalized `event_type` (including `quotation`). Each event carries
+        signal dates (`started_date`/`finished_date` when this event marks a
+        start/finish), the book's derived overall window
+        (`book_started_date`/`book_finished_date`), inline `rating`,
+        `review_title`, `quote` and `progress`/`progress_mode` when present.
+        Defaults to newest-first; follow `next_cursor` for deep traversal.
       operationId: getReadingEventsGet
       parameters:
         - $ref: "#/components/parameters/ActorHandleRequired"
@@ -1274,12 +1280,14 @@ paths:
       description: |
         Total/average/median page counts, reading span, ratings distribution and
         a per-format breakdown for an actor's BookWyrm books, plus a top-N
-        breakdown by year, month, format, author or rating. Page/format/year data
-        comes from cached BookWyrm Edition metadata; finish dates from the actor's
-        finished-reading posts. Defaults to the `read` shelf and `group_by=year`.
-        Page averages are reported over books with known page counts (see
-        `pages_coverage`); `avg_pages_prose` excludes comics/graphic novels and
-        audiobooks.
+        breakdown by year, month, format, author, rating, series or subject
+        (subject is multi-valued — a book counts once per subject). Page/format/
+        year/series/subject data comes from cached BookWyrm Edition metadata;
+        finish dates are derived from the actor's public statuses (a "read"
+        comment or a review marks the finish). Defaults to the `read` shelf and
+        `group_by=year`. Page averages are reported over books with known page
+        counts (see `pages_coverage`); `avg_pages_prose` excludes comics/graphic
+        novels and audiobooks.
       operationId: getReadingStatsGet
       parameters:
         - {
@@ -1311,7 +1319,7 @@ paths:
             schema:
               {
                 type: string,
-                enum: [year, month, format, author, rating],
+                enum: [year, month, format, author, rating, series, subject],
                 default: year,
               },
           }
@@ -1358,7 +1366,8 @@ paths:
                 group_by:
                   {
                     type: string,
-                    enum: [year, month, format, author, rating],
+                    enum:
+                      [year, month, format, author, rating, series, subject],
                     default: year,
                   }
                 limit: { type: integer, minimum: 1, maximum: 100, default: 20 }
@@ -1368,6 +1377,91 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ReadingStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/reading-pace:
+    get:
+      tags: [REST API]
+      summary: Reading pace and session analytics
+      description: |
+        Pace analytics over derived start→finish reading cycles (day
+        granularity, from public statuses): per finished cycle
+        `days_to_finish` and `pages_per_day`, reread detection (a book with
+        multiple cycles), overlap periods where 2+ books were open at once,
+        and summary aggregates (avg/median days to finish, avg pages/day,
+        fastest/slowest, max concurrent books, `start_coverage`). Filter by
+        `year`/`from`/`to` on the cycle's finish date.
+      operationId: getReadingPaceGet
+      parameters:
+        - {
+            name: actor_handle,
+            in: query,
+            required: true,
+            schema: { type: string },
+          }
+        - {
+            name: year,
+            in: query,
+            description: Scope to cycles finished in this calendar year. Omit for all-time.,
+            schema: { type: integer },
+          }
+        - { name: from, in: query, schema: { type: string } }
+        - { name: to, in: query, schema: { type: string } }
+        - {
+            name: sort,
+            in: query,
+            schema:
+              {
+                type: string,
+                enum: [finished, fastest, slowest],
+                default: finished,
+              },
+          }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 50 },
+          }
+      responses:
+        "200":
+          description: Reading pace analytics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReadingPaceResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Reading pace and session analytics (JSON body)
+      operationId: getReadingPacePost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [actor_handle]
+              properties:
+                actor_handle: { type: string }
+                year: { type: integer }
+                from: { type: string }
+                to: { type: string }
+                sort:
+                  {
+                    type: string,
+                    enum: [finished, fastest, slowest],
+                    default: finished,
+                  }
+                limit: { type: integer, minimum: 1, maximum: 100, default: 50 }
+      responses:
+        "200":
+          description: Reading pace analytics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ReadingPaceResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
@@ -1502,9 +1596,10 @@ paths:
       description: |
         The cached BookWyrm book catalogue as a paginated list of compact rows
         (book_url, title, subtitle, series, pages, physical_format, isbn13/isbn10,
-        pub_year, language, publisher, cover_url, fetched_at). Call
-        `/book-details` for the full record (description, subjects, provenance) of
-        one book. Filter by `title` (partial match), `format`, or `language`.
+        pub_year, language, publisher, cover_url, subjects, fetched_at). Call
+        `/book-details` for the full record (description, provenance) of one
+        book. Filter by `title` (partial match), `format`, `language`, `series`
+        (partial match), or `subject` (partial match against any subject/genre).
         Most-recently-enriched first by default; each response carries `total`
         (matching books across all pages) and a `next_cursor` for deep traversal.
       operationId: getBooksGet
@@ -1520,6 +1615,14 @@ paths:
         - name: language
           in: query
           description: Exact language (normalized ISO-639-1 code, e.g. en, no).
+          schema: { type: string }
+        - name: series
+          in: query
+          description: Case-insensitive partial series-name match.
+          schema: { type: string }
+        - name: subject
+          in: query
+          description: Case-insensitive partial match against any of the book's subjects.
           schema: { type: string }
         - $ref: "#/components/parameters/SortOrder"
         - name: limit
@@ -1553,6 +1656,8 @@ paths:
                 title: { type: string }
                 format: { type: string }
                 language: { type: string }
+                series: { type: string }
+                subject: { type: string }
                 sort_order: { type: string, enum: [asc, desc], default: desc }
                 limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
                 page: { type: integer, minimum: 1, default: 1 }
@@ -1971,10 +2076,25 @@ components:
         authors: { type: [string, "null"] }
         cover: { type: [string, "null"] }
         shelf: { type: [string, "null"], enum: [reading, read, to-read, null] }
-        started_date: { type: [string, "null"] }
-        finished_date: { type: [string, "null"] }
+        started_date:
+          {
+            type: [string, "null"],
+            description: Derived from the first public "reading" status (day granularity).,
+          }
+        finished_date:
+          {
+            type: [string, "null"],
+            description: Derived from the "read" status or review that finished the book (day granularity).,
+          }
         rating: { type: [string, "null"] }
         bookwyrm_book_url: { type: [string, "null"] }
+        pages: { type: [integer, "null"] }
+        language: { type: [string, "null"] }
+        shelved_date:
+          {
+            type: [string, "null"],
+            description: When the book was added to its shelf (live mode only; from the shelf item).,
+          }
 
     BookSummary:
       type: object
@@ -1993,6 +2113,7 @@ components:
         original_language: { type: [string, "null"] }
         publisher: { type: [string, "null"] }
         cover_url: { type: [string, "null"] }
+        subjects: { type: [array, "null"], items: { type: string } }
         fetched_at: { type: [string, "null"], format: date-time }
 
     BooksResponse:
@@ -2011,6 +2132,8 @@ components:
             title: { type: [string, "null"] }
             format: { type: [string, "null"] }
             language: { type: [string, "null"] }
+            series: { type: [string, "null"] }
+            subject: { type: [string, "null"] }
         books:
           type: array
           items: { $ref: "#/components/schemas/BookSummary" }
@@ -2238,6 +2361,7 @@ components:
           review,
           rating,
           comment,
+          quotation,
           note,
           shelved,
         ]
@@ -2254,10 +2378,36 @@ components:
           }
         book_title: { type: [string, "null"] }
         book_author: { type: [string, "null"] }
-        started_date: { type: [string, "null"] }
-        finished_date: { type: [string, "null"] }
+        started_date:
+          {
+            type: [string, "null"],
+            description: Set when THIS event marks a reading start (a "reading" status).,
+          }
+        finished_date:
+          {
+            type: [string, "null"],
+            description: Set when THIS event marks a finish (a "read" status or a review).,
+          }
+        book_started_date:
+          {
+            type: [string, "null"],
+            description: The book's derived overall start date (first "reading" signal).,
+          }
+        book_finished_date:
+          {
+            type: [string, "null"],
+            description: The book's derived overall finish date (last reading cycle's finish).,
+          }
         rating: { type: [string, "null"] }
+        review_title: { type: [string, "null"] }
         comment: { type: [string, "null"] }
+        quote:
+          {
+            type: [string, "null"],
+            description: The quoted passage (quotation events only; HTML stripped).,
+          }
+        progress: { type: [number, "null"] }
+        progress_mode: { type: [string, "null"] }
         published_at: { type: [string, "null"], format: date-time }
         ap_id: { type: string }
         bookwyrm_book_url: { type: [string, "null"] }
@@ -2447,7 +2597,11 @@ components:
               books: { type: integer }
               total_pages: { type: integer }
               avg_pages: { type: [integer, "null"] }
-        group_by: { type: string, enum: [year, month, format, author, rating] }
+        group_by:
+          {
+            type: string,
+            enum: [year, month, format, author, rating, series, subject],
+          }
         top:
           type: array
           items:
@@ -2457,6 +2611,68 @@ components:
               books: { type: integer }
               total_pages: { type: integer }
               avg_pages: { type: [integer, "null"] }
+        filters: { type: object }
+
+    ReadingPaceCycle:
+      type: object
+      properties:
+        title: { type: [string, "null"] }
+        author: { type: [string, "null"] }
+        book_url: { type: [string, "null"] }
+        cycle:
+          {
+            type: integer,
+            description: 1-based readthrough ordinal for this book; >1 is a reread.,
+          }
+        is_reread: { type: boolean }
+        started_date: { type: [string, "null"], format: date }
+        finished_date: { type: [string, "null"], format: date }
+        days_to_finish:
+          {
+            type: [integer, "null"],
+            description: Calendar days start→finish inclusive (same-day = 1); null without a known start.,
+          }
+        pages: { type: [integer, "null"] }
+        pages_per_day: { type: [number, "null"] }
+
+    ReadingPaceResponse:
+      type: object
+      properties:
+        books:
+          type: array
+          items: { $ref: "#/components/schemas/ReadingPaceCycle" }
+        summary:
+          type: object
+          properties:
+            books_finished: { type: integer }
+            avg_days_to_finish: { type: [integer, "null"] }
+            median_days_to_finish: { type: [integer, "null"] }
+            avg_pages_per_day: { type: [number, "null"] }
+            fastest:
+              type: [object, "null"]
+              properties:
+                title: { type: [string, "null"] }
+                days: { type: [integer, "null"] }
+            slowest:
+              type: [object, "null"]
+              properties:
+                title: { type: [string, "null"] }
+                days: { type: [integer, "null"] }
+            rereads: { type: integer }
+            max_concurrent_books: { type: integer }
+            start_coverage:
+              {
+                type: string,
+                description: e.g. "38/41 finished cycles with a known start date".,
+              }
+        overlaps:
+          type: array
+          items:
+            type: object
+            properties:
+              books: { type: array, items: { type: string } }
+              from: { type: string, format: date }
+              to: { type: string, format: date }
         filters: { type: object }
 
     GardenPagesResponse:

@@ -1,14 +1,19 @@
 import { getBookwyrmActors } from '../config.js'
 import { handleCreate } from '../activitypub/handlers/create.js'
 import { resolveActorByHandle } from '../lib/fetch-actor.js'
+import { BOOKWYRM_AP_HEADERS } from '../lib/bookwyrm-fetch.js'
 import { logger } from '../lib/logger.js'
 
 type AnyObject = Record<string, unknown>
 
-const AP_HEADERS = {
-  Accept: 'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
-}
+const AP_HEADERS = BOOKWYRM_AP_HEADERS
 const MAX_PAGES = 200 // safety bound on a full outbox walk
+
+// Bare outbox object types we ingest: plain Note/Article under BookWyrm's
+// "pure" serialization, native BookWyrm status types under full flavor.
+const BARE_TYPES = new Set([
+  'Note', 'Article', 'Comment', 'Review', 'Quotation', 'Rating', 'GeneratedNote',
+])
 const PAGE_DELAY_MS = 200
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -47,13 +52,16 @@ async function backfillOutbox(actorApId: string): Promise<{ pages: number; inges
       for (const item of items) {
         if (!item || typeof item !== 'object') continue
         const act = item as AnyObject
-        // BookWyrm outbox entries are bare Note objects (not Create-wrapped). Wrap
-        // each in a synthetic Create so the ingest handler's (actor, object) contract
-        // holds. Already-wrapped Creates pass through; anything else (boosts etc.) is
-        // skipped so we don't ingest other people's content as our own.
+        // BookWyrm outbox entries are bare objects (not Create-wrapped): plain
+        // Note/Article under the "pure" serialization, or native BookWyrm types
+        // (Comment/Review/Quotation/Rating/GeneratedNote) when the instance
+        // serves full flavor. Wrap each in a synthetic Create so the ingest
+        // handler's (actor, object) contract holds. Already-wrapped Creates pass
+        // through; anything else (boosts etc.) is skipped so we don't ingest
+        // other people's content as our own.
         let activity: AnyObject | null = null
         if (act.type === 'Create') activity = act
-        else if (act.type === 'Note' || act.type === 'Article') {
+        else if (typeof act.type === 'string' && BARE_TYPES.has(act.type)) {
           activity = { type: 'Create', actor: actorApId, object: act }
         } else continue
         if (!activity.actor) activity.actor = actorApId

@@ -9,7 +9,7 @@ type AnyObject = Record<string, unknown>
 
 const BOOKWYRM_TYPES = new Set([
   'Edition', 'Work', 'ShelfBook', 'ReadThrough', 'Review', 'Rating', 'Comment',
-  'GeneratedNote',
+  'Quotation', 'GeneratedNote',
 ])
 
 export async function handleCreate(activity: AnyObject): Promise<void> {
@@ -54,8 +54,10 @@ export async function handleCreate(activity: AnyObject): Promise<void> {
     // Re-ingesting an object (a redelivery, an outbox re-crawl, or a Create that
     // arrives after an edit) must refresh the mutable fields too — not just the
     // text. Freezing `tags`/`attachments` at first-seen is what let a hashtag
-    // added in an edit go missing from the `tag=` filter.
-    set: { content, contentText, summary, attachments, tags, sensitive, language, updatedAt: new Date(), raw: obj },
+    // added in an edit go missing from the `tag=` filter. `type` refreshes so a
+    // row first seen under BookWyrm's "pure" serialization (Note/Article) can
+    // upgrade to its native type (Comment/Review/Quotation) on a later re-ingest.
+    set: { type, content, contentText, summary, attachments, tags, sensitive, language, updatedAt: new Date(), raw: obj },
   })
 
   // BookWyrm-specific extra data

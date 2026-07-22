@@ -312,8 +312,10 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_recent_activities` | "What has come in recently?" |
 | `get_scrobbles` | "What did I listen to yesterday? Show my Aphex Twin scrobbles." |
 | `get_scrobble_stats` | "Who are my top artists this month? How many tracks have I scrobbled?" |
-| `get_reading_stats` | "What's the average length of the books I read in 2026? How many pages have I read this year?" |
-| `get_books` | "List every book in the cache. Show me all the graphic novels." |
+| `get_reading_events` | "Show my reading timeline. When did I start and finish each book? What have I quoted?" |
+| `get_reading_stats` | "What's the average length of the books I read in 2026? How many pages have I read this year? Which subjects do I read most?" |
+| `get_reading_pace` | "How fast do I read? Which books did I read in parallel? What have I reread?" |
+| `get_books` | "List every book in the cache. Show me all the graphic novels. Which books are tagged fantasy?" |
 | `get_book_details` | "What's the page count and publisher for The Radleys?" |
 
 All tools are read-only queries against the local database — no requests go out to remote servers when you query the MCP server.
@@ -352,17 +354,28 @@ format/author/rating breakdown):
   `isbn13`, and publication year in a `book_metadata` table. When an Edition has no page count
   (and isn't an audiobook), it falls back to OpenLibrary then Google Books by ISBN
   (`GOOGLE_BOOKS_API_KEY` optional).
-- **Finish dates** — derived from the `readingStatus` BookWyrm stamps on each post: a
-  `read` comment/review/finished-note marks a finish on that post's date (this is what BookWyrm
-  renders as "finished reading"), `reading` marks a start. For each actor listed in
-  `BOOKWYRM_ACTORS`, the server walks the full outbox on startup and every 6 hours so these are
-  complete even for activity that predates the follow.
+- **Reading dates** — BookWyrm does not federate exact ReadThrough dates over public
+  ActivityPub, so start/finish dates are derived (day granularity) from the `readingStatus`
+  BookWyrm stamps on each post: a `read` comment/review/finished-note marks a finish on that
+  post's date (this is what BookWyrm renders as "finished reading"), `reading` marks a start,
+  and a review counts as a finish even without a status. Consecutive start→finish signals form
+  **reading cycles**, so rereads are detected and a post-finish comment doesn't drag the finish
+  date later. For each actor listed in `BOOKWYRM_ACTORS`, the server walks the full outbox on
+  startup and every 6 hours so these are complete even for activity that predates the follow.
 
-`get_reading_stats` defaults to the `read` shelf and `group_by=year`. Page averages are
-reported over books with a known page count (`pages_coverage`, e.g. "22/25 books with known
-page counts") rather than silently dropping the rest, and `avg_pages_prose` excludes comics,
-graphic novels, and audiobooks so a comics-heavy span doesn't skew the prose figure. Filter by
-`year`/`from`/`to` (on finish date), `format`, `author`, or `rating`.
+The derived dates feed `get_actor_reading_status` (both live-shelf and offline modes),
+`get_reading_events` (per-event signal dates plus the book's overall window), and
+`get_reading_pace` (days-to-finish, pages/day, overlapping reads, rereads). Quotations
+(`/quotation/` posts) are classified as their own `quotation` event type with the quoted
+passage in a clean `quote` field, and progress updates (`progress`/`progress_mode`) are
+surfaced when present.
+
+`get_reading_stats` defaults to the `read` shelf and `group_by=year` (also `month`, `format`,
+`author`, `rating`, `series`, or multi-valued `subject`). Page averages are reported over books
+with a known page count (`pages_coverage`, e.g. "22/25 books with known page counts") rather
+than silently dropping the rest, and `avg_pages_prose` excludes comics, graphic novels, and
+audiobooks so a comics-heavy span doesn't skew the prose figure. Filter by `year`/`from`/`to`
+(on finish date), `format`, `author`, or `rating`.
 
 ---
 
@@ -414,7 +427,8 @@ All paths accept `GET`, `QUERY`, and `POST`.
 | `/scrobbles` | `get_scrobbles` | `artist`, `album`, `track`, `from`, `to`, `since`, `sort_order`, `limit`, `page`, `cursor` |
 | `/scrobble-stats` | `get_scrobble_stats` | `artist`, `album`, `track`, `from`, `to`, `since`, `group_by`, `limit` |
 | `/reading-stats` | `get_reading_stats` | `actor_handle`, `status`, `year`, `from`, `to`, `format`, `author`, `rating`, `group_by`, `limit` |
-| `/books` | `get_books` | `title`, `format`, `language`, `sort_order`, `limit`, `page`, `cursor` |
+| `/reading-pace` | `get_reading_pace` | `actor_handle`, `year`, `from`, `to`, `sort`, `limit` |
+| `/books` | `get_books` | `title`, `format`, `language`, `series`, `subject`, `sort_order`, `limit`, `page`, `cursor` |
 | `/book-details` | `get_book_details` | `book_url`, `isbn`, `title` |
 
 `GET /api/v1` returns a discovery document listing every endpoint and its parameters.

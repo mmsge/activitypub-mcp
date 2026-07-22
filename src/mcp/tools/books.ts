@@ -1,16 +1,32 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
 import { bookMetadata } from '../../db/schema.js'
-import { and, eq, ilike, count, type SQL } from 'drizzle-orm'
+import { and, eq, ilike, count, sql, type SQL } from 'drizzle-orm'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
 
 // ---- shared filter handling ------------------------------------------------
 
-function buildConditions(input: { title?: string; format?: string; language?: string }): SQL[] {
+function buildConditions(input: {
+  title?: string
+  format?: string
+  language?: string
+  series?: string
+  subject?: string
+}): SQL[] {
   const conditions: SQL[] = []
   if (input.title) conditions.push(ilike(bookMetadata.title, `%${input.title}%`))
   if (input.format) conditions.push(eq(bookMetadata.physicalFormat, input.format))
   if (input.language) conditions.push(eq(bookMetadata.language, input.language))
+  if (input.series) conditions.push(ilike(bookMetadata.series, `%${input.series}%`))
+  if (input.subject) {
+    // subjects is a jsonb string[]; match any element, case-insensitive partial.
+    conditions.push(sql`(
+      jsonb_typeof(${bookMetadata.subjects}) = 'array' AND EXISTS (
+        SELECT 1 FROM jsonb_array_elements_text(${bookMetadata.subjects}) AS s(subject)
+        WHERE s.subject ILIKE ${'%' + input.subject + '%'}
+      )
+    )`)
+  }
   return conditions
 }
 
@@ -20,6 +36,8 @@ export const getBooksSchema = z.object({
   title: z.string().optional().describe('Filter by title (case-insensitive, partial match)'),
   format: z.string().optional().describe('Filter by exact physical_format, e.g. "Paperback", "Hardcover", "GraphicNovel", "AudiobookFormat"'),
   language: z.string().optional().describe('Filter by exact language (normalized ISO-639-1 code, e.g. "en", "no")'),
+  series: z.string().optional().describe('Filter by series name (case-insensitive, partial match)'),
+  subject: z.string().optional().describe('Filter by subject/genre (case-insensitive partial match against any of the book\'s subjects)'),
   sort_order: z.enum(['asc', 'desc']).default('desc')
     .describe('Order by fetched_at. "desc" (default) is most-recently-enriched first; "asc" is oldest first.'),
   limit: z.number().int().min(1).max(200).default(50),
@@ -65,6 +83,7 @@ export async function getBooks(input: z.infer<typeof getBooksSchema>) {
       originalLanguage: bookMetadata.originalLanguage,
       publisher: bookMetadata.publisher,
       coverUrl: bookMetadata.coverUrl,
+      subjects: bookMetadata.subjects,
       fetchedAt: bookMetadata.fetchedAt,
     })
     .from(bookMetadata)
@@ -93,6 +112,8 @@ export async function getBooks(input: z.infer<typeof getBooksSchema>) {
       title: input.title ?? null,
       format: input.format ?? null,
       language: input.language ?? null,
+      series: input.series ?? null,
+      subject: input.subject ?? null,
     },
     books: rows.map((b) => ({
       book_url: b.bookUrl,
@@ -109,6 +130,7 @@ export async function getBooks(input: z.infer<typeof getBooksSchema>) {
       original_language: b.originalLanguage,
       publisher: b.publisher,
       cover_url: b.coverUrl,
+      subjects: Array.isArray(b.subjects) ? b.subjects : null,
       fetched_at: b.fetchedAt?.toISOString() ?? null,
     })),
   }
