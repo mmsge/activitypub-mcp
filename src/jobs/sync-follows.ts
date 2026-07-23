@@ -32,7 +32,7 @@ export async function syncFollows(): Promise<void> {
       }
 
       logger.info({ handle, actorApId: actor.apId }, 'Sending Follow request')
-      await sendFollow(actor.apId, actor.inboxUrl, actor.sharedInboxUrl)
+      await sendFollow(actor.apId, actor.inboxUrl)
     } catch (e) {
       logger.error({ handle, error: e }, 'Error during follow sync')
     }
