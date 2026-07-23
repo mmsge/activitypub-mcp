@@ -4,6 +4,7 @@ import { stripHtml } from '../../lib/strip-html.js'
 import { extractContent } from '../../lib/object-content.js'
 import { extractAttachments, extractTags, extractLanguage } from '../../lib/object-fields.js'
 import { queueBookMetadataEnrichment } from '../../jobs/sync-book-metadata.js'
+import { queueNeodbEnrichment, NEODB_SCREEN_TAG_TYPES } from '../../jobs/sync-neodb-metadata.js'
 import { logger } from '../../lib/logger.js'
 
 type AnyObject = Record<string, unknown>
@@ -71,6 +72,29 @@ export async function handleCreate(activity: AnyObject): Promise<void> {
   for (const bookUrl of collectEditionUrls(obj, tags)) {
     queueBookMetadataEnrichment(bookUrl)
   }
+
+  // Same, for any NeoDB film/TV catalog item this mark references.
+  for (const itemUrl of collectNeodbItemUrls(tags)) {
+    queueNeodbEnrichment(itemUrl)
+  }
+}
+
+// NeoDB film/TV marks carry the catalog item as a tag
+// { type: "TVSeason"|"Movie"|…, href: <catalog url> }; collect those hrefs.
+function collectNeodbItemUrls(tags: unknown): string[] {
+  const urls = new Set<string>()
+  for (const t of Array.isArray(tags) ? tags : []) {
+    const tag = t as AnyObject
+    if (
+      typeof tag?.type === 'string' &&
+      NEODB_SCREEN_TAG_TYPES.includes(tag.type) &&
+      typeof tag.href === 'string' &&
+      tag.href
+    ) {
+      urls.add(tag.href)
+    }
+  }
+  return [...urls]
 }
 
 // Every way an ingested object can reference a BookWyrm Edition: comments and

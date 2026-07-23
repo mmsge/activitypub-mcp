@@ -2,6 +2,7 @@ import { runDeliveryWorker } from './deliver.js'
 import { refreshStaleActors } from './refresh-actors.js'
 import { syncScrobbles } from './sync-scrobbles.js'
 import { syncBookMetadata } from './sync-book-metadata.js'
+import { syncNeodbMetadata } from './sync-neodb-metadata.js'
 import { syncReadingHistory } from './sync-reading-history.js'
 import { syncGardenContent } from './sync-garden-content.js'
 import { sampleEngagement } from './sample-engagement.js'
@@ -35,6 +36,12 @@ export function startScheduler(): void {
       await syncReadingHistory()
       await syncBookMetadata()
     } catch (e) { logger.error(e, 'Reading sync error') }
+  }, SIX_HOURS_MS)
+
+  // NeoDB film/TV catalog metadata enrichment — every 6 hours, its own interval
+  // and independent of the BookWyrm reading chain.
+  setInterval(async () => {
+    try { await syncNeodbMetadata() } catch (e) { logger.error(e, 'NeoDB metadata sync error') }
   }, SIX_HOURS_MS)
 
   // Garden note-body crawl — every 6 hours, its own interval so a slow or

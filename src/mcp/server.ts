@@ -15,6 +15,7 @@ import { getGardenPagesSchema, getGardenPages } from './tools/garden-pages.js'
 import { getGardenPageSchema, getGardenPage } from './tools/garden-page.js'
 import { getBookDetailsSchema, getBookDetails } from './tools/book-details.js'
 import { getBooksSchema, getBooks } from './tools/books.js'
+import { getWatchedSchema, getWatched } from './tools/watched.js'
 import { getHashtagStatsSchema, getHashtagStats, getHashtagTrendsSchema, getHashtagTrends } from './tools/hashtag-stats.js'
 import { getEngagementSchema, getEngagement, getEngagementTrendsSchema, getEngagementTrends } from './tools/engagement.js'
 import { getActorEngagementTrendsSchema, getActorEngagementTrends } from './tools/actor-engagement-trends.js'
@@ -211,6 +212,16 @@ export function createMcpServer(): McpServer {
     getBooksSchema.shape,
     async (input) => {
       const result = await getBooks(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_watched',
+    "Browse cached NeoDB film & TV metadata as a paginated catalogue — the titles referenced by this server's stored NeoDB marks (e.g. \"finished watching …\"), enriched with the external ids the federated marks don't carry inline. Each row has item_url (the NeoDB catalog url), category (tv|movie), item_type (Movie|TVShow|TVSeason|TVEpisode), title/display_title/orig_title, year, season_number, episode_count, imdb + imdb_url, tmdb_url, cover_url, description, genre, director, actors, language, area, rating, external_resources, and fetched_at. Filter by title (partial), category, item_type, genre (partial against any genre), or an exact imdb id. Most-recently-enriched first by default (sort_order='asc' for oldest first). Each response carries `total` and a `next_cursor` token; pass it back as `cursor` for deep traversal, or use the legacy offset `page`. For the mark itself (when/what was watched) use get_actor_posts.",
+    getWatchedSchema.shape,
+    async (input) => {
+      const result = await getWatched(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )
