@@ -34,6 +34,13 @@ const schema = z.object({
   // metadata fields backfill immediately after a deploy. Unset it once that pass has
   // run to restore normal staleness-based refresh.
   BOOKMETA_BACKFILL: z.coerce.boolean().default(false),
+  // Staleness window (days) for cached NeoDB catalog metadata: a record is refetched
+  // by the periodic sync only when older than this, previously errored, or forced.
+  NEODB_STALE_DAYS: z.coerce.number().int().min(1).default(30),
+  // One-time switch mirroring BOOKMETA_BACKFILL: when true, the NeoDB sync ignores the
+  // staleness window and re-enriches every referenced catalog item on its next run, so
+  // newly-added fields/categories backfill immediately after a deploy. Unset once run.
+  NEODB_BACKFILL: z.coerce.boolean().default(false),
   // Hostname (or URL) of your own Mastodon instance, e.g. "skvip.lol". Bare
   // numeric status ids in get_engagement resolve against it, and the optional
   // MASTODON_ACCESS_TOKEN is ONLY ever sent to this host — never to remote origins.

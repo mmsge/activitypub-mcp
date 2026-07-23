@@ -81,8 +81,9 @@ async function main() {
     }
   })()
 
-  // Enrich NeoDB film/TV catalog metadata in the background (no-op unless a mark
-  // referencing a NeoDB catalog item has been ingested).
+  // Enrich NeoDB catalog metadata (all categories) in the background (no-op unless a
+  // mark referencing a NeoDB catalog item has been ingested; re-enriches everything
+  // when NEODB_BACKFILL is set).
   void (async () => {
     try {
       await syncNeodbMetadata()

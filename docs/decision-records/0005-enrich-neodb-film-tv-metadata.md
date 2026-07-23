@@ -1,6 +1,6 @@
 # 0005 — Enrich NeoDB film/TV catalog metadata on ingest
 
-**Status:** Accepted
+**Status:** Accepted (extended by [0006](0006-enrich-all-neodb-categories.md) — generalised to every NeoDB category; the "books are deliberately excluded" sub-decision below is reversed there, and the Accept header is corrected)
 **Date:** 2026-07-23
 **Topics:** neodb, activitypub, film, tv, metadata, enrichment, derived-data
 **Contributors:** Markus (asked & decided: capture the external ids — "is there more? like imdb link" → "do it") + Claude (proposed/implemented; table shape, dereference-the-tag approach and the get_watched tool were agent decisions)
