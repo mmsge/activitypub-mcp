@@ -1688,13 +1688,14 @@ paths:
         to …", "read …"), enriched from the catalog item the mark only links to.
         Covers ALL categories, filter with `category`: tv, movie, book, music, game,
         podcast, performance. Common fields on every row (item_url, category,
-        item_type, title/display_title/orig_title, year, cover_url, description,
-        genre, language, area, rating, external_resources, fetched_at); film/TV
-        columns (season_number, episode_count, imdb + imdb_url, tmdb_url, director,
-        actors); and a per-category `details` object (book author/isbn/pages/
+        item_type, title/display_title/orig_title, mark_titles, year, cover_url,
+        description, genre, language, area, rating, external_resources, fetched_at);
+        film/TV columns (season_number, episode_count, imdb + imdb_url, tmdb_url,
+        director, actors); and a per-category `details` object (book author/isbn/pages/
         publisher + bookwyrm_book_url; music artist/release_date/track_count/barcode;
         game developer/publisher/platform; podcast host/feed_url; performance
-        playwright/director/troupe/venue/opening_date). Filter by `title` (partial),
+        playwright/director/troupe/venue/opening_date). Filter by `title` (partial,
+        matches the enriched title and the mark-supplied `mark_titles` aliases),
         `category`, `item_type`, `genre` (partial), or exact `imdb` id;
         `include_unenriched=true` also returns pending/failed rows (with fetch_error/
         fetch_attempts). Most-recently-enriched first by default; each response
@@ -2317,6 +2318,13 @@ components:
         title: { type: [string, "null"] }
         display_title: { type: [string, "null"] }
         orig_title: { type: [string, "null"] }
+        mark_titles:
+          type: array
+          items: { type: string }
+          description: >
+            The name(s) the mark(s) federated with, retained through NeoDB's
+            localized-title overwrite (e.g. "Conflict" alongside the stored "Konflikt").
+            Searched alongside `title`; [] when none.
         year: { type: [integer, "null"] }
         season_number: { type: [integer, "null"] }
         episode_count: { type: [integer, "null"] }
@@ -2379,6 +2387,14 @@ components:
         title: { type: [string, "null"] }
         display_title: { type: [string, "null"] }
         orig_title: { type: [string, "null"] }
+        mark_titles:
+          type: array
+          items: { type: string }
+          description: >
+            The name(s) the mark(s) federated with, retained through NeoDB's
+            localized-title overwrite (e.g. "Conflict" alongside the stored "Konflikt").
+            Searched alongside `title`; origin recorded as 'activitypub' in source_map.
+            [] when none.
         year: { type: [integer, "null"] }
         season_number: { type: [integer, "null"] }
         episode_count: { type: [integer, "null"] }
@@ -2398,7 +2414,7 @@ components:
         bookwyrm_book_url: { type: [string, "null"] }
         source_map:
           type: [object, "null"]
-          description: "{ field: 'neodb' | 'bookwyrm' } provenance for every populated field."
+          description: "{ field: 'neodb' | 'bookwyrm' | 'activitypub' } provenance for every populated field ('activitypub' marks the mark-supplied mark_titles aliases)."
           additionalProperties: { type: string }
         fetched_at:
           {

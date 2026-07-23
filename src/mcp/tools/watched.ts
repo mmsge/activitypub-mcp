@@ -1,10 +1,28 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
 import { catalogMetadata } from '../../db/schema.js'
-import { and, eq, ilike, isNotNull, count, desc, sql, type SQL } from 'drizzle-orm'
+import { and, eq, isNotNull, count, desc, sql, type SQL } from 'drizzle-orm'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
 
 // ---- shared helpers --------------------------------------------------------
+
+// Case-insensitive, partial title match across the enriched `title` and the retained
+// mark-supplied aliases (`mark_titles`). NeoDB overwrites the title with the localized
+// name (e.g. "Konflikt"), so the name a mark actually federated with (e.g. "Conflict")
+// only lives in mark_titles — either must find the row. The jsonb-array arm mirrors the
+// genre filter below.
+function titleMatch(title: string): SQL {
+  const pat = `%${title}%`
+  return sql`(
+    ${catalogMetadata.title} ILIKE ${pat}
+    OR (
+      jsonb_typeof(${catalogMetadata.markTitles}) = 'array' AND EXISTS (
+        SELECT 1 FROM jsonb_array_elements_text(${catalogMetadata.markTitles}) AS mt(name)
+        WHERE mt.name ILIKE ${pat}
+      )
+    )
+  )`
+}
 
 function buildConditions(input: {
   title?: string
@@ -15,7 +33,7 @@ function buildConditions(input: {
   include_unenriched?: boolean
 }): SQL[] {
   const conditions: SQL[] = []
-  if (input.title) conditions.push(ilike(catalogMetadata.title, `%${input.title}%`))
+  if (input.title) conditions.push(titleMatch(input.title))
   if (input.category) conditions.push(eq(catalogMetadata.category, input.category))
   if (input.item_type) conditions.push(eq(catalogMetadata.itemType, input.item_type))
   if (input.imdb) conditions.push(eq(catalogMetadata.imdb, input.imdb))
@@ -108,6 +126,7 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       area: catalogMetadata.area,
       rating: catalogMetadata.rating,
       details: catalogMetadata.details,
+      markTitles: catalogMetadata.markTitles,
       bookwyrmBookUrl: catalogMetadata.bookwyrmBookUrl,
       enrichedAt: catalogMetadata.enrichedAt,
       fetchError: catalogMetadata.fetchError,
@@ -150,6 +169,9 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       title: r.title,
       display_title: r.displayTitle,
       orig_title: r.origTitle,
+      // Names the mark(s) federated with, retained through NeoDB's localized-title
+      // overwrite; searched alongside `title`. [] when none.
+      mark_titles: asArray(r.markTitles) ?? [],
       year: r.year,
       // Film/TV columns (null for other categories).
       season_number: r.seasonNumber,
@@ -198,7 +220,7 @@ export async function getCatalogueDetails(input: CatalogueDetailsInput) {
 
   const conditions: SQL[] = []
   if (input.item_url) conditions.push(eq(catalogMetadata.itemUrl, input.item_url))
-  if (input.title) conditions.push(ilike(catalogMetadata.title, `%${input.title}%`))
+  if (input.title) conditions.push(titleMatch(input.title))
   if (input.category) conditions.push(eq(catalogMetadata.category, input.category))
 
   const rows = await db
@@ -218,6 +240,7 @@ export async function getCatalogueDetails(input: CatalogueDetailsInput) {
     title: r.title,
     display_title: r.displayTitle,
     orig_title: r.origTitle,
+    mark_titles: asArray(r.markTitles) ?? [],
     year: r.year,
     season_number: r.seasonNumber,
     episode_count: r.episodeCount,

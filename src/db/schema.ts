@@ -193,7 +193,13 @@ export const catalogMetadata = pgTable('catalog_metadata', {
   parentUuid: text('parent_uuid'),
   // Category-specific fields normalized per category ({} for unknown categories).
   details: jsonb('details'),
-  // { field: 'neodb' | 'bookwyrm' } — provenance for every populated field.
+  // string[] — distinct tag names from every stored mark referencing this item
+  // (ActivityPub-supplied aliases; accumulates). NeoDB enrichment overwrites the
+  // title with the localized name, so the name a mark federated with (e.g. "Conflict"
+  // vs the stored "Konflikt") is retained here and searched alongside `title`.
+  markTitles: jsonb('mark_titles'),
+  // { field: 'neodb' | 'bookwyrm' | 'activitypub' } — provenance for every populated
+  // field. 'activitypub' marks the mark-supplied `mark_titles` aliases.
   sourceMap: jsonb('source_map'),
   // For a NeoDB `book` mark whose ISBN matches a cached BookWyrm Edition: the
   // book_metadata.book_url it dedupes to (so the same physical book isn't a

@@ -49,6 +49,66 @@ export function collectNeodbTagHrefs(tags: unknown): string[] {
   return [...urls]
 }
 
+// Distinct, non-empty mark tag `name`s that a single object attaches to `itemUrl` —
+// the ActivityPub-supplied aliases for that catalog item. Restricted to NeoDB media
+// tags (and `Edition`, for NeoDB books) so an unrelated hashtag that happens to share
+// the href can't leak in. `itemUrl` is always a NeoDB catalog URL here (it's the
+// catalog row's key), so the href match already scopes it to the right item. Pure so
+// it's unit-testable; markTitlesForUrl unions it across every stored mark.
+export function extractMarkTitles(tags: unknown, itemUrl: string): string[] {
+  const names = new Set<string>()
+  for (const t of Array.isArray(tags) ? tags : []) {
+    const tag = t as Record<string, unknown>
+    if (typeof tag?.href !== 'string' || tag.href !== itemUrl) continue
+    const type = typeof tag.type === 'string' ? tag.type : ''
+    if (!NEODB_MEDIA_TAG_TYPES.includes(type) && type !== 'Edition') continue
+    const name = typeof tag.name === 'string' ? tag.name.trim() : ''
+    if (name) names.add(name)
+  }
+  return [...names]
+}
+
+// The accumulated alias set for one catalog item: every distinct mark `name` across
+// all stored marks referencing it. Local-only (no NeoDB fetch); the jsonb `@>`
+// containment prunes to objects that actually tag this href before extractMarkTitles
+// applies the type rule. Sorted for stable output.
+export async function markTitlesForUrl(itemUrl: string): Promise<string[]> {
+  const db = getDb()
+  const rows = await db.execute<{ tags: unknown }>(sql`
+    SELECT tags FROM objects
+    WHERE jsonb_typeof(tags) = 'array'
+      AND tags @> ${JSON.stringify([{ href: itemUrl }])}::jsonb
+  `)
+  const names = new Set<string>()
+  for (const r of [...rows]) for (const n of extractMarkTitles(r.tags, itemUrl)) names.add(n)
+  return [...names].sort()
+}
+
+// Recompute a catalog row's aliases from the stored marks and write them (with
+// provenance) — updating the existing row only, never fetching NeoDB. A no-op when the
+// row doesn't exist yet (enrichment creates it, seeding mark_titles itself). This is
+// how a later mark under a new name accumulates onto an already-enriched row, which
+// the enrichment paths' staleness guards would otherwise skip.
+export async function syncMarkTitles(itemUrl: string): Promise<void> {
+  const db = getDb()
+  const names = await markTitlesForUrl(itemUrl)
+  if (names.length === 0) {
+    await db.execute(sql`
+      UPDATE catalog_metadata
+      SET mark_titles = NULL,
+          source_map = (coalesce(source_map, '{}'::jsonb) - 'mark_titles')
+      WHERE item_url = ${itemUrl}
+    `)
+    return
+  }
+  await db.execute(sql`
+    UPDATE catalog_metadata
+    SET mark_titles = ${JSON.stringify(names)}::jsonb,
+        source_map = coalesce(source_map, '{}'::jsonb) || '{"mark_titles":"activitypub"}'::jsonb
+    WHERE item_url = ${itemUrl}
+  `)
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 // --- BookWyrm dedup ----------------------------------------------------------
@@ -92,6 +152,12 @@ async function dedupeBookAgainstBookwyrm(meta: NeodbItemMetadata): Promise<void>
 async function upsertCatalogMetadata(meta: NeodbItemMetadata): Promise<void> {
   const db = getDb()
   const now = new Date()
+  // Retain the name(s) the mark(s) federated with alongside NeoDB's (localized) title,
+  // and record 'activitypub' provenance so source_map distinguishes them.
+  const markTitles = await markTitlesForUrl(meta.itemUrl)
+  const sourceMap = markTitles.length
+    ? { ...meta.sourceMap, mark_titles: 'activitypub' }
+    : meta.sourceMap
   const values = {
     itemUrl: meta.itemUrl,
     category: meta.category,
@@ -116,7 +182,8 @@ async function upsertCatalogMetadata(meta: NeodbItemMetadata): Promise<void> {
     rating: meta.rating != null ? String(meta.rating) : null,
     parentUuid: meta.parentUuid,
     details: meta.details as Record<string, unknown>,
-    sourceMap: meta.sourceMap as Record<string, unknown>,
+    markTitles: (markTitles.length ? markTitles : null) as unknown as Record<string, unknown>,
+    sourceMap: sourceMap as Record<string, unknown>,
     bookwyrmBookUrl: meta.bookwyrmBookUrl,
     raw: meta.raw as Record<string, unknown>,
     fetchedAt: now,
@@ -300,5 +367,16 @@ export async function syncNeodbMetadata(force = config.NEODB_BACKFILL): Promise<
     await sleep(FETCH_DELAY_MS)
   }
 
-  logger.info({ enriched, failed, byCategory }, 'NeoDB metadata sync complete')
+  // Reconcile the mark-supplied aliases for every referenced item, independent of NeoDB
+  // staleness — this catches a new alias on an already-enriched (fresh) row that the
+  // enrichment batch above skipped. Local-only and idempotent, so it's cheap to run for
+  // all referenced URLs, not just the enriched batch.
+  let aliasSynced = 0
+  for (const { itemUrl } of referenced) {
+    try { await syncMarkTitles(itemUrl); aliasSynced++ } catch (e) {
+      logger.warn({ itemUrl, error: e }, 'Mark-title alias sync failed (non-fatal)')
+    }
+  }
+
+  logger.info({ enriched, failed, byCategory, aliasSynced }, 'NeoDB metadata sync complete')
 }

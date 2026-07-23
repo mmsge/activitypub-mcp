@@ -17,3 +17,4 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | [0004](0004-deliver-directed-activities-to-personal-inbox.md) | Deliver directed activities (Follow/Undo) to the personal inbox, with explicit `to` |
 | [0005](0005-enrich-neodb-film-tv-metadata.md) | Enrich NeoDB film/TV catalog metadata on ingest (IMDb/TMDB/details), mirroring the book pipeline |
 | [0006](0006-enrich-all-neodb-categories.md) | Enrich every NeoDB category (music/game/podcast/performance/book) with retry + BookWyrm book dedup |
+| [0007](0007-retain-mark-title-aliases.md) | Retain the mark's tag name as an accumulating catalogue alias (`mark_titles`), searched alongside `title` |
