@@ -16,3 +16,4 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | [0003](0003-book-metadata-enrichment-on-ingest.md) | Enrich book metadata on ingest (plus periodic backfill), and let every reading tool read the cache |
 | [0004](0004-deliver-directed-activities-to-personal-inbox.md) | Deliver directed activities (Follow/Undo) to the personal inbox, with explicit `to` |
 | [0005](0005-enrich-neodb-film-tv-metadata.md) | Enrich NeoDB film/TV catalog metadata on ingest (IMDb/TMDB/details), mirroring the book pipeline |
+| [0006](0006-enrich-all-neodb-categories.md) | Enrich every NeoDB category (music/game/podcast/performance/book) with retry + BookWyrm book dedup |

@@ -1681,19 +1681,25 @@ paths:
   /api/v1/watched:
     get:
       tags: [REST API]
-      summary: Browse cached NeoDB film & TV metadata
+      summary: Browse the cached NeoDB catalogue (all categories)
       description: |
-        The cached NeoDB film/TV catalogue as a paginated list — the titles
-        referenced by this server's stored NeoDB marks (e.g. "finished watching …"),
-        enriched with the external ids the federated marks don't carry inline. Each
-        row has item_url (the NeoDB catalog url), category (tv|movie), item_type
-        (Movie|TVShow|TVSeason|TVEpisode), title/display_title/orig_title, year,
-        season_number, episode_count, imdb + imdb_url, tmdb_url, cover_url,
-        description, genre, director, actors, language, area, rating,
-        external_resources, and fetched_at. Filter by `title` (partial), `category`,
-        `item_type`, `genre` (partial against any genre), or exact `imdb` id.
-        Most-recently-enriched first by default; each response carries `total` and a
-        `next_cursor` for deep traversal.
+        The cached NeoDB catalogue as a paginated list — every item behind this
+        server's stored NeoDB marks ("finished watching …", "played …", "listened
+        to …", "read …"), enriched from the catalog item the mark only links to.
+        Covers ALL categories, filter with `category`: tv, movie, book, music, game,
+        podcast, performance. Common fields on every row (item_url, category,
+        item_type, title/display_title/orig_title, year, cover_url, description,
+        genre, language, area, rating, external_resources, fetched_at); film/TV
+        columns (season_number, episode_count, imdb + imdb_url, tmdb_url, director,
+        actors); and a per-category `details` object (book author/isbn/pages/
+        publisher + bookwyrm_book_url; music artist/release_date/track_count/barcode;
+        game developer/publisher/platform; podcast host/feed_url; performance
+        playwright/director/troupe/venue/opening_date). Filter by `title` (partial),
+        `category`, `item_type`, `genre` (partial), or exact `imdb` id;
+        `include_unenriched=true` also returns pending/failed rows (with fetch_error/
+        fetch_attempts). Most-recently-enriched first by default; each response
+        carries `total` and a `next_cursor`. Use /catalogue-details for one item's
+        full record + provenance.
       operationId: getWatchedGet
       parameters:
         - name: title
@@ -1702,11 +1708,11 @@ paths:
           schema: { type: string }
         - name: category
           in: query
-          description: Exact NeoDB category, e.g. tv or movie.
+          description: Exact NeoDB category, e.g. tv, movie, book, music, game, podcast, performance.
           schema: { type: string }
         - name: item_type
           in: query
-          description: Exact AP object type, e.g. Movie, TVShow, TVSeason, TVEpisode.
+          description: Exact AP object type, e.g. Movie, TVSeason, Edition, Album, Game, Podcast, Performance.
           schema: { type: string }
         - name: genre
           in: query
@@ -1714,8 +1720,12 @@ paths:
           schema: { type: string }
         - name: imdb
           in: query
-          description: Exact IMDb id, e.g. tt27579939.
+          description: Exact IMDb id, e.g. tt27579939 (film/TV only).
           schema: { type: string }
+        - name: include_unenriched
+          in: query
+          description: Include rows not yet successfully enriched (pending/failed, carrying fetch_error/fetch_attempts).
+          schema: { type: boolean, default: false }
         - $ref: "#/components/parameters/SortOrder"
         - name: limit
           in: query
@@ -1727,7 +1737,7 @@ paths:
         - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
-          description: Page of film/TV titles.
+          description: Page of catalogue items.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/WatchedResponse" }
@@ -1736,7 +1746,7 @@ paths:
         "503": { $ref: "#/components/responses/Disabled" }
     post:
       tags: [REST API]
-      summary: Browse cached NeoDB film & TV metadata (JSON body)
+      summary: Browse the cached NeoDB catalogue (JSON body)
       operationId: getWatchedPost
       requestBody:
         required: false
@@ -1750,18 +1760,80 @@ paths:
                 item_type: { type: string }
                 genre: { type: string }
                 imdb: { type: string }
+                include_unenriched: { type: boolean, default: false }
                 sort_order: { type: string, enum: [asc, desc], default: desc }
                 limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
                 page: { type: integer, minimum: 1, default: 1 }
                 cursor: { type: string }
       responses:
         "200":
-          description: Page of film/TV titles.
+          description: Page of catalogue items.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/WatchedResponse" }
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/catalogue-details:
+    get:
+      tags: [REST API]
+      summary: Get one NeoDB catalogue item's full record
+      description: |
+        One NeoDB catalogue item's full cached record, resolved by `item_url` (exact)
+        or a partial `title` (most-recently-enriched wins; pass `category` to
+        disambiguate). Returns the common fields, film/TV columns, the category-
+        specific `details` object, `bookwyrm_book_url` (book↔BookWyrm dedup link),
+        `source_map` (per-field 'neodb'|'bookwyrm' provenance), and enrichment status
+        (fetched_at, fetch_error, fetch_attempts, last_attempt_at). The catalogue
+        sibling of /book-details.
+      operationId: getCatalogueDetailsGet
+      parameters:
+        - name: item_url
+          in: query
+          description: NeoDB catalog URL (exact match, the primary key).
+          schema: { type: string }
+        - name: title
+          in: query
+          description: Case-insensitive partial title match (most-recently-enriched wins).
+          schema: { type: string }
+        - name: category
+          in: query
+          description: Optional category filter to disambiguate a title match.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The catalogue item's full record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CatalogueDetails" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Get one NeoDB catalogue item's full record (JSON body)
+      operationId: getCatalogueDetailsPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                item_url: { type: string }
+                title: { type: string }
+                category: { type: string }
+      responses:
+        "200":
+          description: The catalogue item's full record.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CatalogueDetails" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "503": { $ref: "#/components/responses/Disabled" }
 
   /api/v1/book-details:
@@ -2260,6 +2332,18 @@ components:
         area: { type: [array, "null"], items: { type: string } }
         rating: { type: [number, "null"] }
         external_resources: { type: [array, "null"], items: { type: object } }
+        details:
+          type: object
+          description: >
+            Category-specific fields ({} for film/TV & unknown categories). book:
+            author, isbn, pages, publisher; music: artist, release_date, track_count,
+            barcode; game: developer, publisher, platform, release_date; podcast:
+            host, feed_url; performance: playwright, director, troupe, venue,
+            opening_date.
+          additionalProperties: true
+        bookwyrm_book_url:
+          type: [string, "null"]
+          description: For a NeoDB book deduped to a cached BookWyrm Edition by ISBN, that Edition's book_url; null otherwise.
         fetched_at: { type: [string, "null"], format: date-time }
 
     WatchedResponse:
@@ -2280,9 +2364,55 @@ components:
             item_type: { type: [string, "null"] }
             genre: { type: [string, "null"] }
             imdb: { type: [string, "null"] }
+            include_unenriched: { type: boolean }
         titles:
           type: array
           items: { $ref: "#/components/schemas/WatchedTitle" }
+
+    CatalogueDetails:
+      type: object
+      description: One NeoDB catalogue item's full cached record, incl. per-field provenance.
+      properties:
+        item_url: { type: string }
+        category: { type: [string, "null"] }
+        item_type: { type: [string, "null"] }
+        title: { type: [string, "null"] }
+        display_title: { type: [string, "null"] }
+        orig_title: { type: [string, "null"] }
+        year: { type: [integer, "null"] }
+        season_number: { type: [integer, "null"] }
+        episode_count: { type: [integer, "null"] }
+        imdb: { type: [string, "null"] }
+        imdb_url: { type: [string, "null"] }
+        tmdb_url: { type: [string, "null"] }
+        director: { type: [array, "null"], items: { type: string } }
+        actors: { type: [array, "null"], items: { type: string } }
+        cover_url: { type: [string, "null"] }
+        description: { type: [string, "null"] }
+        genre: { type: [array, "null"], items: { type: string } }
+        language: { type: [array, "null"], items: { type: string } }
+        area: { type: [array, "null"], items: { type: string } }
+        rating: { type: [number, "null"] }
+        external_resources: { type: [array, "null"], items: { type: object } }
+        details: { type: object, additionalProperties: true }
+        bookwyrm_book_url: { type: [string, "null"] }
+        source_map:
+          type: [object, "null"]
+          description: "{ field: 'neodb' | 'bookwyrm' } provenance for every populated field."
+          additionalProperties: { type: string }
+        fetched_at:
+          {
+            type: [string, "null"],
+            format: date-time,
+            description: Last successful enrichment; null if never enriched.,
+          }
+        fetch_error:
+          {
+            type: [string, "null"],
+            description: Last fetch error; null on success. Retried by the periodic sync.,
+          }
+        fetch_attempts: { type: integer }
+        last_attempt_at: { type: [string, "null"], format: date-time }
 
     MediaPost:
       type: object

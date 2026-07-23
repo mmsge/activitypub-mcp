@@ -24,7 +24,7 @@ import { getGardenPagesSchema, getGardenPages } from '../mcp/tools/garden-pages.
 import { getGardenPageSchema, getGardenPage } from '../mcp/tools/garden-page.js'
 import { getBookDetailsSchema, getBookDetails } from '../mcp/tools/book-details.js'
 import { getBooksSchema, getBooks } from '../mcp/tools/books.js'
-import { getWatchedSchema, getWatched } from '../mcp/tools/watched.js'
+import { getWatchedSchema, getWatched, getCatalogueDetailsSchema, getCatalogueDetails } from '../mcp/tools/watched.js'
 import {
   getHashtagStatsSchema, getHashtagStats,
   getHashtagTrendsSchema, getHashtagTrends,
@@ -247,10 +247,20 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/watched',
     name: 'get_watched',
-    description: "Browse cached NeoDB film & TV metadata as a paginated catalogue — the titles referenced by this server's stored NeoDB marks, enriched with the external ids (imdb, tmdb) the federated marks don't carry inline. Rows carry item_url, category (tv|movie), item_type, title/display_title/orig_title, year, season_number, episode_count, imdb + imdb_url, tmdb_url, cover_url, description, genre, director, actors, language, area, rating, external_resources, fetched_at. Filter by title (partial), category, item_type, genre (partial), or exact imdb id. Most-recently-enriched first by default; carries `total` and a `next_cursor` for deep traversal (or the legacy offset `page`).",
+    description: "Browse the cached NeoDB catalogue (ALL categories) as a paginated table — every item behind this server's stored NeoDB marks, enriched from the linked catalog item. Filter by `category`: tv, movie, book, music, game, podcast, performance. Common fields on every row (item_url, category, item_type, title/display_title/orig_title, year, cover_url, description, genre, language, area, rating, external_resources, fetched_at); film/TV columns (season_number, episode_count, imdb/imdb_url, tmdb_url, director, actors); and a per-category `details` object (book author/isbn/pages/publisher + bookwyrm_book_url; music artist/release_date/track_count/barcode; game developer/publisher/platform; podcast host/feed_url; performance playwright/director/troupe/venue/opening_date). Filter by title/category/item_type/genre (partial) or exact imdb id; include_unenriched=true also returns pending/failed rows. Most-recently-enriched first by default; carries `total` and `next_cursor` (or legacy offset `page`). Use /catalogue-details for one item's full record + provenance.",
     schema: getWatchedSchema,
     handler: getWatched,
     numbers: ['limit', 'page'],
+    booleans: ['include_unenriched'],
+    arrays: [],
+  },
+  {
+    path: '/catalogue-details',
+    name: 'get_catalogue_details',
+    description: "Get one NeoDB catalogue item's full cached record, resolved by item_url (exact) or a partial title (pass category to disambiguate). Returns the common fields, film/TV columns, and the category-specific `details` object, plus bookwyrm_book_url (book↔BookWyrm dedup link), source_map (per-field 'neodb'|'bookwyrm' provenance), and enrichment status (fetched_at, fetch_error, fetch_attempts, last_attempt_at). The catalogue sibling of /book-details.",
+    schema: getCatalogueDetailsSchema,
+    handler: getCatalogueDetails,
+    numbers: [],
     booleans: [],
     arrays: [],
   },

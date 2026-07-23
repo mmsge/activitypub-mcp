@@ -1,10 +1,10 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
 import { catalogMetadata } from '../../db/schema.js'
-import { and, eq, ilike, count, sql, type SQL } from 'drizzle-orm'
+import { and, eq, ilike, isNotNull, count, desc, sql, type SQL } from 'drizzle-orm'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
 
-// ---- shared filter handling ------------------------------------------------
+// ---- shared helpers --------------------------------------------------------
 
 function buildConditions(input: {
   title?: string
@@ -12,6 +12,7 @@ function buildConditions(input: {
   item_type?: string
   genre?: string
   imdb?: string
+  include_unenriched?: boolean
 }): SQL[] {
   const conditions: SQL[] = []
   if (input.title) conditions.push(ilike(catalogMetadata.title, `%${input.title}%`))
@@ -27,6 +28,13 @@ function buildConditions(input: {
       )
     )`)
   }
+  // By default only rows that have enriched at least once are returned; never-enriched
+  // stubs (pending or only-ever-failed) are hidden unless explicitly requested. A row
+  // that enriched and later hit a transient refresh error stays visible (its data is
+  // still good) — the error surfaces via get_catalogue_details / include_unenriched.
+  if (!input.include_unenriched) {
+    conditions.push(isNotNull(catalogMetadata.enrichedAt))
+  }
   return conditions
 }
 
@@ -34,14 +42,20 @@ function asArray(v: unknown): string[] | null {
   return Array.isArray(v) ? (v as string[]) : null
 }
 
-// ---- get_watched: paginated catalogue of cached NeoDB film/TV metadata -------
+function asObject(v: unknown): Record<string, unknown> {
+  return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {}
+}
+
+// ---- get_watched: paginated catalogue of cached NeoDB metadata (all categories) --
 
 export const getWatchedSchema = z.object({
   title: z.string().optional().describe('Filter by title (case-insensitive, partial match)'),
-  category: z.string().optional().describe('Filter by exact NeoDB category: "tv" or "movie"'),
-  item_type: z.string().optional().describe('Filter by exact AP object type: "Movie", "TVShow", "TVSeason", or "TVEpisode"'),
+  category: z.string().optional().describe('Filter by exact NeoDB category: "tv", "movie", "book", "music", "game", "podcast", or "performance"'),
+  item_type: z.string().optional().describe('Filter by exact AP object type: "Movie", "TVShow", "TVSeason", "TVEpisode", "Edition", "Album", "Game", "Podcast", or "Performance"'),
   genre: z.string().optional().describe('Filter by genre (case-insensitive partial match against any of the title\'s genres)'),
-  imdb: z.string().optional().describe('Filter by exact IMDb id, e.g. "tt27579939"'),
+  imdb: z.string().optional().describe('Filter by exact IMDb id, e.g. "tt27579939" (film/TV only)'),
+  include_unenriched: z.boolean().default(false)
+    .describe('Include rows that have not been successfully enriched yet (pending or failed fetches, carrying fetch_error/fetch_attempts). Off by default.'),
   sort_order: z.enum(['asc', 'desc']).default('desc')
     .describe('Order by fetched_at. "desc" (default) is most-recently-enriched first; "asc" is oldest first.'),
   limit: z.number().int().min(1).max(200).default(50),
@@ -93,6 +107,11 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       language: catalogMetadata.language,
       area: catalogMetadata.area,
       rating: catalogMetadata.rating,
+      details: catalogMetadata.details,
+      bookwyrmBookUrl: catalogMetadata.bookwyrmBookUrl,
+      enrichedAt: catalogMetadata.enrichedAt,
+      fetchError: catalogMetadata.fetchError,
+      fetchAttempts: catalogMetadata.fetchAttempts,
       fetchedAt: catalogMetadata.fetchedAt,
     })
     .from(catalogMetadata)
@@ -122,6 +141,7 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       item_type: input.item_type ?? null,
       genre: input.genre ?? null,
       imdb: input.imdb ?? null,
+      include_unenriched: input.include_unenriched,
     },
     titles: rows.map((r) => ({
       item_url: r.itemUrl,
@@ -131,21 +151,94 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       display_title: r.displayTitle,
       orig_title: r.origTitle,
       year: r.year,
+      // Film/TV columns (null for other categories).
       season_number: r.seasonNumber,
       episode_count: r.episodeCount,
       imdb: r.imdb,
       imdb_url: r.imdbUrl,
       tmdb_url: r.tmdbUrl,
+      director: asArray(r.director),
+      actors: asArray(r.actors),
+      // Common fields.
       cover_url: r.coverUrl,
       description: r.description,
       genre: asArray(r.genre),
-      director: asArray(r.director),
-      actors: asArray(r.actors),
       language: asArray(r.language),
       area: asArray(r.area),
       rating: r.rating != null ? Number(r.rating) : null,
       external_resources: r.externalResources ?? null,
-      fetched_at: r.fetchedAt?.toISOString() ?? null,
+      // Category-specific fields (author/isbn/pages, artist/release_date, developer/
+      // platform, host/feed_url, playwright/venue, …) — {} for film/TV & unknown.
+      details: asObject(r.details),
+      // When this NeoDB book dedupes to a cached BookWyrm Edition.
+      bookwyrm_book_url: r.bookwyrmBookUrl ?? null,
+      fetched_at: (r.enrichedAt ?? r.fetchedAt)?.toISOString() ?? null,
+      ...(input.include_unenriched
+        ? { fetch_error: r.fetchError ?? null, fetch_attempts: r.fetchAttempts }
+        : {}),
     })),
+  }
+}
+
+// ---- get_catalogue_details: one item's full record incl. provenance ---------
+
+export const getCatalogueDetailsSchema = z.object({
+  item_url: z.string().optional().describe('NeoDB catalog URL (exact match, the primary key)'),
+  title: z.string().optional().describe('Case-insensitive partial title match (most recently-enriched wins)'),
+  category: z.string().optional().describe('Optional category filter to disambiguate a title match ("tv", "movie", "book", "music", "game", "podcast", "performance")'),
+})
+
+type CatalogueDetailsInput = z.infer<typeof getCatalogueDetailsSchema>
+
+export async function getCatalogueDetails(input: CatalogueDetailsInput) {
+  if (!input.item_url && !input.title) {
+    return { error: 'Provide at least one of item_url or title' }
+  }
+  const db = getDb()
+
+  const conditions: SQL[] = []
+  if (input.item_url) conditions.push(eq(catalogMetadata.itemUrl, input.item_url))
+  if (input.title) conditions.push(ilike(catalogMetadata.title, `%${input.title}%`))
+  if (input.category) conditions.push(eq(catalogMetadata.category, input.category))
+
+  const rows = await db
+    .select()
+    .from(catalogMetadata)
+    .where(and(...conditions))
+    .orderBy(desc(catalogMetadata.enrichedAt), desc(catalogMetadata.fetchedAt))
+    .limit(1)
+
+  const r = rows[0]
+  if (!r) return { error: 'No catalogue item found for the given query' }
+
+  return {
+    item_url: r.itemUrl,
+    category: r.category,
+    item_type: r.itemType,
+    title: r.title,
+    display_title: r.displayTitle,
+    orig_title: r.origTitle,
+    year: r.year,
+    season_number: r.seasonNumber,
+    episode_count: r.episodeCount,
+    imdb: r.imdb,
+    imdb_url: r.imdbUrl,
+    tmdb_url: r.tmdbUrl,
+    director: asArray(r.director),
+    actors: asArray(r.actors),
+    cover_url: r.coverUrl,
+    description: r.description,
+    genre: asArray(r.genre),
+    language: asArray(r.language),
+    area: asArray(r.area),
+    rating: r.rating != null ? Number(r.rating) : null,
+    external_resources: r.externalResources ?? null,
+    details: asObject(r.details),
+    bookwyrm_book_url: r.bookwyrmBookUrl ?? null,
+    source_map: r.sourceMap ?? null,
+    fetched_at: (r.enrichedAt ?? null)?.toISOString() ?? null,
+    fetch_error: r.fetchError ?? null,
+    fetch_attempts: r.fetchAttempts,
+    last_attempt_at: r.lastAttemptAt?.toISOString() ?? null,
   }
 }

@@ -85,6 +85,13 @@
       "when": 1784822076288,
       "tag": "0011_mature_madripoor",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1784827440778,
+      "tag": "0012_neodb_all_categories",
+      "breakpoints": true
     }
   ]
 }

@@ -15,7 +15,7 @@ import { getGardenPagesSchema, getGardenPages } from './tools/garden-pages.js'
 import { getGardenPageSchema, getGardenPage } from './tools/garden-page.js'
 import { getBookDetailsSchema, getBookDetails } from './tools/book-details.js'
 import { getBooksSchema, getBooks } from './tools/books.js'
-import { getWatchedSchema, getWatched } from './tools/watched.js'
+import { getWatchedSchema, getWatched, getCatalogueDetailsSchema, getCatalogueDetails } from './tools/watched.js'
 import { getHashtagStatsSchema, getHashtagStats, getHashtagTrendsSchema, getHashtagTrends } from './tools/hashtag-stats.js'
 import { getEngagementSchema, getEngagement, getEngagementTrendsSchema, getEngagementTrends } from './tools/engagement.js'
 import { getActorEngagementTrendsSchema, getActorEngagementTrends } from './tools/actor-engagement-trends.js'
@@ -218,10 +218,20 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_watched',
-    "Browse cached NeoDB film & TV metadata as a paginated catalogue — the titles referenced by this server's stored NeoDB marks (e.g. \"finished watching …\"), enriched with the external ids the federated marks don't carry inline. Each row has item_url (the NeoDB catalog url), category (tv|movie), item_type (Movie|TVShow|TVSeason|TVEpisode), title/display_title/orig_title, year, season_number, episode_count, imdb + imdb_url, tmdb_url, cover_url, description, genre, director, actors, language, area, rating, external_resources, and fetched_at. Filter by title (partial), category, item_type, genre (partial against any genre), or an exact imdb id. Most-recently-enriched first by default (sort_order='asc' for oldest first). Each response carries `total` and a `next_cursor` token; pass it back as `cursor` for deep traversal, or use the legacy offset `page`. For the mark itself (when/what was watched) use get_actor_posts.",
+    "Browse the cached NeoDB catalogue as a paginated table — every item behind this server's stored NeoDB marks (\"finished watching …\", \"played …\", \"listened to …\", \"read …\"), enriched from the catalog item the federated mark only links to. Covers ALL categories, filterable by `category`: tv, movie, book, music, game, podcast, performance (and any future one). COMMON fields on every row: item_url, category, item_type, title/display_title/orig_title, year, cover_url, description, genre, language, area, rating, external_resources, fetched_at. FILM/TV columns (null elsewhere): season_number, episode_count, imdb + imdb_url, tmdb_url, director, actors. CATEGORY-SPECIFIC fields live in the `details` object per row — book: author, isbn, pages, publisher (deduped to a BookWyrm Edition via bookwyrm_book_url when the ISBN matches); music: artist, release_date, track_count, barcode; game: developer, publisher, platform, release_date; podcast: host, feed_url; performance: playwright, director, troupe, venue, opening_date. Filter by title (partial), category, item_type, genre (partial), or an exact imdb id; include_unenriched:true also returns pending/failed rows (with fetch_error/fetch_attempts). Most-recently-enriched first by default (sort_order='asc' for oldest first); carries `total` and a `next_cursor` (or legacy offset `page`). For one item's full record + per-field provenance use get_catalogue_details; for the mark itself (when/what) use get_actor_posts.",
     getWatchedSchema.shape,
     async (input) => {
       const result = await getWatched(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_catalogue_details',
+    "Get one NeoDB catalogue item's full cached record, resolved by item_url (the NeoDB catalog URL, exact) or a partial title (most-recently-enriched wins; pass category to disambiguate). Returns the common fields, the film/TV columns, and the category-specific `details` object (book: author/isbn/pages/publisher; music: artist/release_date/track_count/barcode; game: developer/publisher/platform/release_date; podcast: host/feed_url; performance: playwright/director/troupe/venue/opening_date), plus bookwyrm_book_url (set when a book deduped to a BookWyrm Edition), source_map (per-field provenance: 'neodb' or 'bookwyrm'), and enrichment status (fetched_at, fetch_error, fetch_attempts, last_attempt_at). The catalogue sibling of get_book_details.",
+    getCatalogueDetailsSchema.shape,
+    async (input) => {
+      const result = await getCatalogueDetails(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

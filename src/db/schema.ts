@@ -151,25 +151,33 @@ export const bookMetadata = pgTable('book_metadata', {
   index('book_metadata_isbn13_idx').on(t.isbn13),
 ])
 
-// Per-title metadata for NeoDB film & TV catalog items, cached so callers get the
-// IMDb/TMDB links and details the federated marks don't carry inline. A NeoDB
-// "finished watching" note federates as a plain Note whose tag is a bare
-// { type: "TVSeason"|"Movie"|…, href: <catalog url>, name, image } — only the NeoDB
-// catalog URL and poster, no external ids. Keyed by that catalog URL (the tag href)
-// and filled by sync-neodb-metadata, which dereferences the item for
-// imdb/tmdb/year/episode_count/etc. The screen-media analogue of book_metadata
-// (ADR 0003); see ADR 0005.
+// Per-title metadata for every NeoDB catalog item behind a federated mark, cached
+// so callers get the ids/creators/details the marks don't carry inline. A NeoDB
+// mark ("finished watching …", "played …", "listened to …") federates as a plain
+// Note whose only structured hook is a bare tag
+// { type: "TVSeason"|"Movie"|"Album"|"Game"|"Podcast"|"Performance"|"Edition"|…,
+//   href: <catalog url>, name, image } — the NeoDB catalog URL and a poster, no
+// creator/year/ids. Keyed by that catalog URL (the tag href) and filled by
+// sync-neodb-metadata, which dereferences the item (Accept: application/activity+json)
+// for the full record. Common fields are columns; category-specific fields live in
+// `details` (author/isbn/pages for book, artist/release_date/track_count for music,
+// developer/platform for game, host/feed_url for podcast, playwright/venue for
+// performance, …) so an unknown or newly-added category still stores cleanly.
+// `sourceMap` records each field's origin ('neodb', or 'bookwyrm' for a book field
+// deduped against the book_metadata cache), mirroring get_book_details. The
+// screen-media analogue of book_metadata (ADR 0003); see ADR 0005 (film/TV) and
+// ADR 0006 (all categories + retry + book dedup).
 export const catalogMetadata = pgTable('catalog_metadata', {
   id: uuid('id').primaryKey().defaultRandom(),
   itemUrl: text('item_url').notNull().unique(), // NeoDB catalog url — the tag href / join key
-  category: text('category'), // tv | movie
-  itemType: text('item_type'), // AP object type: Movie | TVShow | TVSeason | TVEpisode
+  category: text('category'), // tv | movie | book | music | game | podcast | performance | …
+  itemType: text('item_type'), // AP object type: Movie | TVShow | TVSeason | TVEpisode | Edition | Album | Game | Podcast | Performance | …
   title: text('title'),
   displayTitle: text('display_title'),
   origTitle: text('orig_title'),
   description: text('description'),
   coverUrl: text('cover_url'),
-  imdb: text('imdb'), // bare IMDb id, e.g. tt27579939
+  imdb: text('imdb'), // bare IMDb id, e.g. tt27579939 (film/TV only)
   imdbUrl: text('imdb_url'),
   tmdbUrl: text('tmdb_url'),
   externalResources: jsonb('external_resources'), // [{ url }]
@@ -177,18 +185,36 @@ export const catalogMetadata = pgTable('catalog_metadata', {
   seasonNumber: integer('season_number'),
   episodeCount: integer('episode_count'),
   genre: jsonb('genre'), // string[]
-  director: jsonb('director'), // string[]
+  director: jsonb('director'), // string[] (film/TV; performance director lives in details)
   actors: jsonb('actors'), // string[]
   language: jsonb('language'), // string[]
   area: jsonb('area'), // string[]
   rating: numeric('rating', { precision: 3, scale: 1 }),
   parentUuid: text('parent_uuid'),
+  // Category-specific fields normalized per category ({} for unknown categories).
+  details: jsonb('details'),
+  // { field: 'neodb' | 'bookwyrm' } — provenance for every populated field.
+  sourceMap: jsonb('source_map'),
+  // For a NeoDB `book` mark whose ISBN matches a cached BookWyrm Edition: the
+  // book_metadata.book_url it dedupes to (so the same physical book isn't a
+  // divergent second record). Null for every non-book / unmatched item.
+  bookwyrmBookUrl: text('bookwyrm_book_url'),
   raw: jsonb('raw').notNull(),
+  // Enrichment bookkeeping. `enrichedAt` is the last SUCCESSFUL fetch (null until a
+  // fetch succeeds) and drives the staleness window; `fetchedAt` is the last write
+  // of any kind (success or recorded failure) so ordering always has a value.
+  // A failed fetch records `fetchError` + bumps `fetchAttempts` instead of vanishing,
+  // so it's visible and retried — never silently dropped.
   fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+  enrichedAt: timestamp('enriched_at', { withTimezone: true }),
+  fetchError: text('fetch_error'),
+  fetchAttempts: integer('fetch_attempts').notNull().default(0),
+  lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
 }, (t) => [
   index('catalog_metadata_item_url_idx').on(t.itemUrl),
   index('catalog_metadata_category_idx').on(t.category),
   index('catalog_metadata_imdb_idx').on(t.imdb),
+  index('catalog_metadata_bookwyrm_idx').on(t.bookwyrmBookUrl),
 ])
 
 // Full markdown bodies of the markus.plus "Tankehav" notes, fetched from Obsidian
