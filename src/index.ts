@@ -20,6 +20,7 @@ import { syncReadingHistory } from './jobs/sync-reading-history.js'
 import { syncGardenContent } from './jobs/sync-garden-content.js'
 import { backfillContentText } from './jobs/backfill-content-text.js'
 import { backfillTags } from './jobs/backfill-tags.js'
+import { backfillMarkTitles } from './jobs/backfill-mark-titles.js'
 import { runDeliveryWorker } from './jobs/deliver.js'
 import { getDb } from './db/client.js'
 
@@ -121,6 +122,16 @@ async function main() {
       await backfillTags()
     } catch (e) {
       logger.error(e, 'Tags backfill failed on startup')
+    }
+  })()
+
+  // One-time seed of catalog_metadata.mark_titles (the mark-supplied aliases) for rows
+  // that predate the column, recomputed from stored marks. No-ops once the marker is set.
+  void (async () => {
+    try {
+      await backfillMarkTitles()
+    } catch (e) {
+      logger.error(e, 'Mark-titles backfill failed on startup')
     }
   })()
 

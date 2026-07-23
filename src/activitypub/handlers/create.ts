@@ -4,7 +4,7 @@ import { stripHtml } from '../../lib/strip-html.js'
 import { extractContent } from '../../lib/object-content.js'
 import { extractAttachments, extractTags, extractLanguage } from '../../lib/object-fields.js'
 import { queueBookMetadataEnrichment } from '../../jobs/sync-book-metadata.js'
-import { queueNeodbEnrichment, collectNeodbTagHrefs, isNeodbBookUrl } from '../../jobs/sync-neodb-metadata.js'
+import { queueNeodbEnrichment, syncMarkTitles, collectNeodbTagHrefs, isNeodbBookUrl } from '../../jobs/sync-neodb-metadata.js'
 import { logger } from '../../lib/logger.js'
 
 type AnyObject = Record<string, unknown>
@@ -74,9 +74,13 @@ export async function handleCreate(activity: AnyObject): Promise<void> {
   }
 
   // Same, for any NeoDB catalog item (film/TV/music/game/podcast/performance, plus
-  // NeoDB book Editions) this mark references.
+  // NeoDB book Editions) this mark references. Also refresh the retained mark-title
+  // aliases from the now-stored object, so a later mark under a new name accumulates
+  // onto an already-enriched row (which the enrichment staleness guards would skip).
   for (const itemUrl of collectNeodbTagHrefs(tags)) {
     queueNeodbEnrichment(itemUrl)
+    void syncMarkTitles(itemUrl).catch((e) =>
+      logger.warn({ itemUrl, error: e }, 'On-ingest mark-title sync failed'))
   }
 }
 
