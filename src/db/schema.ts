@@ -151,6 +151,46 @@ export const bookMetadata = pgTable('book_metadata', {
   index('book_metadata_isbn13_idx').on(t.isbn13),
 ])
 
+// Per-title metadata for NeoDB film & TV catalog items, cached so callers get the
+// IMDb/TMDB links and details the federated marks don't carry inline. A NeoDB
+// "finished watching" note federates as a plain Note whose tag is a bare
+// { type: "TVSeason"|"Movie"|…, href: <catalog url>, name, image } — only the NeoDB
+// catalog URL and poster, no external ids. Keyed by that catalog URL (the tag href)
+// and filled by sync-neodb-metadata, which dereferences the item for
+// imdb/tmdb/year/episode_count/etc. The screen-media analogue of book_metadata
+// (ADR 0003); see ADR 0005.
+export const catalogMetadata = pgTable('catalog_metadata', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  itemUrl: text('item_url').notNull().unique(), // NeoDB catalog url — the tag href / join key
+  category: text('category'), // tv | movie
+  itemType: text('item_type'), // AP object type: Movie | TVShow | TVSeason | TVEpisode
+  title: text('title'),
+  displayTitle: text('display_title'),
+  origTitle: text('orig_title'),
+  description: text('description'),
+  coverUrl: text('cover_url'),
+  imdb: text('imdb'), // bare IMDb id, e.g. tt27579939
+  imdbUrl: text('imdb_url'),
+  tmdbUrl: text('tmdb_url'),
+  externalResources: jsonb('external_resources'), // [{ url }]
+  year: integer('year'),
+  seasonNumber: integer('season_number'),
+  episodeCount: integer('episode_count'),
+  genre: jsonb('genre'), // string[]
+  director: jsonb('director'), // string[]
+  actors: jsonb('actors'), // string[]
+  language: jsonb('language'), // string[]
+  area: jsonb('area'), // string[]
+  rating: numeric('rating', { precision: 3, scale: 1 }),
+  parentUuid: text('parent_uuid'),
+  raw: jsonb('raw').notNull(),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('catalog_metadata_item_url_idx').on(t.itemUrl),
+  index('catalog_metadata_category_idx').on(t.category),
+  index('catalog_metadata_imdb_idx').on(t.imdb),
+])
+
 // Full markdown bodies of the markus.plus "Tankehav" notes, fetched from Obsidian
 // Publish's /access/ endpoint by sync-garden-content. The origin is flaky (500s on
 // edge-cache misses have been observed for extended periods), so content persists

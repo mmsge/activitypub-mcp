@@ -24,6 +24,7 @@ import { getGardenPagesSchema, getGardenPages } from '../mcp/tools/garden-pages.
 import { getGardenPageSchema, getGardenPage } from '../mcp/tools/garden-page.js'
 import { getBookDetailsSchema, getBookDetails } from '../mcp/tools/book-details.js'
 import { getBooksSchema, getBooks } from '../mcp/tools/books.js'
+import { getWatchedSchema, getWatched } from '../mcp/tools/watched.js'
 import {
   getHashtagStatsSchema, getHashtagStats,
   getHashtagTrendsSchema, getHashtagTrends,
@@ -239,6 +240,16 @@ export const endpoints: RestEndpoint[] = [
     description: "Browse all cached BookWyrm book metadata as a paginated catalogue. Returns compact rows (book_url, title, subtitle, author, series, pages, physical_format, isbn13/isbn10, pub_year, language, publisher, cover_url, subjects, fetched_at) — call get_book_details for the full record (description, provenance) of one book. Filter by title (partial match), author (partial match), format, language, series (partial match), or subject (partial match against any subject/genre). Most-recently-enriched first by default (sort_order='asc' for oldest first). Each response carries `total` (matching books across all pages) and a `next_cursor` token; pass it back as `cursor` for deep traversal, or use the legacy offset `page`.",
     schema: getBooksSchema,
     handler: getBooks,
+    numbers: ['limit', 'page'],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/watched',
+    name: 'get_watched',
+    description: "Browse cached NeoDB film & TV metadata as a paginated catalogue — the titles referenced by this server's stored NeoDB marks, enriched with the external ids (imdb, tmdb) the federated marks don't carry inline. Rows carry item_url, category (tv|movie), item_type, title/display_title/orig_title, year, season_number, episode_count, imdb + imdb_url, tmdb_url, cover_url, description, genre, director, actors, language, area, rating, external_resources, fetched_at. Filter by title (partial), category, item_type, genre (partial), or exact imdb id. Most-recently-enriched first by default; carries `total` and a `next_cursor` for deep traversal (or the legacy offset `page`).",
+    schema: getWatchedSchema,
+    handler: getWatched,
     numbers: ['limit', 'page'],
     booleans: [],
     arrays: [],

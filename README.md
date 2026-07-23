@@ -317,6 +317,7 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_reading_pace` | "How fast do I read? Which books did I read in parallel? What have I reread?" |
 | `get_books` | "List every book in the cache. Show me all the graphic novels. Which books are tagged fantasy?" |
 | `get_book_details` | "What's the page count and publisher for The Radleys?" |
+| `get_watched` | "What films and TV have I marked on NeoDB? What's the IMDb link for Conflict? Show me everything tagged thriller." |
 
 All tools are read-only queries against the local database — no requests go out to remote servers when you query the MCP server.
 
@@ -430,6 +431,7 @@ All paths accept `GET`, `QUERY`, and `POST`.
 | `/reading-pace` | `get_reading_pace` | `actor_handle`, `year`, `from`, `to`, `sort`, `limit` |
 | `/books` | `get_books` | `title`, `format`, `language`, `series`, `subject`, `sort_order`, `limit`, `page`, `cursor` |
 | `/book-details` | `get_book_details` | `book_url`, `isbn`, `title` |
+| `/watched` | `get_watched` | `title`, `category`, `item_type`, `genre`, `imdb`, `sort_order`, `limit`, `page`, `cursor` |
 
 `GET /api/v1` returns a discovery document listing every endpoint and its parameters.
 

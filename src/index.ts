@@ -15,6 +15,7 @@ import { startScheduler } from './jobs/scheduler.js'
 import { syncFollows } from './jobs/sync-follows.js'
 import { syncScrobbles } from './jobs/sync-scrobbles.js'
 import { syncBookMetadata } from './jobs/sync-book-metadata.js'
+import { syncNeodbMetadata } from './jobs/sync-neodb-metadata.js'
 import { syncReadingHistory } from './jobs/sync-reading-history.js'
 import { syncGardenContent } from './jobs/sync-garden-content.js'
 import { backfillContentText } from './jobs/backfill-content-text.js'
@@ -77,6 +78,16 @@ async function main() {
       await syncBookMetadata()
     } catch (e) {
       logger.error(e, 'Reading sync failed on startup')
+    }
+  })()
+
+  // Enrich NeoDB film/TV catalog metadata in the background (no-op unless a mark
+  // referencing a NeoDB catalog item has been ingested).
+  void (async () => {
+    try {
+      await syncNeodbMetadata()
+    } catch (e) {
+      logger.error(e, 'NeoDB metadata sync failed on startup')
     }
   })()
 

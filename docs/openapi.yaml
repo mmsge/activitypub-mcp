@@ -1678,6 +1678,92 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/watched:
+    get:
+      tags: [REST API]
+      summary: Browse cached NeoDB film & TV metadata
+      description: |
+        The cached NeoDB film/TV catalogue as a paginated list — the titles
+        referenced by this server's stored NeoDB marks (e.g. "finished watching …"),
+        enriched with the external ids the federated marks don't carry inline. Each
+        row has item_url (the NeoDB catalog url), category (tv|movie), item_type
+        (Movie|TVShow|TVSeason|TVEpisode), title/display_title/orig_title, year,
+        season_number, episode_count, imdb + imdb_url, tmdb_url, cover_url,
+        description, genre, director, actors, language, area, rating,
+        external_resources, and fetched_at. Filter by `title` (partial), `category`,
+        `item_type`, `genre` (partial against any genre), or exact `imdb` id.
+        Most-recently-enriched first by default; each response carries `total` and a
+        `next_cursor` for deep traversal.
+      operationId: getWatchedGet
+      parameters:
+        - name: title
+          in: query
+          description: Case-insensitive partial title match.
+          schema: { type: string }
+        - name: category
+          in: query
+          description: Exact NeoDB category, e.g. tv or movie.
+          schema: { type: string }
+        - name: item_type
+          in: query
+          description: Exact AP object type, e.g. Movie, TVShow, TVSeason, TVEpisode.
+          schema: { type: string }
+        - name: genre
+          in: query
+          description: Case-insensitive partial match against any of the title's genres.
+          schema: { type: string }
+        - name: imdb
+          in: query
+          description: Exact IMDb id, e.g. tt27579939.
+          schema: { type: string }
+        - $ref: "#/components/parameters/SortOrder"
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: page
+          in: query
+          description: Offset-based page (legacy). Ignored when `cursor` is supplied.
+          schema: { type: integer, minimum: 1, default: 1 }
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Page of film/TV titles.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WatchedResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Browse cached NeoDB film & TV metadata (JSON body)
+      operationId: getWatchedPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string }
+                category: { type: string }
+                item_type: { type: string }
+                genre: { type: string }
+                imdb: { type: string }
+                sort_order: { type: string, enum: [asc, desc], default: desc }
+                limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+                page: { type: integer, minimum: 1, default: 1 }
+                cursor: { type: string }
+      responses:
+        "200":
+          description: Page of film/TV titles.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WatchedResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/book-details:
     get:
       tags: [REST API]
@@ -2149,6 +2235,54 @@ components:
         books:
           type: array
           items: { $ref: "#/components/schemas/BookSummary" }
+
+    WatchedTitle:
+      type: object
+      properties:
+        item_url: { type: string }
+        category: { type: [string, "null"] }
+        item_type: { type: [string, "null"] }
+        title: { type: [string, "null"] }
+        display_title: { type: [string, "null"] }
+        orig_title: { type: [string, "null"] }
+        year: { type: [integer, "null"] }
+        season_number: { type: [integer, "null"] }
+        episode_count: { type: [integer, "null"] }
+        imdb: { type: [string, "null"] }
+        imdb_url: { type: [string, "null"] }
+        tmdb_url: { type: [string, "null"] }
+        cover_url: { type: [string, "null"] }
+        description: { type: [string, "null"] }
+        genre: { type: [array, "null"], items: { type: string } }
+        director: { type: [array, "null"], items: { type: string } }
+        actors: { type: [array, "null"], items: { type: string } }
+        language: { type: [array, "null"], items: { type: string } }
+        area: { type: [array, "null"], items: { type: string } }
+        rating: { type: [number, "null"] }
+        external_resources: { type: [array, "null"], items: { type: object } }
+        fetched_at: { type: [string, "null"], format: date-time }
+
+    WatchedResponse:
+      type: object
+      properties:
+        count: { type: integer }
+        total:
+          type: integer
+          description: Total titles matching the filters across all pages.
+        page: { type: [integer, "null"] }
+        next_cursor: { type: [string, "null"] }
+        sort_order: { type: string, enum: [asc, desc] }
+        filters:
+          type: object
+          properties:
+            title: { type: [string, "null"] }
+            category: { type: [string, "null"] }
+            item_type: { type: [string, "null"] }
+            genre: { type: [string, "null"] }
+            imdb: { type: [string, "null"] }
+        titles:
+          type: array
+          items: { $ref: "#/components/schemas/WatchedTitle" }
 
     MediaPost:
       type: object
