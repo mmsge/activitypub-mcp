@@ -5,6 +5,8 @@ import { extractContent } from '../../lib/object-content.js'
 import { extractAttachments, extractTags, extractLanguage } from '../../lib/object-fields.js'
 import { queueBookMetadataEnrichment } from '../../jobs/sync-book-metadata.js'
 import { queueNeodbEnrichment, syncMarkTitles, collectNeodbTagHrefs, isNeodbBookUrl } from '../../jobs/sync-neodb-metadata.js'
+import { isNeodbMark, parseNeodbMark } from '../../lib/neodb-mark.js'
+import { upsertNeodbMark } from '../../jobs/sync-neodb-marks.js'
 import { logger } from '../../lib/logger.js'
 
 type AnyObject = Record<string, unknown>
@@ -81,6 +83,21 @@ export async function handleCreate(activity: AnyObject): Promise<void> {
     queueNeodbEnrichment(itemUrl)
     void syncMarkTitles(itemUrl).catch((e) =>
       logger.warn({ itemUrl, error: e }, 'On-ingest mark-title sync failed'))
+  }
+
+  // A NeoDB mark (a Note carrying the relatedWith Status extension) is upserted into the
+  // per-actor watched/reading store keyed on (item url, actor). Ordinary Notes have no
+  // `relatedWith` and fall straight through — no change to normal post ingestion. The
+  // upsert also enqueues enrichment so the catalogue row backing get_watched is created.
+  if (isNeodbMark(obj)) {
+    const mark = parseNeodbMark(obj, actorApId)
+    if (mark) {
+      try {
+        await upsertNeodbMark(mark)
+      } catch (e) {
+        logger.warn({ apId, itemUrl: mark.itemUrl, error: e }, 'Failed to upsert NeoDB mark')
+      }
+    }
   }
 }
 
