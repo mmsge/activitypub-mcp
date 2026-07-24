@@ -53,6 +53,14 @@ function buildConditions(input: {
   if (!input.include_unenriched) {
     conditions.push(isNotNull(catalogMetadata.enrichedAt))
   }
+  // Respect mark tombstones: once every mark for an item has been deleted, drop it from
+  // get_watched (criterion 5). Items with a live mark stay; items we track no mark for
+  // (enriched by a path that predates the mark store) are grandfathered in, so this never
+  // hides a title that has no delete behind it.
+  conditions.push(sql`(
+    NOT EXISTS (SELECT 1 FROM neodb_marks m WHERE m.item_url = ${catalogMetadata.itemUrl})
+    OR EXISTS (SELECT 1 FROM neodb_marks m WHERE m.item_url = ${catalogMetadata.itemUrl} AND m.deleted_at IS NULL)
+  )`)
   return conditions
 }
 

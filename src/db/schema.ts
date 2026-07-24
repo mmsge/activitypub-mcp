@@ -223,6 +223,56 @@ export const catalogMetadata = pgTable('catalog_metadata', {
   index('catalog_metadata_bookwyrm_idx').on(t.bookwyrmBookUrl),
 ])
 
+// One row per NeoDB "mark" (a watched/read/shelved event) from a followed actor —
+// the per-actor, per-item store that criterion 2 describes. A mark federates as a
+// plain `Note` carrying NeoDB's Mastodon-compatible `status` extension:
+//   relatedWith: { type:'Status', status:<verb>, withRegardTo:<catalog url>, updated, … }
+//   tag:         { type:'Movie'|'TVSeason'|'Edition'|…, href:<catalog url>, name, image }
+// The Note's prose (`content`) is human copy ("blev færdig med at se …") and is never
+// scraped — every field here comes from the structured `relatedWith`/`tag`. `itemUrl`
+// is the normalised catalog URL (trailing slash + `~neodb~` segment stripped), the same
+// value catalog_metadata keys on, so the two join: catalog_metadata is the shared
+// per-title enrichment cache, neodb_marks the per-actor mark history. Keyed unique on
+// (item_url, actor_ap_id); a re-received mark upserts the existing row (guarded on
+// `updated_at_ap` so an older/equal redelivery is a no-op). A Delete of the mark's Note
+// tombstones the row via `deleted_at` (matched on mark_ap_id) so get_watched drops it.
+// See the ingestion story / ADR 0008.
+export const neodbMarks = pgTable('neodb_marks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // Normalised NeoDB catalog URL (relatedWith.withRegardTo / tag.href) — the join key
+  // onto catalog_metadata.item_url.
+  itemUrl: text('item_url').notNull(),
+  // The marking actor (the Note's attributedTo / the delivering actor).
+  actorApId: text('actor_ap_id').notNull(),
+  // AP object type from the tag (Movie | TVShow | TVSeason | TVEpisode | Edition | Album
+  // | Game | Podcast | Performance | …) and the NeoDB category it maps to (movie | tv |
+  // book | music | game | podcast | performance | …).
+  itemType: text('item_type'),
+  category: text('category'),
+  // Canonical shelf status mapped from the NeoDB verb (wishlist | progress | complete |
+  // dropped), plus the verb verbatim so an unknown one is never lost.
+  status: text('status'),
+  statusRaw: text('status_raw'),
+  title: text('title'), // tag.name — the name the mark federated with
+  coverUrl: text('cover_url'), // tag.image
+  // The mark Note's own id (the Delete target) and human URL, plus the origin-local post id.
+  markApId: text('mark_ap_id'),
+  markUrl: text('mark_url'),
+  postId: text('post_id'),
+  publishedAt: timestamp('published_at', { withTimezone: true }), // the watched/read date
+  updatedAtAp: timestamp('updated_at_ap', { withTimezone: true }), // relatedWith.updated — change-tracking guard
+  deletedAt: timestamp('deleted_at', { withTimezone: true }), // set when the mark's Note is deleted
+  raw: jsonb('raw'), // the relatedWith + tag we parsed, for provenance
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('neodb_marks_item_actor_idx').on(t.itemUrl, t.actorApId),
+  index('neodb_marks_item_url_idx').on(t.itemUrl),
+  index('neodb_marks_actor_idx').on(t.actorApId),
+  index('neodb_marks_mark_ap_id_idx').on(t.markApId),
+  index('neodb_marks_status_idx').on(t.status),
+])
+
 // Full markdown bodies of the markus.plus "Tankehav" notes, fetched from Obsidian
 // Publish's /access/ endpoint by sync-garden-content. The origin is flaky (500s on
 // edge-cache misses have been observed for extended periods), so content persists

@@ -21,6 +21,7 @@ import { syncGardenContent } from './jobs/sync-garden-content.js'
 import { backfillContentText } from './jobs/backfill-content-text.js'
 import { backfillTags } from './jobs/backfill-tags.js'
 import { backfillMarkTitles } from './jobs/backfill-mark-titles.js'
+import { backfillNeodbMarks } from './jobs/backfill-neodb-marks.js'
 import { runDeliveryWorker } from './jobs/deliver.js'
 import { getDb } from './db/client.js'
 
@@ -132,6 +133,17 @@ async function main() {
       await backfillMarkTitles()
     } catch (e) {
       logger.error(e, 'Mark-titles backfill failed on startup')
+    }
+  })()
+
+  // One-time backfill of the NeoDB mark store (neodb_marks): reprocess stored marks and
+  // top up from each mark-actor's outbox, so marks that federated before this ingestion
+  // path existed show up in get_watched. Background + marker-guarded; no-op once run.
+  void (async () => {
+    try {
+      await backfillNeodbMarks()
+    } catch (e) {
+      logger.error(e, 'NeoDB marks backfill failed on startup')
     }
   })()
 
