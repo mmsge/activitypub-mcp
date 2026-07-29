@@ -23,6 +23,7 @@ import { backfillTags } from './jobs/backfill-tags.js'
 import { backfillMarkTitles } from './jobs/backfill-mark-titles.js'
 import { backfillNeodbMarks } from './jobs/backfill-neodb-marks.js'
 import { runDeliveryWorker } from './jobs/deliver.js'
+import { pruneActivityLog } from './jobs/prune-activity-log.js'
 import { getDb } from './db/client.js'
 
 const app = new Hono()
@@ -80,6 +81,17 @@ async function main() {
       await syncBookMetadata()
     } catch (e) {
       logger.error(e, 'Reading sync failed on startup')
+    }
+  })()
+
+  // Clear request-log rows past the retention window. Runs on startup too, not just
+  // on the 6-hourly timer, so a deploy that shortens the window takes effect at once
+  // and the pre-existing backlog is cleared rather than waiting six hours.
+  void (async () => {
+    try {
+      await pruneActivityLog()
+    } catch (e) {
+      logger.error(e, 'Activity-log prune failed on startup')
     }
   })()
 

@@ -11,6 +11,15 @@ const schema = z.object({
   // actor_handle is passed, so "what hashtags I use" answers about you out of the
   // box. Unset → those tools aggregate across all stored posts.
   OWNER_ACTOR: z.string().default(''),
+  // Date this actor first went live, published as the actor's `published` field so
+  // clients can show a truthful "joined" date instead of the date the *remote*
+  // instance happened to first see us. Override if the deployment is older.
+  ACTOR_PUBLISHED: z.string().default('2026-05-02'),
+  // How long inbound/outbound request-log rows are kept, in days. The inbox logs
+  // every request before deciding whether to act on it, so this log holds traffic
+  // from actors we do not follow; the actor profile promises we keep nothing about
+  // them, so it is pruned on a schedule. 0 disables pruning (keeps forever).
+  ACTIVITY_LOG_RETENTION_DAYS: z.coerce.number().int().min(0).default(30),
   ADMIN_PASSWORD_HASH: z.string().min(1),
   SESSION_SECRET: z.string().min(32),
   REST_API_KEY: z.string().default(''),
@@ -91,6 +100,42 @@ export function getOwnerInstanceHost(): string {
   } catch {
     return ''
   }
+}
+
+/** The owner's fediverse identity, derived from OWNER_ACTOR, for the profile's
+ *  "who runs this" attribution. Accepts either an @user@domain handle or an actor
+ *  URL and yields both forms; null when OWNER_ACTOR is unset or unparseable.
+ *
+ *  The profile URL is a best-effort guess for actor-URL input (we use the URL as
+ *  given) and the Mastodon-style /@user path for handle input. */
+export function getOwnerIdentity(
+  raw: string = config.OWNER_ACTOR,
+): { handle: string; url: string } | null {
+  const v = raw.trim()
+  if (!v) return null
+
+  if (v.includes('://')) {
+    try {
+      const url = new URL(v)
+      const username = url.pathname.split('/').filter(Boolean).pop()
+      if (!username) return null
+      return { handle: `@${username.replace(/^@/, '')}@${url.hostname}`, url: v }
+    } catch {
+      return null
+    }
+  }
+
+  const [username, domain] = v.replace(/^@/, '').split('@')
+  if (!username || !domain) return null
+  return { handle: `@${username}@${domain}`, url: `https://${domain}/@${username}` }
+}
+
+/** ACTOR_PUBLISHED as an ISO 8601 timestamp, or null when it isn't a valid date. */
+export function getActorPublished(raw: string = config.ACTOR_PUBLISHED): string | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  const d = new Date(trimmed)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
 }
 
 export function getBookwyrmActors(): string[] {
