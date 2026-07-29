@@ -1901,7 +1901,10 @@ paths:
     get:
       tags: [Discovery]
       summary: WebFinger lookup
-      description: Resolves an `acct:` URI to the bot's actor document. Only the bot's own account resolves.
+      description: |
+        Resolves an `acct:` URI to the bot's actor document. Only the bot's own account
+        resolves. The response also links the human-readable profile page
+        (`profile-page`) and the avatar.
       operationId: webfinger
       security: []
       parameters:
@@ -1968,15 +1971,89 @@ paths:
     get:
       tags: [ActivityPub]
       summary: Actor document
-      description: The bot's ActivityPub `Person` document. Also available at `/users/{username}` (Mastodon-compatible alias).
+      description: |
+        The bot's ActivityPub actor document — typed `Service`, with the bio, profile
+        metadata fields, avatar and header. Also available at `/users/{username}`
+        (Mastodon-compatible alias), which always returns JSON.
+
+        Content-negotiated: a request whose `Accept` header includes `text/html` gets
+        the human-readable profile page instead. Anything else — including a vague
+        `*/*` or no `Accept` at all — gets the actor document, so federation is
+        unaffected.
       operationId: getActor
       security: []
+      parameters:
+        - name: Accept
+          in: header
+          required: false
+          description: Include `text/html` to receive the profile page rather than JSON.
+          schema: { type: string }
       responses:
         "200":
-          description: Actor document.
+          description: Actor document, or the profile page for HTML clients.
           content:
             application/activity+json:
               schema: { $ref: "#/components/schemas/Actor" }
+            text/html:
+              schema: { type: string }
+
+  "/@{username}":
+    get:
+      tags: [ActivityPub]
+      summary: Human-readable profile page
+      description: |
+        The page a person lands on when they look the bot up: who operates it, what it
+        archives, what it does not store about anyone else, and links to verify each
+        claim. This is the URL the actor document advertises as `url`, and the
+        `profile-page` link in the WebFinger response. Always HTML.
+      operationId: getProfilePage
+      security: []
+      parameters:
+        - name: username
+          in: path
+          required: true
+          description: The configured `APP_USERNAME`.
+          schema: { type: string }
+      responses:
+        "200":
+          description: Profile page.
+          content:
+            text/html:
+              schema: { type: string }
+
+  /assets/{image}.png:
+    get:
+      tags: [ActivityPub]
+      summary: Profile avatar or header image
+      description: |
+        The PNGs referenced by the actor document's `icon` and `image`. Immutable and
+        cached for a year; the actor document appends a `v` query carrying a hash of
+        the file contents, so regenerated artwork gets a fresh URL and remote
+        instances re-download it.
+      operationId: getProfileAsset
+      security: []
+      parameters:
+        - name: image
+          in: path
+          required: true
+          schema: { type: string, enum: [avatar, header] }
+        - name: v
+          in: query
+          required: false
+          description: Content hash. Ignored by the server; present to bust remote caches.
+          schema: { type: string }
+        - name: If-None-Match
+          in: header
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: PNG image.
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        "304":
+          description: Not modified — the supplied `If-None-Match` matched the current hash.
 
   /actor/inbox:
     post:
@@ -3090,18 +3167,51 @@ components:
 
     Actor:
       type: object
-      description: ActivityPub `Person` document.
+      description: ActivityPub actor document. Typed `Service`, because this is a bot.
       properties:
         "@context":
           oneOf:
             - type: string
             - type: array
-              items: { type: string }
+              items:
+                oneOf:
+                  - type: string
+                  - type: object
+                    additionalProperties: { type: string }
         id: { type: string, format: uri }
-        type: { type: string, example: Person }
+        type: { type: string, example: Service }
         preferredUsername: { type: string }
         name: { type: string }
-        summary: { type: string }
+        summary:
+          type: string
+          description: HTML bio — who operates the bot, what it archives, what it stores about others.
+        url:
+          type: string
+          format: uri
+          description: The human-readable profile page (`/@{username}`), not the actor id.
+        published:
+          type: string
+          format: date-time
+          description: When this actor went live, from `ACTOR_PUBLISHED`.
+        manuallyApprovesFollowers:
+          type: boolean
+          description: Always `true`. Every incoming Follow is auto-rejected.
+        discoverable: { type: boolean }
+        attributedTo:
+          type: string
+          format: uri
+          description: The operator's actor, from `OWNER_ACTOR`. Omitted when unset.
+        attachment:
+          type: array
+          description: Profile metadata rows, as rendered by Mastodon. At most four.
+          items:
+            type: object
+            properties:
+              type: { type: string, example: PropertyValue }
+              name: { type: string, example: Lagrar om deg }
+              value: { type: string, example: Ingenting }
+        icon: { $ref: "#/components/schemas/ActorImage" }
+        image: { $ref: "#/components/schemas/ActorImage" }
         inbox: { type: string, format: uri }
         outbox: { type: string, format: uri }
         followers: { type: string, format: uri }
@@ -3116,6 +3226,14 @@ components:
             id: { type: string }
             owner: { type: string }
             publicKeyPem: { type: string }
+
+    ActorImage:
+      type: object
+      description: Avatar or header image. Served from `/assets` with a content hash in the query.
+      properties:
+        type: { type: string, example: Image }
+        mediaType: { type: string, example: image/png }
+        url: { type: string, format: uri }
 
     Activity:
       type: object

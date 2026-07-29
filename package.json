@@ -8,6 +8,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "create-admin": "tsx scripts/create-admin.ts",
+    "generate:profile-images": "tsx scripts/generate-profile-images.ts",
     "backfill-neodb-marks": "tsx scripts/backfill-neodb-marks.ts",
     "lint:openapi": "redocly lint docs/openapi.yaml",
     "format:check": "prettier --check docs/openapi.yaml",

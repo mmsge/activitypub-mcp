@@ -12,6 +12,7 @@ Works with **Mastodon**, **BookWyrm**, **Pixelfed**, and **Loops**.
 - You configure which accounts to follow via an environment variable. On startup, the server sends Follow requests to any account not already followed.
 - Incoming activities (posts, boosts, book updates, etc.) are verified, stored, and parsed. BookWyrm reading data gets its own structured table.
 - The server **auto-rejects all incoming Follow requests** — it is a read-only bot, not a social participant.
+- The actor publishes an informative profile — bot type, avatar, header and metadata fields — plus a human-readable page at `/@<username>` that spells out what it archives and what it keeps about everyone else (see [Actor profile](#actor-profile)).
 - An admin UI at `/admin` lets you review stored data and inspect every HTTP request the server has handled, including signature validity.
 - An MCP server at `/mcp` lets AI agents answer questions like "What did this user post today?" or "What book is this user currently reading?"
 - A read-only **REST API** at `/api/v1` exposes the same data to non-MCP clients (scripts, cron jobs, dashboards), gated by an API key.
@@ -89,6 +90,9 @@ Here is what each variable means:
 | `APP_DOMAIN` | Yes | Your domain name, e.g. `bot.example.com` |
 | `APP_USERNAME` | Yes | The ActivityPub username, e.g. `bot` — your actor will be `@bot@bot.example.com` |
 | `APP_DISPLAY_NAME` | No | Human-readable name shown on the actor profile |
+| `OWNER_ACTOR` | No | Your own fediverse handle (`@you@example.social`) or actor URL. Credited as the operator on the actor profile, and used as the default scope for the hashtag-analytics tools. |
+| `ACTOR_PUBLISHED` | No | Date this actor went live (`YYYY-MM-DD`), published as its join date. Default `2026-05-02`. |
+| `ACTIVITY_LOG_RETENTION_DAYS` | No | How long request-log rows are kept. Default `30`; `0` keeps them forever. See [Actor profile](#actor-profile). |
 | `DB_PASSWORD` | Yes | Password for the PostgreSQL database. Choose something strong. |
 | `FOLLOW_ACTORS` | Yes | Comma-separated list of handles to follow (see below) |
 | `ADMIN_PASSWORD_HASH` | Yes | The bcrypt hash you generated in step 3 |
@@ -216,6 +220,43 @@ To follow accounts on different platforms, use their native handle format:
 ```env
 FOLLOW_ACTORS=@alice@mastodon.social,@bob@bookwyrm.social,@carol@pixelfed.social,@dave@loop.me
 ```
+
+---
+
+## Actor profile
+
+The actor presents itself as a bot rather than a person, and says plainly what it does and does not keep, so anyone who runs into it in their notifications can tell what it is without asking.
+
+`GET /actor` is content-negotiated: fediverse servers get the ActivityPub actor document, browsers get a readable page. The same page is served at `/@<username>`, which is what the actor advertises as its `url`.
+
+What the actor document publishes:
+
+| Field | Value |
+|---|---|
+| `type` | `Service` — clients show a **bot** badge instead of presenting it as a person |
+| `summary` | Three-sentence bio: who operates it, what it archives, what it keeps about you |
+| `attachment` | Profile metadata rows (operator, what it stores about others, what it archives, link to the public following list) — capped at four, the most Mastodon renders |
+| `icon` / `image` | Avatar and header PNGs, served from `/assets` with a content hash in the URL |
+| `manuallyApprovesFollowers` | `true` — the closest standard signal to "never followable"; every Follow is auto-rejected |
+| `published` | Join date, from `ACTOR_PUBLISHED` |
+| `attributedTo` | The operator's actor, from `OWNER_ACTOR` |
+
+### Keeping the privacy claim true
+
+The profile tells strangers it stores nothing about them. Two mechanisms back that up, and both are worth knowing about before you change them:
+
+- The inbox **discards activities from accounts the server does not follow** before storing them, so the archive only ever holds posts from the configured `FOLLOW_ACTORS`.
+- The inbox **does** log every inbound request — headers plus the first 10 kB of body — before deciding whether to act on it, which is what makes federation debuggable. That log therefore contains traffic from people the bot does not follow, so it is pruned to `ACTIVITY_LOG_RETENTION_DAYS` (default 30) on startup and every six hours. Setting it to `0` disables pruning and makes the profile's claim untrue.
+
+### Regenerating the profile images
+
+The avatar and header are generated from code — no binary editing needed:
+
+```bash
+npm run generate:profile-images
+```
+
+This rewrites `src/assets/avatar.png` and `src/assets/header.png` from the shapes and palette in `scripts/generate-profile-images.ts`. The URLs the actor publishes carry a hash of the file contents, so remote instances pick up new artwork on their next actor refresh instead of keeping the old cached avatar forever.
 
 ---
 

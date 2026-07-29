@@ -6,6 +6,7 @@ import { syncNeodbMetadata } from './sync-neodb-metadata.js'
 import { syncReadingHistory } from './sync-reading-history.js'
 import { syncGardenContent } from './sync-garden-content.js'
 import { sampleEngagement } from './sample-engagement.js'
+import { pruneActivityLog } from './prune-activity-log.js'
 import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
 
@@ -55,6 +56,12 @@ export function startScheduler(): void {
   setInterval(async () => {
     try { await sampleEngagement() } catch (e) { logger.error(e, 'Engagement sampling error') }
   }, config.ENGAGEMENT_SAMPLE_INTERVAL_MINUTES * 60_000)
+
+  // Request-log retention — every 6 hours. Cheap (one indexed DELETE) and keeps the
+  // "we store nothing about actors we don't follow" claim on the profile honest.
+  setInterval(async () => {
+    try { await pruneActivityLog() } catch (e) { logger.error(e, 'Activity-log prune error') }
+  }, SIX_HOURS_MS)
 
   logger.info({ scrobbleIntervalSeconds: config.LASTFM_SYNC_INTERVAL_SECONDS }, 'Scheduler started')
 }
