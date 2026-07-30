@@ -1,5 +1,5 @@
 /** @jsxImportSource hono/jsx */
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 import { setCookie, getCookie, deleteCookie } from 'hono/cookie'
 import { bodyLimit } from 'hono/body-limit'
 import { requireAuth } from './middleware.js'
@@ -11,11 +11,13 @@ import { LoginPage } from './views/login.js'
 import { DashboardPage } from './views/dashboard.js'
 import { ActivitiesPage } from './views/activities.js'
 import { FollowsPage } from './views/follows.js'
-import { LogsPage } from './views/logs.js'
+import { LogsPage, LogRows } from './views/logs.js'
 import { ObjectsPage } from './views/objects.js'
 import { ImportPage, ImportResultPage } from './views/import.js'
 import { ToolsPage, INFRA_ROUTES } from './views/tools.js'
 import { endpoints } from '../rest/table.js'
+import { mediaRouter } from './media-router.js'
+import { mediaCounts } from './media-query.js'
 import {
   parseMastodonArchive,
   crawlOutbox,
@@ -78,6 +80,7 @@ app.get('/', async (c) => {
     recentActs,
     lastAct,
     delivErrors,
+    media,
   ] = await Promise.all([
     db.select({ cnt: count() }).from(activities),
     db.select({ cnt: count() }).from(activities).where(gt(activities.receivedAt, day24)),
@@ -88,6 +91,7 @@ app.get('/', async (c) => {
     db.select({ receivedAt: activities.receivedAt }).from(activities).orderBy(desc(activities.receivedAt)).limit(1),
     db.select({ cnt: count() }).from(activityLog)
       .where(and(eq(activityLog.direction, 'outbound'), gt(activityLog.responseStatus, 299))),
+    mediaCounts(),
   ])
 
   return c.html(
@@ -101,6 +105,7 @@ app.get('/', async (c) => {
       recentActivities: recentActs,
       lastReceivedAt: lastAct[0]?.receivedAt ?? null,
       deliveryErrors: Number(delivErrors[0]?.cnt ?? 0),
+      media,
     }} />
   )
 })
@@ -186,14 +191,15 @@ app.get('/follows', async (c) => {
   return c.html(<FollowsPage follows={rows} />)
 })
 
-// Logs
-app.get('/logs', async (c) => {
+// Logs. The page and its 10s poll run the same query, so it lives in one place.
+const LOGS_LIMIT = 50
+
+async function queryLogs(c: Context) {
   const db = getDb()
   const page = Number(c.req.query('page') ?? '0')
   const direction = c.req.query('direction')
   const sigValid = c.req.query('sigValid')
   const actor = c.req.query('actor')
-  const limit = 50
 
   const conditions = []
   if (direction) conditions.push(eq(activityLog.direction, direction))
@@ -204,18 +210,28 @@ app.get('/logs', async (c) => {
   const rows = await db.select().from(activityLog)
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(activityLog.createdAt))
-    .limit(limit + 1)
-    .offset(page * limit)
+    .limit(LOGS_LIMIT + 1)
+    .offset(page * LOGS_LIMIT)
 
-  return c.html(
-    <LogsPage
-      logs={rows.slice(0, limit)}
-      page={page}
-      hasMore={rows.length > limit}
-      filters={{ direction, sigValid, actor }}
-    />
-  )
+  return {
+    logs: rows.slice(0, LOGS_LIMIT),
+    page,
+    hasMore: rows.length > LOGS_LIMIT,
+    filters: { direction, sigValid, actor },
+  }
+}
+
+app.get('/logs', async (c) => c.html(<LogsPage {...(await queryLogs(c))} />))
+
+// The tbody fragment the page polls every 10s. Without this route the poll was a 404
+// every 10 seconds and the "auto-refreshes" label was simply untrue.
+app.get('/logs/rows', async (c) => {
+  const { logs } = await queryLogs(c)
+  return c.html(<LogRows logs={logs} />)
 })
+
+// Media. Mounted below `app.use('/*', requireAuth)` above, so it inherits the session gate.
+app.route('/media', mediaRouter)
 
 // Tools & endpoints
 app.get('/tools', (c) => c.html(<ToolsPage endpoints={endpoints} infra={INFRA_ROUTES} />))

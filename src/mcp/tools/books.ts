@@ -7,7 +7,9 @@ import { normalizeSubjects } from '../../lib/subjects.js'
 
 // ---- shared filter handling ------------------------------------------------
 
-function buildConditions(input: {
+// Exported so the admin Media page filters books exactly the way get_books does —
+// one definition of "filter by author", not two that drift.
+export function buildConditions(input: {
   title?: string
   author?: string
   format?: string

@@ -1,7 +1,8 @@
 /** @jsxImportSource hono/jsx */
 import { Layout } from './layout.js'
+import { Pager, EmptyRow } from './ui.js'
 
-interface LogEntry {
+export interface LogEntry {
   id: number
   direction: string
   method: string
@@ -42,9 +43,7 @@ export function LogsPage({ logs, page, hasMore, filters }: LogsPageProps) {
         <button type="submit">Filter</button>
         <a href="/admin/logs" class="btn" style="background:#333">Clear</a>
       </form>
-      <p style="color:#888;font-size:12px;margin-bottom:12px" hx-get="/admin/logs?partial=1" hx-trigger="every 10s" hx-swap="none">
-        Auto-refreshes every 10s
-      </p>
+      <p class="muted" style="margin-bottom:12px">Auto-refreshes every 10s</p>
       <table>
         <thead>
           <tr>
@@ -58,18 +57,39 @@ export function LogsPage({ logs, page, hasMore, filters }: LogsPageProps) {
             <th>Detail</th>
           </tr>
         </thead>
-        <tbody id="log-rows" hx-get="/admin/logs/rows" hx-trigger="every 10s" hx-swap="innerHTML">
-          {logs.map(l => <LogRow log={l} />)}
-          {logs.length === 0 && (
-            <tr><td colspan={8} style="color:#666;text-align:center">No logs yet</td></tr>
-          )}
+        {/* Polls the fragment route below, which re-renders exactly these rows for the
+            current page and filters. */}
+        <tbody
+          id="log-rows"
+          hx-get={rowsUrl(page, filters)}
+          hx-trigger="every 10s"
+          hx-swap="innerHTML"
+        >
+          <LogRows logs={logs} />
         </tbody>
       </table>
-      <div style="display:flex;gap:12px;margin-top:16px">
-        {page > 0 && <a href={`/admin/logs?page=${page - 1}`} class="btn">← Previous</a>}
-        {hasMore && <a href={`/admin/logs?page=${page + 1}`} class="btn">Next →</a>}
-      </div>
+      <Pager base="/admin/logs" page={page} hasMore={hasMore} params={filters} />
     </Layout>
+  )
+}
+
+function rowsUrl(page: number, filters: LogsPageProps['filters']): string {
+  const sp = new URLSearchParams()
+  for (const [k, v] of Object.entries({ ...filters, page: page || undefined })) {
+    if (v === undefined || v === null || v === '') continue
+    sp.set(k, String(v))
+  }
+  const qs = sp.toString()
+  return qs ? `/admin/logs/rows?${qs}` : '/admin/logs/rows'
+}
+
+/** The tbody contents on their own, so the poll can swap them in without a page reload. */
+export function LogRows({ logs }: { logs: LogEntry[] }) {
+  return (
+    <>
+      {logs.map(l => <LogRow log={l} />)}
+      {logs.length === 0 && <EmptyRow colspan={8} text="No logs yet" />}
+    </>
   )
 }
 
