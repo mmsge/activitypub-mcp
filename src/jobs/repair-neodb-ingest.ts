@@ -6,7 +6,7 @@ import { extractContent } from '../lib/object-content.js'
 import { fetchApObject } from '../lib/fetch-ap-object.js'
 import { objectApId, resolveRef } from '../lib/ap-object.js'
 import { ingestObject } from '../activitypub/handlers/create.js'
-import { backfillMarkComments, reprocessStoredMarks } from './sync-neodb-marks.js'
+import { backfillMarkComments, backfillMarkWatchedDates, reprocessStoredMarks } from './sync-neodb-marks.js'
 import {
   NEODB_MEDIA_TAG_TYPES,
   enrichCatalogueItem,
@@ -18,7 +18,7 @@ import { logger } from '../lib/logger.js'
 type AnyObject = Record<string, unknown>
 
 // Bump when the repair logic changes and existing installs need to run it again.
-const MARKER_KEY = 'neodb_ingest_repair_v1'
+const MARKER_KEY = 'neodb_ingest_repair_v2'
 const BATCH = 500
 const MAX_REFETCH = 500
 const FETCH_DELAY_MS = 200
@@ -38,6 +38,8 @@ export interface RepairResult {
   marksUpserted: number
   /** Mark rows whose `comment` was filled in from the stored mark Note. */
   commentsFilled: number
+  /** Mark rows whose `watched_at` (the shelf date) was filled in from the stored raw. */
+  watchDatesFilled: number
   /** Catalogue items enriched, failed, and skipped as already-enriched. */
   itemsEnriched: number
   itemsFailed: number
@@ -179,6 +181,10 @@ export async function repairNeodbIngest(
   // mark alone by design, so the column needs its own pass.
   const commentsFilled = await backfillMarkComments()
 
+  // Same again for the shelf date: `watched_at` was added after these rows were written,
+  // and the upsert above will not revisit an unchanged mark, so it needs its own pass.
+  const watchDatesFilled = await backfillMarkWatchedDates()
+
   // Tagged items → catalog_metadata. A row that already enriched cleanly is left alone
   // (staleness is the periodic sync's job) unless this run is forced.
   const referenced = await collectTaggedItemUrls()
@@ -219,6 +225,7 @@ export async function repairNeodbIngest(
     postsRefetched: refetched,
     marksUpserted,
     commentsFilled,
+    watchDatesFilled,
     itemsEnriched,
     itemsFailed,
     itemsSkipped,

@@ -173,6 +173,9 @@ export interface ParsedNeodbMark {
   postId: string | null
   publishedAt: Date | null
   updatedAtAp: Date | null
+  // The shelf date: when the thing was actually watched / read / played / listened to,
+  // read strictly off the `relatedWith` Status entry. Null when the mark carries none.
+  watchedAt: Date | null
   // The user's comment on the mark, when NeoDB federated one (plain text, as NeoDB
   // sends it). Null for a bare mark.
   comment: string | null
@@ -212,12 +215,20 @@ export function parseNeodbMark(obj: unknown, actorApId: string): ParsedNeodbMark
     markApId,
     markUrl,
     postId: extractPostId(markApId ?? markUrl),
-    // The mark's own `published` is the watched/read date; `relatedWith.published` is the
-    // same instant and serves as a fallback.
+    // The Note's own `published` — the post timestamp, i.e. when the mark was created.
+    // For a mark federated at creation it happens to equal the shelf date, but for the
+    // backfill pattern (mark now, correct the date in a follow-up `Update`) it does not,
+    // so it is NOT the watch date. Read that off `watchedAt` below.
     publishedAt: parseDate(o.published) ?? parseDate(rw.published),
     // `relatedWith.updated` is the change-tracking stamp (bumped when the mark is re-saved,
     // e.g. a delete+recreate backfill); the Note's own `updated` is the fallback.
     updatedAtAp: parseDate(rw.updated) ?? parseDate(o.updated),
+    // The shelf date, strictly `Status.published` — the day the film was seen, the book
+    // finished, the album heard. Deliberately no fallback: the Note's `published` tracks
+    // mark creation and the Comment entry's `published` tracks the comment, so falling
+    // back to either would silently report "today" as the watch date for every backdated
+    // mark. Unknown stays null.
+    watchedAt: parseDate(rw.published),
     comment: strOrNull(commentEntry?.content),
     raw: { relatedWith: rw, comment: commentEntry ?? null, tag: tag ?? null },
   }

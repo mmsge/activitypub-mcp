@@ -15,6 +15,13 @@ type AnyObject = Record<string, unknown>
  * bursts a backfill produces don't churn or fan out into duplicate rows. A qualifying
  * upsert also clears any prior tombstone — a recreate after a Delete brings the entry back.
  * Also enqueues metadata enrichment so the catalogue row that backs get_watched exists.
+ *
+ * The shelf date (`watched_at`) rides that same guard, which is what the backfill procedure
+ * needs: minreol does not federate a backdated mark on creation, so the real date arrives
+ * moments later in an `Update` carrying the same Note id and a strictly newer `updated`
+ * stamp — a qualifying overwrite. One extra clause covers the degenerate case where the
+ * stamps tie: a row still missing a date takes one that is offered. That arm is monotone
+ * (it only ever fills a null), so it can never revert a good date to an older delivery's.
  */
 export async function upsertNeodbMark(mark: ParsedNeodbMark): Promise<void> {
   const db = getDb()
@@ -38,6 +45,7 @@ export async function upsertNeodbMark(mark: ParsedNeodbMark): Promise<void> {
     postId: mark.postId,
     publishedAt: mark.publishedAt,
     updatedAtAp: mark.updatedAtAp,
+    watchedAt: mark.watchedAt,
     deletedAt: null,
     raw: mark.raw as unknown as Record<string, unknown>,
     updatedAt: now,
@@ -51,10 +59,13 @@ export async function upsertNeodbMark(mark: ParsedNeodbMark): Promise<void> {
       set: values,
       // Overwrite only when this delivery is strictly newer (or an `updated` stamp is
       // missing on either side); an older/equal redelivery leaves the row — and its
-      // tombstone, if any — untouched.
+      // tombstone, if any — untouched. The last arm is the null-fill exception described
+      // above: a stored row with no shelf date accepts one even from an equal-stamped
+      // redelivery, so a date can never be stranded by a tie.
       setWhere: sql`${neodbMarks.updatedAtAp} is null
         or excluded.updated_at_ap is null
-        or excluded.updated_at_ap > ${neodbMarks.updatedAtAp}`,
+        or excluded.updated_at_ap > ${neodbMarks.updatedAtAp}
+        or (${neodbMarks.watchedAt} is null and excluded.watched_at is not null)`,
     })
 
   queueNeodbEnrichment(mark.itemUrl)
@@ -130,6 +141,49 @@ export async function backfillMarkComments(): Promise<number> {
     filled += res.length
   }
   if (filled) logger.info({ filled }, 'Backfilled NeoDB mark comments from stored marks')
+  return filled
+}
+
+/**
+ * Fill in `watched_at` for mark rows that predate the column, reading the shelf date back
+ * out of each row's own stored `raw` (criterion 2).
+ *
+ * Same reason as `backfillMarkComments` this cannot go through `upsertNeodbMark`: that
+ * upsert deliberately no-ops on an unchanged `updated` stamp, so replaying stored marks —
+ * the obvious way to populate a new column — would leave every one of them null.
+ *
+ * The source is `neodb_marks.raw->'relatedWith'`, which is the `Status` entry exactly as
+ * parsed (that shape has been stable since the store was introduced; the pre-comment
+ * version stored `{relatedWith, tag}`, the current one `{relatedWith, comment, tag}`, and
+ * `relatedWith` is the Status object in both). Reading the row's own provenance rather
+ * than re-walking `objects` also covers marks whose Note is no longer stored.
+ *
+ * Only rows where `watched_at` is still null are touched — a date already stored, whether
+ * from ingest or a prior run, is never overwritten. Returns how many rows were filled.
+ */
+export const WATCHED_AT_BACKFILL = sql`
+  UPDATE neodb_marks
+  SET watched_at = (raw->'relatedWith'->>'published')::timestamptz,
+      updated_at = now()
+  WHERE watched_at IS NULL
+    AND jsonb_typeof(raw->'relatedWith') = 'object'
+    AND raw->'relatedWith'->>'type' = 'Status'
+    -- Shape guard, not validation: an unparseable string would abort the whole
+    -- statement on the cast, and one malformed mark must not block the backfill.
+    -- Spelled as an explicit character class rather than a backslash-d shorthand,
+    -- because this is a JS template literal: it eats the backslash, so the shorthand
+    -- ships as a run of literal letters — a regex that matches nothing and makes the
+    -- backfill silently fill zero rows. A test asserts the rendered SQL, since
+    -- nothing else fails when it is wrong.
+    AND raw->'relatedWith'->>'published' ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+  RETURNING id
+`
+
+export async function backfillMarkWatchedDates(): Promise<number> {
+  const db = getDb()
+  const res = await db.execute<{ id: string }>(WATCHED_AT_BACKFILL)
+  const filled = [...res].length
+  if (filled) logger.info({ filled }, 'Backfilled NeoDB mark watch dates from stored raw')
   return filled
 }
 

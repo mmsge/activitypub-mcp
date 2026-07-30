@@ -264,8 +264,13 @@ export const neodbMarks = pgTable('neodb_marks', {
   markApId: text('mark_ap_id'),
   markUrl: text('mark_url'),
   postId: text('post_id'),
-  publishedAt: timestamp('published_at', { withTimezone: true }), // the watched/read date
+  publishedAt: timestamp('published_at', { withTimezone: true }), // the mark Note's own published — when the mark was created
   updatedAtAp: timestamp('updated_at_ap', { withTimezone: true }), // relatedWith.updated — change-tracking guard
+  // The shelf date — when the thing was actually watched/read/played/listened to — taken
+  // strictly from the `relatedWith` Status entry's `published`. Distinct from both columns
+  // above: a backdated mark is created today (`published_at`), last edited today
+  // (`updated_at_ap`) and watched in 2016 (`watched_at`). Null when the mark carries none.
+  watchedAt: timestamp('watched_at', { withTimezone: true }),
   deletedAt: timestamp('deleted_at', { withTimezone: true }), // set when the mark's Note is deleted
   raw: jsonb('raw'), // the relatedWith + tag we parsed, for provenance
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -276,6 +281,8 @@ export const neodbMarks = pgTable('neodb_marks', {
   index('neodb_marks_actor_idx').on(t.actorApId),
   index('neodb_marks_mark_ap_id_idx').on(t.markApId),
   index('neodb_marks_status_idx').on(t.status),
+  // get_watched filters and sorts on the shelf date ("everything I watched in 2016").
+  index('neodb_marks_watched_at_idx').on(t.watchedAt),
 ])
 
 // Full markdown bodies of the markus.plus "Tankehav" notes, fetched from Obsidian
