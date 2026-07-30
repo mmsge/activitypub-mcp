@@ -34,6 +34,13 @@ describe('renderProfilePage', () => {
     expect(html).toContain('30 dagar vert sletta automatisk')
   })
 
+  it('links the actor document so the page URL resolves to the account', () => {
+    expect(html).toContain(
+      '<link rel="alternate" type="application/activity+json" href="https://test.local/actor">',
+    )
+    expect(html).toContain('<link rel="canonical" href="https://test.local/@bot">')
+  })
+
   it('is self-contained — no external stylesheet, font or script', () => {
     expect(html).not.toMatch(/<script/i)
     expect(html).not.toMatch(/<link[^>]+stylesheet/i)

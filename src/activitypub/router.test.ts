@@ -47,11 +47,42 @@ describe('GET /actor content negotiation', () => {
 })
 
 describe('GET /@username', () => {
-  it('always serves the profile page', async () => {
-    const res = await get('/@bot', { accept: '*/*' })
-    expect(res.status).toBe(200)
+  it('serves the profile page to browsers and vague clients', async () => {
+    for (const accept of ['*/*', 'text/html,application/xhtml+xml,*/*;q=0.8']) {
+      const res = await get('/@bot', { accept })
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toContain('text/html')
+      expect(await res.text()).toContain('@bot@test.local')
+    }
+  })
+
+  it('serves the profile page when no Accept header is sent', async () => {
+    const res = await get('/@bot')
     expect(res.headers.get('content-type')).toContain('text/html')
-    expect(await res.text()).toContain('@bot@test.local')
+  })
+
+  it('answers the actor document to an ActivityPub resolver', async () => {
+    // Mastodon's URL search fetches the page URL with exactly this Accept header. If it
+    // cannot reach the actor from here it reports "no results", so the account becomes
+    // unfindable by link — which is what happened before this case was handled.
+    const res = await get('/@bot', {
+      accept: 'application/activity+json, application/ld+json',
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('application/activity+json')
+    expect((await res.json() as any).id).toBe('https://test.local/actor')
+  })
+
+  it('still prefers HTML when a client asks for both', async () => {
+    const res = await get('/@bot', { accept: 'text/html, application/activity+json' })
+    expect(res.headers.get('content-type')).toContain('text/html')
+  })
+
+  it('links the ActivityPub representation for clients that only parse HTML', async () => {
+    const html = await (await get('/@bot', { accept: 'text/html' })).text()
+    expect(html).toContain(
+      '<link rel="alternate" type="application/activity+json" href="https://test.local/actor">',
+    )
   })
 })
 
