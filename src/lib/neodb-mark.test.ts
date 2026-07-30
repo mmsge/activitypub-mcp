@@ -36,6 +36,46 @@ const MARK = {
   url: 'https://minreol.dk/@markus/posts/600189802906904872/',
 } as const
 
+// The other live shape: a mark made *with a comment* federates `relatedWith` as an ARRAY
+// — the shelf Status plus the Comment. Verified against minreol on 2026-07-30 (the batch
+// of backdated film marks). Treating only the single-object form as a mark is what made
+// every commented mark invisible to the store.
+const MARK_WITH_COMMENT = {
+  id: 'https://minreol.dk/@markus@minreol.dk/posts/6131059108224304/',
+  type: 'Note',
+  attributedTo: 'https://minreol.dk/@markus@minreol.dk/',
+  published: '2016-04-27T12:00:00.000Z',
+  content:
+    '<p>blev færdig med at se <a href="https://minreol.dk/~neodb~/movie/1pNcCQMRwquE1HOJNzGLou">Captain America: Civil War</a> <br>Sett på kino.<br></p>',
+  relatedWith: [
+    {
+      id: 'https://minreol.dk/p/2IMl3NPTf7lPVshsjaNrjl',
+      type: 'Status',
+      status: 'complete',
+      withRegardTo: 'https://minreol.dk/movie/1pNcCQMRwquE1HOJNzGLou',
+      attributedTo: 'https://minreol.dk/@markus@minreol.dk/',
+      published: '2016-04-27T12:00:00+00:00',
+      updated: '2026-07-30T16:18:37.163100+00:00',
+    },
+    {
+      id: 'https://minreol.dk/p/5h6h8wQXvpmWEqDCfxe33W',
+      type: 'Comment',
+      withRegardTo: 'https://minreol.dk/movie/1pNcCQMRwquE1HOJNzGLou',
+      attributedTo: 'https://minreol.dk/@markus@minreol.dk/',
+      content: 'Sett på kino.',
+      published: '2016-04-27T12:00:00+00:00',
+      updated: '2026-07-30T16:18:37.185912+00:00',
+    },
+  ],
+  tag: {
+    type: 'Movie',
+    href: 'https://minreol.dk/movie/1pNcCQMRwquE1HOJNzGLou',
+    image: 'https://minreol.dk/m/item/tmdb_movie/2024/07/18/0156c00e.jpg',
+    name: 'Captain America: Civil War',
+  },
+  url: 'https://minreol.dk/@markus/posts/6131059108224304/',
+} as const
+
 const ACTOR = 'https://minreol.dk/@markus@minreol.dk/'
 
 describe('isNeodbMark', () => {
@@ -52,10 +92,20 @@ describe('isNeodbMark', () => {
     expect(isNeodbMark({ type: 'Note', relatedWith: { type: 'Note', withRegardTo: 'x' } })).toBe(false)
   })
 
+  it('is true when relatedWith is an array carrying the Status (a mark with a comment)', () => {
+    expect(isNeodbMark(MARK_WITH_COMMENT)).toBe(true)
+  })
+
+  it('is false for an array of related records with no Status', () => {
+    expect(isNeodbMark({ type: 'Note', relatedWith: [{ type: 'Comment', withRegardTo: 'x', content: 'hi' }] }))
+      .toBe(false)
+  })
+
   it('is false for junk', () => {
     expect(isNeodbMark(null)).toBe(false)
     expect(isNeodbMark('string')).toBe(false)
     expect(isNeodbMark({ relatedWith: [] })).toBe(false)
+    expect(isNeodbMark({ relatedWith: [null, 'nope'] })).toBe(false)
   })
 })
 
@@ -104,6 +154,34 @@ describe('parseNeodbMark', () => {
     expect(m.itemType).toBe('TVSeason')
     expect(m.category).toBe('tv')
     expect(m.status).toBe('progress')
+  })
+
+  it('parses an array-shaped mark off its Status entry and keeps the comment', () => {
+    const m = parseNeodbMark(MARK_WITH_COMMENT, ACTOR)!
+    expect(m).not.toBeNull()
+    expect(m.itemUrl).toBe('https://minreol.dk/movie/1pNcCQMRwquE1HOJNzGLou')
+    expect(m.status).toBe('complete')
+    expect(m.category).toBe('movie')
+    expect(m.title).toBe('Captain America: Civil War')
+    expect(m.comment).toBe('Sett på kino.')
+    // Backdated by a decade: the watched date comes off the mark, the change stamp off
+    // the Status. Neither is clamped to "recent".
+    expect(m.publishedAt?.toISOString()).toBe('2016-04-27T12:00:00.000Z')
+    expect(m.updatedAtAp?.toISOString()).toBe('2026-07-30T16:18:37.163Z')
+  })
+
+  it('ignores a Comment entry that points at a different catalogue item', () => {
+    const m = parseNeodbMark(
+      {
+        ...MARK_WITH_COMMENT,
+        relatedWith: [
+          MARK_WITH_COMMENT.relatedWith[0],
+          { ...MARK_WITH_COMMENT.relatedWith[1], withRegardTo: 'https://minreol.dk/movie/other' },
+        ],
+      },
+      ACTOR,
+    )!
+    expect(m.comment).toBeNull()
   })
 
   it('keeps an unknown status verbatim and flags it', () => {

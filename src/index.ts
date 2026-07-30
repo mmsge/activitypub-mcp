@@ -22,6 +22,7 @@ import { backfillContentText } from './jobs/backfill-content-text.js'
 import { backfillTags } from './jobs/backfill-tags.js'
 import { backfillMarkTitles } from './jobs/backfill-mark-titles.js'
 import { backfillNeodbMarks } from './jobs/backfill-neodb-marks.js'
+import { repairNeodbIngest } from './jobs/repair-neodb-ingest.js'
 import { runDeliveryWorker } from './jobs/deliver.js'
 import { pruneActivityLog } from './jobs/prune-activity-log.js'
 import { getDb } from './db/client.js'
@@ -156,6 +157,16 @@ async function main() {
       await backfillNeodbMarks()
     } catch (e) {
       logger.error(e, 'NeoDB marks backfill failed on startup')
+    }
+    // Then repair marks stored by a lossier ingest path (a boost that wrote no text and
+    // no catalogue row, an edit that wrote nothing at all): re-derive the post text from
+    // raw, rebuild neodb_marks, and enrich every tagged catalogue item. Runs after the
+    // backfill so the two don't fetch the same items concurrently; local-first,
+    // idempotent, and a no-op once its marker is set.
+    try {
+      await repairNeodbIngest()
+    } catch (e) {
+      logger.error(e, 'NeoDB ingest repair failed on startup')
     }
   })()
 

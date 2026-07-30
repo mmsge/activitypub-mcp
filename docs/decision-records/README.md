@@ -21,3 +21,4 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | [0008](0008-ingest-neodb-marks-into-a-per-actor-store.md) | Ingest NeoDB marks into a dedicated per-actor store (`neodb_marks`), keyed on (item, actor), joined to the catalogue cache |
 | [0009](0009-actor-profile-and-log-retention.md) | Publish an informative actor profile, and prune the request log so its privacy claim stays true |
 | [0010](0010-profile-page-must-resolve-to-the-actor.md) | The profile page URL must resolve back to the actor (`rel="alternate"` + content negotiation) |
+| [0011](0011-one-ingest-path-for-create-announce-update.md) | One ingest path for Create/Announce/Update, plus a repair job for marks the old paths dropped |

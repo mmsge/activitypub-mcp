@@ -9,6 +9,12 @@
 //                  published, updated, … }
 //   tag:         { type:'Movie'|'TVSeason'|'Edition'|…, href:<catalog url>, name, image }
 //
+// `relatedWith` is a SINGLE object for a bare mark but an ARRAY when the mark carries
+// more than one related record — a mark made with a comment federates as
+// [{type:'Status', …}, {type:'Comment', content:'…', …}]. Both shapes are normalised
+// here; treating only the object shape as a mark is what once made every commented
+// mark invisible to the store.
+//
 // Everything here is pure (no DB, no network) so it unit-tests on the verified live
 // payload. The DB upsert/tombstone live in jobs/sync-neodb-marks.ts.
 
@@ -120,14 +126,36 @@ function pickNeodbTag(tag: unknown, itemUrl: string): AnyObject | null {
   return media ?? tags[0]
 }
 
+// `relatedWith` normalised to an array of objects — NeoDB sends a single object for a
+// bare mark and an array (Status + Comment, …) when the mark carries a comment.
+function relatedWithEntries(obj: unknown): AnyObject[] {
+  if (!obj || typeof obj !== 'object') return []
+  const rw = (obj as AnyObject).relatedWith
+  if (!rw) return []
+  const arr = Array.isArray(rw) ? rw : [rw]
+  return arr.filter((e): e is AnyObject => !!e && typeof e === 'object' && !Array.isArray(e))
+}
+
+// The `Status` entry — the shelf record that makes this object a mark.
+function pickStatusEntry(entries: AnyObject[]): AnyObject | null {
+  return entries.find(
+    (e) => e.type === 'Status' && typeof e.withRegardTo === 'string' && e.withRegardTo.trim() !== '',
+  ) ?? null
+}
+
+// The user's own comment on the mark, when NeoDB federated one alongside the Status.
+// Scoped to the same catalogue item so a stray related record can't leak in.
+function pickCommentEntry(entries: AnyObject[], itemUrl: string): AnyObject | null {
+  return entries.find(
+    (e) => e.type === 'Comment' && normalizeItemUrl(e.withRegardTo) === itemUrl,
+  ) ?? null
+}
+
 // True when a `Note` (or any object) carries the NeoDB mark shape: a `relatedWith`
 // Status pointing at a catalogue item. Ordinary Notes have no `relatedWith` and are
 // left to normal post ingestion untouched (criterion 1).
 export function isNeodbMark(obj: unknown): boolean {
-  if (!obj || typeof obj !== 'object') return false
-  const rw = (obj as AnyObject).relatedWith as AnyObject | undefined
-  if (!rw || typeof rw !== 'object' || Array.isArray(rw)) return false
-  return rw.type === 'Status' && typeof rw.withRegardTo === 'string' && rw.withRegardTo.trim() !== ''
+  return pickStatusEntry(relatedWithEntries(obj)) != null
 }
 
 export interface ParsedNeodbMark {
@@ -145,20 +173,26 @@ export interface ParsedNeodbMark {
   postId: string | null
   publishedAt: Date | null
   updatedAtAp: Date | null
-  raw: { relatedWith: unknown; tag: unknown }
+  // The user's comment on the mark, when NeoDB federated one (plain text, as NeoDB
+  // sends it). Null for a bare mark.
+  comment: string | null
+  raw: { relatedWith: unknown; comment: unknown; tag: unknown }
 }
 
 // Parse a mark `Note` into the store-shaped record, or null when it isn't a mark.
 // `actorApId` is the marking actor (the Note's attributedTo / delivering actor).
 export function parseNeodbMark(obj: unknown, actorApId: string): ParsedNeodbMark | null {
-  if (!isNeodbMark(obj)) return null
+  const entries = relatedWithEntries(obj)
+  const rw = pickStatusEntry(entries)
+  if (!rw) return null
   const o = obj as AnyObject
-  const rw = o.relatedWith as AnyObject
 
   // Canonical item id: withRegardTo is guaranteed present; the tag href is a fallback.
   const tag = pickNeodbTag(o.tag, normalizeItemUrl(rw.withRegardTo) ?? '')
   const itemUrl = normalizeItemUrl(rw.withRegardTo) ?? normalizeItemUrl(tag?.href)
   if (!itemUrl) return null
+
+  const commentEntry = pickCommentEntry(entries, itemUrl)
 
   const itemType = strOrNull(tag?.type)
   const { status, raw: statusRaw, known: statusKnown } = mapMarkStatus(rw.status)
@@ -184,6 +218,7 @@ export function parseNeodbMark(obj: unknown, actorApId: string): ParsedNeodbMark
     // `relatedWith.updated` is the change-tracking stamp (bumped when the mark is re-saved,
     // e.g. a delete+recreate backfill); the Note's own `updated` is the fallback.
     updatedAtAp: parseDate(rw.updated) ?? parseDate(o.updated),
-    raw: { relatedWith: rw, tag: tag ?? null },
+    comment: strOrNull(commentEntry?.content),
+    raw: { relatedWith: rw, comment: commentEntry ?? null, tag: tag ?? null },
   }
 }

@@ -539,6 +539,11 @@ Database migrations run automatically on startup.
 - Check the Logs page for inbound requests. If you see entries with `✗` signature, the remote server is sending requests but they are failing verification — check the error column for details.
 - Some servers use the shared inbox (`/inbox`) instead of the actor inbox. Both are handled identically.
 
+**A NeoDB mark is not showing up in `get_watched`**
+- The mark has to have arrived first: check the Activities page for a `Create`, `Announce` or `Update` carrying the mark's `Note`. Marks made in the NeoDB UI arrive as pushed `Create`/`Update` activities; marks crossposted to Mastodon also arrive as an `Announce` of the same note (the boost is unwrapped and does not create a second post).
+- Rebuild the derived data from what is already stored: **Admin → Import → Repair NeoDB Marks**, or on the server `docker compose exec app npm run repair-neodb-ingest`. It re-derives missing post text, rebuilds the mark store, and enriches every catalogue item the stored marks tag. Nothing is re-marked on NeoDB and no post is re-federated, so it is safe to run repeatedly.
+- Marks are routinely backdated (NeoDB keeps the date you watched something, which can be years ago). Nothing filters on recency — look for the item by title rather than at the top of a date-sorted list.
+
 **Container fails to start**
 ```bash
 docker compose logs app

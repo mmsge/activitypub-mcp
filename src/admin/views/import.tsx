@@ -69,6 +69,23 @@ export const ImportPage: FC<{ error?: string }> = ({ error }) => (
         </div>
       </form>
     </div>
+
+    <div class="section">
+      <h2>Repair NeoDB Marks</h2>
+      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
+        Walks stored posts that look like NeoDB marks and rebuilds what they should have
+        produced: re-derives missing post text from the stored object, upserts the mark
+        store, and enriches every catalogue item the marks tag (so they show up in{' '}
+        <strong>get_watched</strong>). Nothing is re-marked on NeoDB and no post is
+        re-federated. Safe to run multiple times — enrichment only fetches items that are
+        missing or previously failed.
+      </p>
+      <form method="post" action="/admin/import/repair-neodb">
+        <div class="filters">
+          <button type="submit">Repair NeoDB Marks</button>
+        </div>
+      </form>
+    </div>
   </Layout>
 )
 

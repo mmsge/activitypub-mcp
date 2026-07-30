@@ -10,6 +10,7 @@
     "create-admin": "tsx scripts/create-admin.ts",
     "generate:profile-images": "tsx scripts/generate-profile-images.ts",
     "backfill-neodb-marks": "tsx scripts/backfill-neodb-marks.ts",
+    "repair-neodb-ingest": "tsx scripts/repair-neodb-ingest.ts",
     "lint:openapi": "redocly lint docs/openapi.yaml",
     "format:check": "prettier --check docs/openapi.yaml",
     "format": "prettier --write docs/openapi.yaml",
