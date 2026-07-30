@@ -6,7 +6,7 @@ import { extractContent } from '../lib/object-content.js'
 import { fetchApObject } from '../lib/fetch-ap-object.js'
 import { objectApId, resolveRef } from '../lib/ap-object.js'
 import { ingestObject } from '../activitypub/handlers/create.js'
-import { reprocessStoredMarks } from './sync-neodb-marks.js'
+import { backfillMarkComments, reprocessStoredMarks } from './sync-neodb-marks.js'
 import {
   NEODB_MEDIA_TAG_TYPES,
   enrichCatalogueItem,
@@ -36,6 +36,8 @@ export interface RepairResult {
    * upsert makes the unchanged ones no-ops.
    */
   marksUpserted: number
+  /** Mark rows whose `comment` was filled in from the stored mark Note. */
+  commentsFilled: number
   /** Catalogue items enriched, failed, and skipped as already-enriched. */
   itemsEnriched: number
   itemsFailed: number
@@ -173,6 +175,10 @@ export async function repairNeodbIngest(
   // including the commented ones the array-shaped payload previously hid.
   const marksUpserted = await reprocessStoredMarks()
 
+  // Fill `comment` on rows that predate the column — the upsert above leaves an unchanged
+  // mark alone by design, so the column needs its own pass.
+  const commentsFilled = await backfillMarkComments()
+
   // Tagged items → catalog_metadata. A row that already enriched cleanly is left alone
   // (staleness is the periodic sync's job) unless this run is forced.
   const referenced = await collectTaggedItemUrls()
@@ -212,6 +218,7 @@ export async function repairNeodbIngest(
     postsRepaired: repaired,
     postsRefetched: refetched,
     marksUpserted,
+    commentsFilled,
     itemsEnriched,
     itemsFailed,
     itemsSkipped,

@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Date:** 2026-07-30
-**Topics:** neodb, activitypub, ingestion, marks, announce, boost, update, edit, upsert, backdating, repair, watched
+**Topics:** neodb, activitypub, ingestion, marks, announce, boost, update, edit, upsert, backdating, repair, watched, comments
 **Contributors:** Claude (agent decision — no human input on the technical design; the task fixed the acceptance criteria, not the implementation)
 
 ## Context
@@ -54,6 +54,15 @@ that stops being true.
 - **Nullable fields refresh only when present.** The upsert's `SET` includes
   `content`/`published_at`/`url`/`in_reply_to` only when the incoming payload actually
   carries them, so a thinner re-delivery cannot blank a row that is already good.
+- **The mark's comment is a first-class field.** `neodb_marks.comment`, surfaced as
+  `mark_comments` on `get_watched` and `get_catalogue_details` and filterable with
+  `mark_comment` (case-insensitive substring). Backfilled for rows that predate the
+  column by a dedicated pass, because `upsertNeodbMark` deliberately no-ops on an
+  unchanged mark and would leave the column null forever.
+- **An `Undo`/`Announce` removes nothing.** Un-boosting is a Mastodon-side timeline
+  action; the mark on NeoDB is untouched, so the post and its mark stay ingested. The
+  27 undos at 16:27–16:30Z were a manual cleanup of unwanted boosts, not a retraction.
+  Only a `Delete` of the mark's own `Note` tombstones a mark (ADR 0008).
 - **A repair job rebuilds what the old paths dropped** (`jobs/repair-neodb-ingest.ts`):
   re-derive post text from the stored `raw`, upsert the mark store, enrich every
   catalogue item the stored posts tag. Marker-guarded auto-run on startup, plus a forced
@@ -66,6 +75,28 @@ lost, only unused. Re-marking on NeoDB would create new federated posts and, his
 unwanted boosts; a full outbox re-crawl would hammer minreol for data we already hold. The
 job is therefore local-first: it only reaches the network for a catalogue item it has no
 enriched row for, or for the rare stored post whose `raw` has no text either.
+
+## Why the comment is stored verbatim, and plural
+
+Every film in the 2016 backfill carries a comment recording the medium — "Sett på kino."
+(26 of 42), "Sett på Altibox." (8), "Sett på Netflix." (4), plus Viasat, Vimeo and C More
+— taken from the source spreadsheet, and the 2015/2014 batches will carry the same.
+Without the field, "which films did I see at the cinema in 2016" is unanswerable from
+data we already hold.
+
+- **Free text, never an enum.** The medium pattern is a coincidence of these batches;
+  future marks carry ordinary prose. Parsing it into categories would encode an accident
+  of one import as a schema, and silently drop everything that doesn't fit.
+- **Never normalised, translated or stripped.** The text is Nynorsk and user-facing.
+  "Sett på kino." is correct as written, full stop included; it is stored and returned
+  byte-for-byte.
+- **Plural on the read side**, following `mark_titles`: an item can be marked more than
+  once — re-marked over time, or marked by a second actor — so `mark_comments` is an
+  array of the distinct comments across the item's live marks, newest mark first, with
+  tombstoned marks excluded. `[]` when there are none.
+- **Read live off `neodb_marks`, not materialised** onto the catalogue row. `mark_titles`
+  needs materialising because NeoDB's enrichment overwrites the title it is retaining;
+  a comment has no such competitor, so a join is simpler and cannot go stale.
 
 ## Why the boost path is fixed even though boosts are getting rarer
 
@@ -90,3 +121,13 @@ whatever ingests next. Unwrapping is the fix; depending on the wrapper is not.
 - **The boost and the boosted post are different objects.** Attributing the inner object to
   the announcer files another account's post under the booster — and, for a NeoDB mark,
   puts the mark on the wrong actor in a store keyed on (item, actor).
+- **Drizzle qualifies a column reference in `WHERE` but not in a select-list expression.**
+  `${catalogMetadata.itemUrl}` renders as `"catalog_metadata"."item_url"` in a condition
+  and as a bare `"item_url"` inside a `sql` expression in the select list — where, in a
+  correlated subquery over `neodb_marks`, it binds to *that* table's column instead. The
+  result is an always-true self-comparison: no error, right-looking response shape, and
+  every row handed every other row's data. `markCommentsExpr` writes the correlation
+  table-qualified by hand, and a test asserts the rendered SQL.
+- **A column added to `neodb_marks` needs its own backfill.** `upsertNeodbMark` overwrites
+  only on a strictly-newer `updated` stamp, so replaying stored marks — the obvious way to
+  populate a new column — is a deliberate no-op for every unchanged mark.

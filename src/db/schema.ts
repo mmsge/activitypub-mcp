@@ -255,6 +255,11 @@ export const neodbMarks = pgTable('neodb_marks', {
   statusRaw: text('status_raw'),
   title: text('title'), // tag.name — the name the mark federated with
   coverUrl: text('cover_url'), // tag.image
+  // The user's own note on the mark (the `relatedWith` Comment entry), verbatim: free
+  // text, never parsed, normalised or translated. It carries things the catalogue cannot
+  // know — "Sett på kino." records where a film was seen — so it is a first-class field,
+  // surfaced and filterable, not just provenance in `raw`.
+  comment: text('comment'),
   // The mark Note's own id (the Delete target) and human URL, plus the origin-local post id.
   markApId: text('mark_ap_id'),
   markUrl: text('mark_url'),

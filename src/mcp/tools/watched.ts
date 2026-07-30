@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
 import { catalogMetadata } from '../../db/schema.js'
-import { and, eq, isNotNull, count, desc, sql, type SQL } from 'drizzle-orm'
+import { and, eq, isNotNull, count, desc, getTableColumns, sql, type SQL } from 'drizzle-orm'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
 
 // ---- shared helpers --------------------------------------------------------
@@ -24,16 +24,56 @@ function titleMatch(title: string): SQL {
   )`
 }
 
+/**
+ * The comments the mark(s) for one catalogue item carry, newest mark first, duplicates
+ * collapsed, tombstoned marks excluded. Plural like `mark_titles`, and for the same
+ * reason: an item can be marked more than once — re-marked over time, or marked by more
+ * than one actor — and each mark carries its own note. `[]` when none.
+ *
+ * Read live off `neodb_marks` rather than materialised onto the catalogue row: unlike the
+ * NeoDB-supplied title (which enrichment overwrites, hence the retained aliases), the
+ * comment only ever comes from the mark, so there is nothing to retain it against.
+ *
+ * The correlation is written table-qualified by hand, not interpolated. Drizzle renders a
+ * bare column reference **unqualified** inside a select-list expression (it qualifies only
+ * in WHERE), and an unqualified `item_url` in here binds to `neodb_marks`' own column — a
+ * silent always-true self-comparison that hands every row every comment in the table.
+ */
+export const markCommentsExpr = sql<string[]>`(
+  SELECT coalesce(jsonb_agg(c.comment ORDER BY c.published_at DESC NULLS LAST), '[]'::jsonb)
+  FROM (
+    SELECT DISTINCT ON (m.comment) m.comment, m.published_at
+    FROM neodb_marks m
+    WHERE m.item_url = catalog_metadata.item_url
+      AND m.deleted_at IS NULL
+      AND coalesce(m.comment, '') <> ''
+    ORDER BY m.comment, m.published_at DESC NULLS LAST
+  ) c
+)`
+
+// Case-insensitive substring match against any live mark comment on the item. Substring
+// only — the text is free prose, deliberately never parsed into categories.
+function markCommentMatch(needle: string): SQL {
+  return sql`EXISTS (
+    SELECT 1 FROM neodb_marks m
+    WHERE m.item_url = ${catalogMetadata.itemUrl}
+      AND m.deleted_at IS NULL
+      AND m.comment ILIKE ${'%' + needle + '%'}
+  )`
+}
+
 function buildConditions(input: {
   title?: string
   category?: string
   item_type?: string
   genre?: string
   imdb?: string
+  mark_comment?: string
   include_unenriched?: boolean
 }): SQL[] {
   const conditions: SQL[] = []
   if (input.title) conditions.push(titleMatch(input.title))
+  if (input.mark_comment) conditions.push(markCommentMatch(input.mark_comment))
   if (input.category) conditions.push(eq(catalogMetadata.category, input.category))
   if (input.item_type) conditions.push(eq(catalogMetadata.itemType, input.item_type))
   if (input.imdb) conditions.push(eq(catalogMetadata.imdb, input.imdb))
@@ -80,6 +120,8 @@ export const getWatchedSchema = z.object({
   item_type: z.string().optional().describe('Filter by exact AP object type: "Movie", "TVShow", "TVSeason", "TVEpisode", "Edition", "Album", "Game", "Podcast", or "Performance"'),
   genre: z.string().optional().describe('Filter by genre (case-insensitive partial match against any of the title\'s genres)'),
   imdb: z.string().optional().describe('Filter by exact IMDb id, e.g. "tt27579939" (film/TV only)'),
+  mark_comment: z.string().optional()
+    .describe('Filter by the comment the mark carried (case-insensitive substring, matched against any of the item\'s mark comments). Free text, e.g. "kino" finds everything marked "Sett på kino."'),
   include_unenriched: z.boolean().default(false)
     .describe('Include rows that have not been successfully enriched yet (pending or failed fetches, carrying fetch_error/fetch_attempts). Off by default.'),
   sort_order: z.enum(['asc', 'desc']).default('desc')
@@ -135,6 +177,7 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       rating: catalogMetadata.rating,
       details: catalogMetadata.details,
       markTitles: catalogMetadata.markTitles,
+      markComments: markCommentsExpr,
       bookwyrmBookUrl: catalogMetadata.bookwyrmBookUrl,
       enrichedAt: catalogMetadata.enrichedAt,
       fetchError: catalogMetadata.fetchError,
@@ -168,6 +211,7 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       item_type: input.item_type ?? null,
       genre: input.genre ?? null,
       imdb: input.imdb ?? null,
+      mark_comment: input.mark_comment ?? null,
       include_unenriched: input.include_unenriched,
     },
     titles: rows.map((r) => ({
@@ -180,6 +224,9 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       // Names the mark(s) federated with, retained through NeoDB's localized-title
       // overwrite; searched alongside `title`. [] when none.
       mark_titles: asArray(r.markTitles) ?? [],
+      // The note(s) the mark(s) carried, verbatim and unparsed — newest mark first,
+      // duplicates collapsed. [] when none.
+      mark_comments: asArray(r.markComments) ?? [],
       year: r.year,
       // Film/TV columns (null for other categories).
       season_number: r.seasonNumber,
@@ -232,7 +279,7 @@ export async function getCatalogueDetails(input: CatalogueDetailsInput) {
   if (input.category) conditions.push(eq(catalogMetadata.category, input.category))
 
   const rows = await db
-    .select()
+    .select({ ...getTableColumns(catalogMetadata), markComments: markCommentsExpr })
     .from(catalogMetadata)
     .where(and(...conditions))
     .orderBy(desc(catalogMetadata.enrichedAt), desc(catalogMetadata.fetchedAt))
@@ -249,6 +296,7 @@ export async function getCatalogueDetails(input: CatalogueDetailsInput) {
     display_title: r.displayTitle,
     orig_title: r.origTitle,
     mark_titles: asArray(r.markTitles) ?? [],
+    mark_comments: asArray(r.markComments) ?? [],
     year: r.year,
     season_number: r.seasonNumber,
     episode_count: r.episodeCount,

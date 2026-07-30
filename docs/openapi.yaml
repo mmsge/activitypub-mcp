@@ -1688,7 +1688,7 @@ paths:
         to …", "read …"), enriched from the catalog item the mark only links to.
         Covers ALL categories, filter with `category`: tv, movie, book, music, game,
         podcast, performance. Common fields on every row (item_url, category,
-        item_type, title/display_title/orig_title, mark_titles, year, cover_url,
+        item_type, title/display_title/orig_title, mark_titles, mark_comments, year, cover_url,
         description, genre, language, area, rating, external_resources, fetched_at);
         film/TV columns (season_number, episode_count, imdb + imdb_url, tmdb_url,
         director, actors); and a per-category `details` object (book author/isbn/pages/
@@ -1696,7 +1696,8 @@ paths:
         game developer/publisher/platform; podcast host/feed_url; performance
         playwright/director/troupe/venue/opening_date). Filter by `title` (partial,
         matches the enriched title and the mark-supplied `mark_titles` aliases),
-        `category`, `item_type`, `genre` (partial), or exact `imdb` id;
+        `category`, `item_type`, `genre` (partial), exact `imdb` id, or
+        `mark_comment` (partial, against the note(s) the mark(s) carried);
         `include_unenriched=true` also returns pending/failed rows (with fetch_error/
         fetch_attempts). Most-recently-enriched first by default; each response
         carries `total` and a `next_cursor`. Use /catalogue-details for one item's
@@ -1722,6 +1723,13 @@ paths:
         - name: imdb
           in: query
           description: Exact IMDb id, e.g. tt27579939 (film/TV only).
+          schema: { type: string }
+        - name: mark_comment
+          in: query
+          description: >
+            Case-insensitive substring match against the note(s) the mark(s) carried,
+            e.g. "kino" finds everything marked "Sett på kino.". Free text — never
+            parsed into categories.
           schema: { type: string }
         - name: include_unenriched
           in: query
@@ -1761,6 +1769,7 @@ paths:
                 item_type: { type: string }
                 genre: { type: string }
                 imdb: { type: string }
+                mark_comment: { type: string }
                 include_unenriched: { type: boolean, default: false }
                 sort_order: { type: string, enum: [asc, desc], default: desc }
                 limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
@@ -2416,6 +2425,15 @@ components:
             The name(s) the mark(s) federated with, retained through NeoDB's
             localized-title overwrite (e.g. "Conflict" alongside the stored "Konflikt").
             Searched alongside `title`; [] when none.
+        mark_comments:
+          type: array
+          items: { type: string }
+          description: >
+            The note(s) the mark(s) carried, verbatim — newest mark first, duplicates
+            collapsed, deleted marks excluded. Free text in the marker's own words
+            (e.g. "Sett på kino."), never parsed, normalised or translated. An item
+            marked more than once (re-marked, or marked by several actors) carries one
+            entry per distinct comment; [] when none. Filter with `mark_comment`.
         year: { type: [integer, "null"] }
         season_number: { type: [integer, "null"] }
         episode_count: { type: [integer, "null"] }
@@ -2486,6 +2504,15 @@ components:
             localized-title overwrite (e.g. "Conflict" alongside the stored "Konflikt").
             Searched alongside `title`; origin recorded as 'activitypub' in source_map.
             [] when none.
+        mark_comments:
+          type: array
+          items: { type: string }
+          description: >
+            The note(s) the mark(s) carried, verbatim — newest mark first, duplicates
+            collapsed, deleted marks excluded. Free text in the marker's own words
+            (e.g. "Sett på kino."), never parsed, normalised or translated. An item
+            marked more than once (re-marked, or marked by several actors) carries one
+            entry per distinct comment; [] when none.
         year: { type: [integer, "null"] }
         season_number: { type: [integer, "null"] }
         episode_count: { type: [integer, "null"] }
