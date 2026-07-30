@@ -364,7 +364,7 @@ app.post('/import/reprocess', async (c) => {
 app.post('/import/repair-neodb', async (c) => {
   const r = await repairNeodbIngest({ force: true })
   const summary = r
-    ? `${r.postsRepaired} post(s) re-texted, ${r.postsRefetched} refetched, ${r.marksUpserted} mark(s) reprocessed, ${r.itemsSkipped} item(s) already enriched`
+    ? `${r.postsRepaired} post(s) re-texted, ${r.postsRefetched} refetched, ${r.marksUpserted} mark(s) reprocessed, ${r.watchDatesFilled} watch date(s) filled, ${r.itemsSkipped} item(s) already enriched`
     : 'nothing to do'
 
   const params = new URLSearchParams({

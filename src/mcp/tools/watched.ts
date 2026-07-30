@@ -62,6 +62,135 @@ function markCommentMatch(needle: string): SQL {
   )`
 }
 
+/**
+ * Every distinct shelf date the item's live mark(s) carry — when it was watched, read,
+ * played or listened to — newest first, `[]` when none. Plural for the same reason
+ * `mark_titles` and `mark_comments` are: one item can be marked more than once (re-watched
+ * years later, or marked by a second actor), and each mark carries its own date.
+ *
+ * Rendered as ISO-8601 UTC strings so the shape matches every other timestamp the tools
+ * return. Read live off `neodb_marks` and correlated **table-qualified by hand** — see
+ * `markCommentsExpr` above for why an unqualified `item_url` in here is a silent bug.
+ */
+export const markWatchedDatesExpr = sql<string[]>`(
+  SELECT coalesce(
+    jsonb_agg(
+      to_char(w.watched_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+      ORDER BY w.watched_at DESC
+    ),
+    '[]'::jsonb
+  )
+  FROM (
+    SELECT DISTINCT m.watched_at
+    FROM neodb_marks m
+    WHERE m.item_url = catalog_metadata.item_url
+      AND m.deleted_at IS NULL
+      AND m.watched_at IS NOT NULL
+  ) w
+)`
+
+/**
+ * The single shelf date for the item: the newest of the above, null when unknown. This is
+ * the scalar `watched_at` the row reports, and the key `sort_by: 'watched_at'` orders on —
+ * an array can't be a sort key, and for a re-watched item the latest viewing is the one a
+ * "most recently watched first" listing means.
+ *
+ * Correlated table-qualified by hand for the same reason as above; it is used in the
+ * select list, the ORDER BY and the keyset condition, so one spelling has to serve all three.
+ */
+export const latestWatchedAtExpr = sql<Date | null>`(
+  SELECT max(m.watched_at)
+  FROM neodb_marks m
+  WHERE m.item_url = catalog_metadata.item_url
+    AND m.deleted_at IS NULL
+)`
+
+/**
+ * A `watched_from` / `watched_to` bound, parsed.
+ *
+ * A bare `YYYY-MM-DD` means the whole day, so it is anchored to UTC midnight and the upper
+ * bound is pushed to the following midnight (exclusive) — otherwise `watched_to=2016-12-31`
+ * would silently exclude everything actually marked on 31 December. A full timestamp is
+ * taken at face value and compared inclusively.
+ *
+ * Comparison is on the stored instant, in UTC. Shelf dates arrive in two shapes — our
+ * importer sends `T12:00:00+00:00` (safely mid-day, so the UTC day is the intended day)
+ * and minreol's own date picker sends a local-midnight form like `22:00:00+00:53`. Both
+ * land on the intended UTC day; a mark whose instant sits within an hour of midnight in
+ * some other zone is the one case where a day-boundary query could disagree, which is why
+ * the bound semantics are stated rather than guessed at.
+ */
+export interface WatchedBound { at: Date; bare: boolean }
+
+const BARE_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+export function parseWatchedBound(value: string, edge: 'from' | 'to'): WatchedBound | null {
+  const s = value.trim()
+  if (!s) return null
+  if (BARE_DATE.test(s)) {
+    const at = new Date(`${s}T00:00:00.000Z`)
+    if (Number.isNaN(at.getTime())) return null
+    // The `to` edge covers the named day in full: shift to the next midnight, exclusive.
+    if (edge === 'to') at.setUTCDate(at.getUTCDate() + 1)
+    return { at, bare: true }
+  }
+  const at = new Date(s)
+  return Number.isNaN(at.getTime()) ? null : { at, bare: false }
+}
+
+/**
+ * Items with at least one live mark inside the window. Matched per-mark, not against the
+ * item's latest date: a film seen in 2016 and again in 2020 belongs in both years' answers.
+ */
+export function watchedRangeMatch(from: WatchedBound | null, to: WatchedBound | null): SQL {
+  const bounds: SQL[] = []
+  if (from) bounds.push(sql`m.watched_at >= ${from.at.toISOString()}::timestamptz`)
+  // A bare `to` date already points at the next midnight, so it is exclusive; an explicit
+  // timestamp is the caller's own instant and stays inclusive.
+  if (to) {
+    bounds.push(to.bare
+      ? sql`m.watched_at < ${to.at.toISOString()}::timestamptz`
+      : sql`m.watched_at <= ${to.at.toISOString()}::timestamptz`)
+  }
+  return sql`EXISTS (
+    SELECT 1 FROM neodb_marks m
+    WHERE m.item_url = ${catalogMetadata.itemUrl}
+      AND m.deleted_at IS NULL
+      AND m.watched_at IS NOT NULL
+      AND ${sql.join(bounds, sql` AND `)}
+  )`
+}
+
+/**
+ * The effective window for a request: `watched_year` is sugar for the two bounds, and an
+ * explicit bound wins over the year on its own edge, so `watched_year=2016` with
+ * `watched_from=2016-06-01` reads as "the second half of 2016".
+ */
+export function resolveWatchedWindow(input: {
+  watched_from?: string
+  watched_to?: string
+  watched_year?: number
+}): { from: WatchedBound | null; to: WatchedBound | null } {
+  const year = input.watched_year
+  const from = input.watched_from
+    ? parseWatchedBound(input.watched_from, 'from')
+    : year != null ? parseWatchedBound(`${year}-01-01`, 'from') : null
+  const to = input.watched_to
+    ? parseWatchedBound(input.watched_to, 'to')
+    : year != null ? parseWatchedBound(`${year}-12-31`, 'to') : null
+  return { from, to }
+}
+
+/** postgres.js hands back a Date for timestamptz, but be explicit — the cursor needs one. */
+function toDate(v: unknown): Date | null {
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v
+  if (typeof v === 'string') {
+    const d = new Date(v)
+    return Number.isNaN(d.getTime()) ? null : d
+  }
+  return null
+}
+
 function buildConditions(input: {
   title?: string
   category?: string
@@ -69,11 +198,16 @@ function buildConditions(input: {
   genre?: string
   imdb?: string
   mark_comment?: string
+  watched_from?: string
+  watched_to?: string
+  watched_year?: number
   include_unenriched?: boolean
 }): SQL[] {
   const conditions: SQL[] = []
   if (input.title) conditions.push(titleMatch(input.title))
   if (input.mark_comment) conditions.push(markCommentMatch(input.mark_comment))
+  const window = resolveWatchedWindow(input)
+  if (window.from || window.to) conditions.push(watchedRangeMatch(window.from, window.to))
   if (input.category) conditions.push(eq(catalogMetadata.category, input.category))
   if (input.item_type) conditions.push(eq(catalogMetadata.itemType, input.item_type))
   if (input.imdb) conditions.push(eq(catalogMetadata.imdb, input.imdb))
@@ -122,10 +256,22 @@ export const getWatchedSchema = z.object({
   imdb: z.string().optional().describe('Filter by exact IMDb id, e.g. "tt27579939" (film/TV only)'),
   mark_comment: z.string().optional()
     .describe('Filter by the comment the mark carried (case-insensitive substring, matched against any of the item\'s mark comments). Free text, e.g. "kino" finds everything marked "Sett på kino."'),
+  watched_from: z.string()
+    .refine((v) => parseWatchedBound(v, 'from') != null, { message: 'watched_from must be YYYY-MM-DD or an ISO timestamp' })
+    .optional()
+    .describe('Only items with a mark watched/read/played on or after this date. "YYYY-MM-DD" (from that day\'s start, UTC) or a full ISO timestamp.'),
+  watched_to: z.string()
+    .refine((v) => parseWatchedBound(v, 'to') != null, { message: 'watched_to must be YYYY-MM-DD or an ISO timestamp' })
+    .optional()
+    .describe('Only items with a mark watched/read/played on or before this date. "YYYY-MM-DD" covers that whole day (UTC); a full ISO timestamp is compared inclusively.'),
+  watched_year: z.number().int().min(1000).max(9999).optional()
+    .describe('Sugar for watched_from/watched_to spanning one calendar year (UTC), e.g. 2016 for "everything I watched in 2016". An explicit watched_from/watched_to overrides it on that edge.'),
   include_unenriched: z.boolean().default(false)
     .describe('Include rows that have not been successfully enriched yet (pending or failed fetches, carrying fetch_error/fetch_attempts). Off by default.'),
+  sort_by: z.enum(['fetched_at', 'watched_at']).default('fetched_at')
+    .describe('Which timestamp to order by. "fetched_at" (default) is enrichment time — for a backfilled import that is the order the import ran in, not a reading of history. "watched_at" orders by the item\'s newest shelf date; items with no date sort last in both directions.'),
   sort_order: z.enum(['asc', 'desc']).default('desc')
-    .describe('Order by fetched_at. "desc" (default) is most-recently-enriched first; "asc" is oldest first.'),
+    .describe('Direction for sort_by. "desc" (default) is newest first; "asc" is oldest first.'),
   limit: z.number().int().min(1).max(200).default(50),
   page: z.number().int().min(1).default(1)
     .describe('Offset-based page (legacy). Ignored when "cursor" is supplied; prefer "cursor" for deep traversal.'),
@@ -142,14 +288,17 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
   const filterWhere = filterConditions.length ? and(...filterConditions) : undefined
   const [totals] = await db.select({ total: count() }).from(catalogMetadata).where(filterWhere)
 
-  // Keyset pagination on (fetched_at, id); falls back to offset when no cursor.
+  // Keyset pagination on (<sort key>, id); falls back to offset when no cursor. The sort
+  // key is either the enrichment stamp or the item's newest shelf date — the latter is a
+  // correlated subquery, hence the SQL-expression form of the keyset helpers.
+  const sortKey = input.sort_by === 'watched_at' ? latestWatchedAtExpr : catalogMetadata.fetchedAt
   const conditions = [...filterConditions]
   if (input.cursor) {
-    conditions.push(keysetCondition(catalogMetadata.fetchedAt, catalogMetadata.id, decodeCursor(input.cursor), input.sort_order))
+    conditions.push(keysetCondition(sortKey, catalogMetadata.id, decodeCursor(input.cursor), input.sort_order))
   }
 
   const where = conditions.length ? and(...conditions) : undefined
-  const orderBy = keysetOrderBy(catalogMetadata.fetchedAt, catalogMetadata.id, input.sort_order)
+  const orderBy = keysetOrderBy(sortKey, catalogMetadata.id, input.sort_order)
 
   const baseQuery = db
     .select({
@@ -178,6 +327,8 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       details: catalogMetadata.details,
       markTitles: catalogMetadata.markTitles,
       markComments: markCommentsExpr,
+      watchedDates: markWatchedDatesExpr,
+      latestWatchedAt: latestWatchedAtExpr,
       bookwyrmBookUrl: catalogMetadata.bookwyrmBookUrl,
       enrichedAt: catalogMetadata.enrichedAt,
       fetchError: catalogMetadata.fetchError,
@@ -195,15 +346,21 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
     : await baseQuery.offset((input.page - 1) * input.limit)
 
   const last = rows[rows.length - 1]
-  const nextCursor = rows.length === input.limit && last
-    ? encodeCursor(last.fetchedAt, last.id)
+  const lastSortValue = last
+    ? (input.sort_by === 'watched_at' ? toDate(last.latestWatchedAt) : last.fetchedAt)
     : null
+  const nextCursor = rows.length === input.limit && last
+    ? encodeCursor(lastSortValue, last.id)
+    : null
+
+  const window = resolveWatchedWindow(input)
 
   return {
     count: rows.length,
     total: totals?.total ?? 0,
     page: input.cursor ? null : input.page,
     next_cursor: nextCursor,
+    sort_by: input.sort_by,
     sort_order: input.sort_order,
     filters: {
       title: input.title ?? null,
@@ -212,6 +369,14 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       genre: input.genre ?? null,
       imdb: input.imdb ?? null,
       mark_comment: input.mark_comment ?? null,
+      watched_from: input.watched_from ?? null,
+      watched_to: input.watched_to ?? null,
+      watched_year: input.watched_year ?? null,
+      // The window the two/three inputs above actually resolved to, so a caller can see
+      // that a bare `watched_to` date was taken as the whole day.
+      watched_window: (window.from || window.to)
+        ? { from: window.from?.at.toISOString() ?? null, to: window.to?.at.toISOString() ?? null, to_exclusive: window.to?.bare ?? false }
+        : null,
       include_unenriched: input.include_unenriched,
     },
     titles: rows.map((r) => ({
@@ -227,6 +392,13 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       // The note(s) the mark(s) carried, verbatim and unparsed — newest mark first,
       // duplicates collapsed. [] when none.
       mark_comments: asArray(r.markComments) ?? [],
+      // When this was watched / read / played / listened to, off the mark's shelf record
+      // — NOT the post timestamp (see get_actor_posts for that). Scalar `watched_at` is
+      // the newest of `watched_dates`, which lists every distinct date across the item's
+      // live marks, newest first, following mark_titles/mark_comments. null / [] when the
+      // mark carried no date.
+      watched_at: toDate(r.latestWatchedAt)?.toISOString() ?? null,
+      watched_dates: asArray(r.watchedDates) ?? [],
       year: r.year,
       // Film/TV columns (null for other categories).
       season_number: r.seasonNumber,
@@ -279,7 +451,12 @@ export async function getCatalogueDetails(input: CatalogueDetailsInput) {
   if (input.category) conditions.push(eq(catalogMetadata.category, input.category))
 
   const rows = await db
-    .select({ ...getTableColumns(catalogMetadata), markComments: markCommentsExpr })
+    .select({
+      ...getTableColumns(catalogMetadata),
+      markComments: markCommentsExpr,
+      watchedDates: markWatchedDatesExpr,
+      latestWatchedAt: latestWatchedAtExpr,
+    })
     .from(catalogMetadata)
     .where(and(...conditions))
     .orderBy(desc(catalogMetadata.enrichedAt), desc(catalogMetadata.fetchedAt))
@@ -297,6 +474,10 @@ export async function getCatalogueDetails(input: CatalogueDetailsInput) {
     orig_title: r.origTitle,
     mark_titles: asArray(r.markTitles) ?? [],
     mark_comments: asArray(r.markComments) ?? [],
+    // The shelf date(s) the mark(s) carried — when this was watched/read/played, not when
+    // the mark was posted. `watched_at` is the newest of `watched_dates`.
+    watched_at: toDate(r.latestWatchedAt)?.toISOString() ?? null,
+    watched_dates: asArray(r.watchedDates) ?? [],
     year: r.year,
     season_number: r.seasonNumber,
     episode_count: r.episodeCount,

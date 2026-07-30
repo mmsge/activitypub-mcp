@@ -358,7 +358,7 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_reading_pace` | "How fast do I read? Which books did I read in parallel? What have I reread?" |
 | `get_books` | "List every book in the cache. Show me all the graphic novels. Which books are tagged fantasy?" |
 | `get_book_details` | "What's the page count and publisher for The Radleys?" |
-| `get_watched` | "What have I marked on NeoDB? Show my games from 2024, or every album by category=music. What's the IMDb link for Conflict? Everything tagged thriller. Which films did I see at the cinema — mark_comment=kino?" |
+| `get_watched` | "What have I marked on NeoDB? What did I watch in 2016 — watched_year=2016? Show my games from 2024, or every album by category=music. What's the IMDb link for Conflict? Everything tagged thriller. Which films did I see at the cinema — mark_comment=kino?" |
 | `get_catalogue_details` | "Give me the full record for this NeoDB item — who developed it, its ISBN/publisher, the podcast feed URL — and where each field came from." |
 
 All tools are read-only queries against the local database — no requests go out to remote servers when you query the MCP server.
@@ -384,6 +384,26 @@ without paginating backward through thousands of rows:
 - **Deep traversal:** each `get_scrobbles` response includes a `next_cursor` token (a `played_at`-based
   keyset cursor, `null` when exhausted). Pass it back as `cursor` to continue from where the last page
   ended — far cheaper than large offsets. Offset-based `page` remains available for compatibility.
+
+### Watch dates
+
+Every NeoDB mark carries a shelf date — the day the film was seen, the book finished, the
+album heard — and it is **not** the timestamp of the post that announced it. A film watched
+in 2016 and backfilled today has a 2016 shelf date and a post published today; both are
+stored, and they answer different questions.
+
+- `get_watched` and `get_catalogue_details` return `watched_at` (the date, ISO, `null` when
+  the mark carried none) and `watched_dates` (every distinct date across the item's live
+  marks, newest first — an item can be marked more than once). `get_actor_posts` keeps
+  reporting `published_at`, the post timestamp.
+- **"What did I watch in 2016"** is one call: `get_watched(watched_year=2016)`. For any
+  other span use `watched_from` / `watched_to`; a bare `YYYY-MM-DD` is read in UTC and
+  covers the whole day at both ends. An item matches if *any* of its marks falls in the
+  window, so a re-watched film answers under both years.
+- **Ordering by history** needs `sort_by="watched_at"` (with `sort_order` for direction).
+  The default `sort_by="fetched_at"` is enrichment time, which after a bulk import is just
+  the order the import ran in.
+- The same field serves every category: books, music, games and podcasts all carry it.
 
 ### Reading stats
 
@@ -473,7 +493,7 @@ All paths accept `GET`, `QUERY`, and `POST`.
 | `/reading-pace` | `get_reading_pace` | `actor_handle`, `year`, `from`, `to`, `sort`, `limit` |
 | `/books` | `get_books` | `title`, `format`, `language`, `series`, `subject`, `sort_order`, `limit`, `page`, `cursor` |
 | `/book-details` | `get_book_details` | `book_url`, `isbn`, `title` |
-| `/watched` | `get_watched` | `title`, `category`, `item_type`, `genre`, `imdb`, `mark_comment`, `include_unenriched`, `sort_order`, `limit`, `page`, `cursor` |
+| `/watched` | `get_watched` | `title`, `category`, `item_type`, `genre`, `imdb`, `mark_comment`, `watched_from`, `watched_to`, `watched_year`, `include_unenriched`, `sort_by`, `sort_order`, `limit`, `page`, `cursor` |
 | `/catalogue-details` | `get_catalogue_details` | `item_url`, `title`, `category` |
 
 `GET /api/v1` returns a discovery document listing every endpoint and its parameters.
@@ -543,6 +563,10 @@ Database migrations run automatically on startup.
 - The mark has to have arrived first: check the Activities page for a `Create`, `Announce` or `Update` carrying the mark's `Note`. Marks made in the NeoDB UI arrive as pushed `Create`/`Update` activities; marks crossposted to Mastodon also arrive as an `Announce` of the same note (the boost is unwrapped and does not create a second post).
 - Rebuild the derived data from what is already stored: **Admin → Import → Repair NeoDB Marks**, or on the server `docker compose exec app npm run repair-neodb-ingest`. It re-derives missing post text, rebuilds the mark store, and enriches every catalogue item the stored marks tag. Nothing is re-marked on NeoDB and no post is re-federated, so it is safe to run repeatedly.
 - Marks are routinely backdated (NeoDB keeps the date you watched something, which can be years ago). Nothing filters on recency — look for the item by title rather than at the top of a date-sorted list.
+
+**A mark shows up but `watched_at` is today, not the real date**
+- minreol does not federate a backdated mark on creation: the `Create` carries today's date and a follow-up `Update` (usually seconds later) carries the real one. Check the Activities page for the `Update`; if it never arrived, re-save the mark on NeoDB.
+- For marks ingested before the column existed, the date is recovered from the stored payload by **Admin → Import → Repair NeoDB Marks** (or `npm run repair-neodb-ingest`), which also runs once automatically on the first startup after deploying. It only ever fills a blank date, so it will not overwrite one that is already right.
 
 **Container fails to start**
 ```bash

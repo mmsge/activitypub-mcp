@@ -22,3 +22,4 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | [0009](0009-actor-profile-and-log-retention.md) | Publish an informative actor profile, and prune the request log so its privacy claim stays true |
 | [0010](0010-profile-page-must-resolve-to-the-actor.md) | The profile page URL must resolve back to the actor (`rel="alternate"` + content negotiation) |
 | [0011](0011-one-ingest-path-for-create-announce-update.md) | One ingest path for Create/Announce/Update, plus a repair job for marks the old paths dropped |
+| [0012](0012-surface-the-mark-shelf-date.md) | Store the mark's shelf date (`watched_at`) as its own column, and let `get_watched` filter and sort on it |

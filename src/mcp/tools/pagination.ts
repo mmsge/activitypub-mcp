@@ -37,8 +37,14 @@ export function decodeCursor(token: string): CursorPayload {
   return c
 }
 
-/** ORDER BY clause matching the keyset: timestamp then id, NULLS LAST. */
-export function keysetOrderBy(tsCol: PgColumn, idCol: PgColumn, order: SortOrder): SQL {
+/**
+ * ORDER BY clause matching the keyset: timestamp then id, NULLS LAST.
+ *
+ * `tsCol` may be a plain column or a `sql` expression (get_watched sorts on a correlated
+ * subquery over `neodb_marks` for the shelf date). An expression must write any column
+ * reference table-qualified by hand — drizzle qualifies a bare column only inside WHERE.
+ */
+export function keysetOrderBy(tsCol: PgColumn | SQL, idCol: PgColumn, order: SortOrder): SQL {
   return order === 'asc'
     ? sql`${tsCol} ASC NULLS LAST, ${idCol} ASC`
     : sql`${tsCol} DESC NULLS LAST, ${idCol} DESC`
@@ -51,7 +57,7 @@ export function keysetOrderBy(tsCol: PgColumn, idCol: PgColumn, order: SortOrder
  * in that trailing null section, so only later null rows (by id) remain.
  */
 export function keysetCondition(
-  tsCol: PgColumn,
+  tsCol: PgColumn | SQL,
   idCol: PgColumn,
   cursor: CursorPayload,
   order: SortOrder,

@@ -1699,9 +1699,13 @@ paths:
         `category`, `item_type`, `genre` (partial), exact `imdb` id, or
         `mark_comment` (partial, against the note(s) the mark(s) carried);
         `include_unenriched=true` also returns pending/failed rows (with fetch_error/
-        fetch_attempts). Most-recently-enriched first by default; each response
-        carries `total` and a `next_cursor`. Use /catalogue-details for one item's
-        full record + provenance.
+        fetch_attempts). Every row carries the shelf date — `watched_at` (when it was
+        actually watched/read/played/listened to, NOT the post timestamp) and
+        `watched_dates` (every distinct date across the item's live marks, newest
+        first) — filterable with `watched_from`/`watched_to` or the `watched_year`
+        sugar, and sortable with `sort_by=watched_at`. Most-recently-enriched first by
+        default; each response carries `total` and a `next_cursor`. Use
+        /catalogue-details for one item's full record + provenance.
       operationId: getWatchedGet
       parameters:
         - name: title
@@ -1731,10 +1735,44 @@ paths:
             e.g. "kino" finds everything marked "Sett på kino.". Free text — never
             parsed into categories.
           schema: { type: string }
+        - name: watched_from
+          in: query
+          description: >
+            Only items with a mark watched/read/played on or after this date.
+            `YYYY-MM-DD` anchors to that day's start in UTC; a full ISO timestamp is
+            used verbatim. An item matches if ANY of its live marks falls in the window.
+          schema: { type: string }
+        - name: watched_to
+          in: query
+          description: >
+            Only items with a mark watched/read/played on or before this date.
+            `YYYY-MM-DD` covers that whole day in UTC (the bound is pushed to the
+            following midnight, exclusive); a full ISO timestamp is compared inclusively.
+          schema: { type: string }
+        - name: watched_year
+          in: query
+          description: >
+            Sugar for `watched_from`/`watched_to` spanning one calendar year in UTC,
+            e.g. 2016 for "everything I watched in 2016". An explicit bound overrides
+            it on that edge.
+          schema: { type: integer, minimum: 1000, maximum: 9999 }
         - name: include_unenriched
           in: query
           description: Include rows not yet successfully enriched (pending/failed, carrying fetch_error/fetch_attempts).
           schema: { type: boolean, default: false }
+        - name: sort_by
+          in: query
+          description: >
+            Which timestamp to order by. `fetched_at` (default) is enrichment time — for
+            a backfilled import that is only the order the import ran in. `watched_at`
+            orders by the item's newest shelf date; items with no date sort last in both
+            directions.
+          schema:
+            {
+              type: string,
+              enum: [fetched_at, watched_at],
+              default: fetched_at,
+            }
         - $ref: "#/components/parameters/SortOrder"
         - name: limit
           in: query
@@ -1770,7 +1808,16 @@ paths:
                 genre: { type: string }
                 imdb: { type: string }
                 mark_comment: { type: string }
+                watched_from: { type: string }
+                watched_to: { type: string }
+                watched_year: { type: integer, minimum: 1000, maximum: 9999 }
                 include_unenriched: { type: boolean, default: false }
+                sort_by:
+                  {
+                    type: string,
+                    enum: [fetched_at, watched_at],
+                    default: fetched_at,
+                  }
                 sort_order: { type: string, enum: [asc, desc], default: desc }
                 limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
                 page: { type: integer, minimum: 1, default: 1 }
@@ -1792,8 +1839,9 @@ paths:
       description: |
         One NeoDB catalogue item's full cached record, resolved by `item_url` (exact)
         or a partial `title` (most-recently-enriched wins; pass `category` to
-        disambiguate). Returns the common fields, film/TV columns, the category-
-        specific `details` object, `bookwyrm_book_url` (book↔BookWyrm dedup link),
+        disambiguate). Returns the common fields, `watched_at`/`watched_dates` (the
+        shelf date(s) — when it was watched/read/played, not when the mark was
+        posted), film/TV columns, the category-specific `details` object, `bookwyrm_book_url` (book↔BookWyrm dedup link),
         `source_map` (per-field 'neodb'|'bookwyrm' provenance), and enrichment status
         (fetched_at, fetch_error, fetch_attempts, last_attempt_at). The catalogue
         sibling of /book-details.
@@ -2434,6 +2482,22 @@ components:
             (e.g. "Sett på kino."), never parsed, normalised or translated. An item
             marked more than once (re-marked, or marked by several actors) carries one
             entry per distinct comment; [] when none. Filter with `mark_comment`.
+        watched_at:
+          type: [string, "null"]
+          format: date-time
+          description: >
+            The shelf date — when the item was actually watched, read, played or listened
+            to, taken from the mark's `relatedWith` Status. NOT the post timestamp: a 2016
+            film backfilled today carries watched_at 2016 while its post's published_at is
+            today. For an item marked more than once this is the newest of `watched_dates`.
+            null when the mark carried no date.
+        watched_dates:
+          type: array
+          items: { type: string, format: date-time }
+          description: >
+            Every distinct shelf date across the item's live marks, newest first, deleted
+            marks excluded — plural like `mark_titles`/`mark_comments`, because an item can
+            be re-watched or marked by more than one actor. [] when none.
         year: { type: [integer, "null"] }
         season_number: { type: [integer, "null"] }
         episode_count: { type: [integer, "null"] }
@@ -2472,6 +2536,7 @@ components:
           description: Total titles matching the filters across all pages.
         page: { type: [integer, "null"] }
         next_cursor: { type: [string, "null"] }
+        sort_by: { type: string, enum: [fetched_at, watched_at] }
         sort_order: { type: string, enum: [asc, desc] }
         filters:
           type: object
@@ -2481,6 +2546,22 @@ components:
             item_type: { type: [string, "null"] }
             genre: { type: [string, "null"] }
             imdb: { type: [string, "null"] }
+            mark_comment: { type: [string, "null"] }
+            watched_from: { type: [string, "null"] }
+            watched_to: { type: [string, "null"] }
+            watched_year: { type: [integer, "null"] }
+            watched_window:
+              type: [object, "null"]
+              description: >
+                The window `watched_from`/`watched_to`/`watched_year` actually resolved to,
+                so a caller can see that a bare `watched_to` date was taken as the whole day.
+                null when no date filter was given.
+              properties:
+                from: { type: [string, "null"], format: date-time }
+                to: { type: [string, "null"], format: date-time }
+                to_exclusive:
+                  type: boolean
+                  description: true when `to` is the following midnight (a bare YYYY-MM-DD bound), false when it is the caller's own inclusive instant.
             include_unenriched: { type: boolean }
         titles:
           type: array
@@ -2513,6 +2594,22 @@ components:
             (e.g. "Sett på kino."), never parsed, normalised or translated. An item
             marked more than once (re-marked, or marked by several actors) carries one
             entry per distinct comment; [] when none.
+        watched_at:
+          type: [string, "null"]
+          format: date-time
+          description: >
+            The shelf date — when the item was actually watched, read, played or listened
+            to, taken from the mark's `relatedWith` Status. NOT the post timestamp: a 2016
+            film backfilled today carries watched_at 2016 while its post's published_at is
+            today. For an item marked more than once this is the newest of `watched_dates`.
+            null when the mark carried no date.
+        watched_dates:
+          type: array
+          items: { type: string, format: date-time }
+          description: >
+            Every distinct shelf date across the item's live marks, newest first, deleted
+            marks excluded — plural like `mark_titles`/`mark_comments`, because an item can
+            be re-watched or marked by more than one actor. [] when none.
         year: { type: [integer, "null"] }
         season_number: { type: [integer, "null"] }
         episode_count: { type: [integer, "null"] }

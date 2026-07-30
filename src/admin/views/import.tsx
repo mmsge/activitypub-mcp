@@ -76,9 +76,11 @@ export const ImportPage: FC<{ error?: string }> = ({ error }) => (
         Walks stored posts that look like NeoDB marks and rebuilds what they should have
         produced: re-derives missing post text from the stored object, upserts the mark
         store, and enriches every catalogue item the marks tag (so they show up in{' '}
-        <strong>get_watched</strong>). Nothing is re-marked on NeoDB and no post is
-        re-federated. Safe to run multiple times — enrichment only fetches items that are
-        missing or previously failed.
+        <strong>get_watched</strong>). Also fills in the shelf date (<strong>watched_at</strong>)
+        for marks ingested before that column existed, reading it back out of the stored
+        payload — blanks only, never overwriting a date already recorded. Nothing is
+        re-marked on NeoDB and no post is re-federated. Safe to run multiple times —
+        enrichment only fetches items that are missing or previously failed.
       </p>
       <form method="post" action="/admin/import/repair-neodb">
         <div class="filters">

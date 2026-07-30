@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 import { scrobbles } from '../../db/schema.js'
 import {
   encodeCursor,
@@ -12,6 +13,31 @@ import {
 const dialect = new PgDialect()
 const ts = new Date('2026-07-03T07:02:11.000Z')
 const id = '19a2c7d2-2229-4b7a-9abd-dd9de3e9d847'
+
+// get_watched sorts on the item's newest shelf date, which is a correlated subquery over
+// neodb_marks rather than a column on the table being paged. The keyset helpers therefore
+// have to take a sql expression as the ordering key, not just a PgColumn.
+describe('a sql expression as the ordering key', () => {
+  const expr = sql`(SELECT max(m.watched_at) FROM neodb_marks m WHERE m.item_url = catalog_metadata.item_url)`
+
+  it('orders by the expression itself, nulls last in both directions', () => {
+    for (const order of ['asc', 'desc'] as const) {
+      const { sql: rendered } = dialect.sqlToQuery(keysetOrderBy(expr, scrobbles.id, order))
+      expect(rendered).toContain('max(m.watched_at)')
+      expect(rendered).toContain('NULLS LAST')
+      expect(rendered).toContain(order === 'asc' ? 'ASC' : 'DESC')
+    }
+  })
+
+  it('builds a cursor condition against the expression, still binding only strings', () => {
+    const { sql: rendered, params } = dialect.sqlToQuery(
+      keysetCondition(expr, scrobbles.id, { p: ts.toISOString(), id }, 'desc'),
+    )
+    expect(rendered).toContain('max(m.watched_at)')
+    for (const param of params) expect(typeof param).toBe('string')
+    expect(params).toContain(ts.toISOString())
+  })
+})
 
 describe('keysetCondition', () => {
   // Regression: a Date bound inside a raw sql`` fragment reaches the driver as
