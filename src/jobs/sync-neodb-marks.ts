@@ -32,6 +32,7 @@ export async function upsertNeodbMark(mark: ParsedNeodbMark): Promise<void> {
     statusRaw: mark.statusRaw,
     title: mark.title,
     coverUrl: mark.coverUrl,
+    comment: mark.comment,
     markApId: mark.markApId,
     markUrl: mark.markUrl,
     postId: mark.postId,
@@ -76,6 +77,60 @@ export async function tombstoneNeodbMark(markApId: string): Promise<number> {
     .returning({ id: neodbMarks.id })
   if (res.length) logger.debug({ markApId, tombstoned: res.length }, 'Tombstoned NeoDB mark(s) on Delete')
   return res.length
+}
+
+/**
+ * Fill in `comment` for mark rows that predate the column, reading it back out of the
+ * stored mark `Note`s (criterion: the comment must be queryable for marks already
+ * ingested, not just new ones).
+ *
+ * This cannot go through `upsertNeodbMark`: that upsert only overwrites when the incoming
+ * `updated` stamp is strictly newer, so replaying an unchanged mark is deliberately a
+ * no-op and would leave `comment` null forever. Instead it writes the column directly and
+ * only where it is still empty — never overwriting a comment already stored. Where several
+ * stored marks map to the same (item, actor), the most recently published one wins.
+ *
+ * Returns how many rows were filled.
+ */
+export async function backfillMarkComments(): Promise<number> {
+  const db = getDb()
+  // Ascending by publish date so a later mark's comment overwrites an earlier one in the
+  // map — the newest comment is the one that lands.
+  const rows = await db
+    .select({ actorApId: objects.actorApId, raw: objects.raw })
+    .from(objects)
+    .where(sql`${objects.raw} ? 'relatedWith'`)
+    .orderBy(asc(objects.publishedAt))
+
+  const byKey = new Map<string, { itemUrl: string; actorApId: string; comment: string }>()
+  for (const row of rows) {
+    const raw = row.raw as AnyObject
+    if (!isNeodbMark(raw)) continue
+    const actorApId = (typeof raw.attributedTo === 'string' ? raw.attributedTo : null) ?? row.actorApId
+    const mark = parseNeodbMark(raw, actorApId)
+    if (!mark?.comment) continue
+    byKey.set(`${mark.itemUrl} ${mark.actorApId}`, {
+      itemUrl: mark.itemUrl,
+      actorApId: mark.actorApId,
+      comment: mark.comment,
+    })
+  }
+
+  let filled = 0
+  for (const { itemUrl, actorApId, comment } of byKey.values()) {
+    const res = await db
+      .update(neodbMarks)
+      .set({ comment })
+      .where(and(
+        eq(neodbMarks.itemUrl, itemUrl),
+        eq(neodbMarks.actorApId, actorApId),
+        isNull(neodbMarks.comment),
+      ))
+      .returning({ id: neodbMarks.id })
+    filled += res.length
+  }
+  if (filled) logger.info({ filled }, 'Backfilled NeoDB mark comments from stored marks')
+  return filled
 }
 
 /**

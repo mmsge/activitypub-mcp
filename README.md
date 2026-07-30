@@ -358,7 +358,7 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_reading_pace` | "How fast do I read? Which books did I read in parallel? What have I reread?" |
 | `get_books` | "List every book in the cache. Show me all the graphic novels. Which books are tagged fantasy?" |
 | `get_book_details` | "What's the page count and publisher for The Radleys?" |
-| `get_watched` | "What have I marked on NeoDB? Show my games from 2024, or every album by category=music. What's the IMDb link for Conflict? Everything tagged thriller." |
+| `get_watched` | "What have I marked on NeoDB? Show my games from 2024, or every album by category=music. What's the IMDb link for Conflict? Everything tagged thriller. Which films did I see at the cinema — mark_comment=kino?" |
 | `get_catalogue_details` | "Give me the full record for this NeoDB item — who developed it, its ISBN/publisher, the podcast feed URL — and where each field came from." |
 
 All tools are read-only queries against the local database — no requests go out to remote servers when you query the MCP server.
@@ -473,7 +473,7 @@ All paths accept `GET`, `QUERY`, and `POST`.
 | `/reading-pace` | `get_reading_pace` | `actor_handle`, `year`, `from`, `to`, `sort`, `limit` |
 | `/books` | `get_books` | `title`, `format`, `language`, `series`, `subject`, `sort_order`, `limit`, `page`, `cursor` |
 | `/book-details` | `get_book_details` | `book_url`, `isbn`, `title` |
-| `/watched` | `get_watched` | `title`, `category`, `item_type`, `genre`, `imdb`, `include_unenriched`, `sort_order`, `limit`, `page`, `cursor` |
+| `/watched` | `get_watched` | `title`, `category`, `item_type`, `genre`, `imdb`, `mark_comment`, `include_unenriched`, `sort_order`, `limit`, `page`, `cursor` |
 | `/catalogue-details` | `get_catalogue_details` | `item_url`, `title`, `category` |
 
 `GET /api/v1` returns a discovery document listing every endpoint and its parameters.
@@ -538,6 +538,11 @@ Database migrations run automatically on startup.
 - Confirm the inbox is reachable: `curl -X POST https://yourdomain.com/actor/inbox` should return 401 (signature missing), not a network error.
 - Check the Logs page for inbound requests. If you see entries with `✗` signature, the remote server is sending requests but they are failing verification — check the error column for details.
 - Some servers use the shared inbox (`/inbox`) instead of the actor inbox. Both are handled identically.
+
+**A NeoDB mark is not showing up in `get_watched`**
+- The mark has to have arrived first: check the Activities page for a `Create`, `Announce` or `Update` carrying the mark's `Note`. Marks made in the NeoDB UI arrive as pushed `Create`/`Update` activities; marks crossposted to Mastodon also arrive as an `Announce` of the same note (the boost is unwrapped and does not create a second post).
+- Rebuild the derived data from what is already stored: **Admin → Import → Repair NeoDB Marks**, or on the server `docker compose exec app npm run repair-neodb-ingest`. It re-derives missing post text, rebuilds the mark store, and enriches every catalogue item the stored marks tag. Nothing is re-marked on NeoDB and no post is re-federated, so it is safe to run repeatedly.
+- Marks are routinely backdated (NeoDB keeps the date you watched something, which can be years ago). Nothing filters on recency — look for the item by title rather than at the top of a date-sorted list.
 
 **Container fails to start**
 ```bash

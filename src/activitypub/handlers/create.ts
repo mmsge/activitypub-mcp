@@ -7,6 +7,7 @@ import { queueBookMetadataEnrichment } from '../../jobs/sync-book-metadata.js'
 import { queueNeodbEnrichment, syncMarkTitles, collectNeodbTagHrefs, isNeodbBookUrl } from '../../jobs/sync-neodb-metadata.js'
 import { isNeodbMark, parseNeodbMark } from '../../lib/neodb-mark.js'
 import { upsertNeodbMark } from '../../jobs/sync-neodb-marks.js'
+import { objectApId, resolveRef } from '../../lib/ap-object.js'
 import { logger } from '../../lib/logger.js'
 
 type AnyObject = Record<string, unknown>
@@ -16,26 +17,73 @@ const BOOKWYRM_TYPES = new Set([
   'Quotation', 'GeneratedNote',
 ])
 
+// Which delivery brought the object in. Only `update` differs in behaviour (it stamps
+// `updated_at_ap` even when the payload carries no `updated`); the field is otherwise
+// carried for logging, because the three paths must store identically — a boosted mark
+// and a pushed one have to end up as the same row.
+export type IngestSource = 'create' | 'announce' | 'update'
+
 export async function handleCreate(activity: AnyObject): Promise<void> {
   const obj = activity.object as AnyObject
   if (!obj || typeof obj !== 'object') return
+  const actorApId = resolveRef(activity.actor) ?? resolveRef(obj.attributedTo)
+  if (!actorApId) return
+  await ingestObject(obj, actorApId, { source: 'create' })
+}
 
-  const apId = (obj.id ?? obj['@id']) as string
+/**
+ * Store one AP object and run every derived-data pipeline it feeds — the single ingest
+ * path shared by `Create`, `Announce` (after the boost is unwrapped) and `Update`.
+ *
+ * It exists because those three used to store objects three different ways: the boost
+ * path wrote a stripped row (no text, no enrichment, no mark), and the edit path wrote
+ * nothing at all when the post was new to us. A mark must produce the same row whichever
+ * way it arrives, so all three funnel through here.
+ *
+ * The write is an upsert on `ap_id`, so an object seen twice — re-delivered, boosted
+ * after being pushed, or edited — updates in place instead of duplicating. Nothing
+ * filters on recency: `published_at` is taken from the object verbatim and is routinely
+ * years in the past (NeoDB marks are backdated to the date watched).
+ */
+export async function ingestObject(
+  obj: AnyObject,
+  actorApId: string,
+  opts: { source?: IngestSource } = {},
+): Promise<void> {
+  if (!obj || typeof obj !== 'object') return
+  const source = opts.source ?? 'create'
+
+  const apId = objectApId(obj)
   if (!apId) return
 
   const type = (obj.type as string) ?? 'Note'
-  const actorApId = activity.actor as string
   const content = extractContent(obj) ?? ''
   const contentText = content ? stripHtml(content) : ''
-  const publishedStr = (obj.published as string) ?? null
-  const publishedAt = publishedStr ? new Date(publishedStr) : null
-  const url = (obj.url as string) ?? null
-  const inReplyTo = (obj.inReplyTo as string) ?? null
+  const publishedAt = parseApDate(obj.published)
+  const updatedAtAp = parseApDate(obj.updated) ?? (source === 'update' ? new Date() : null)
+  const url = resolveRef(obj.url)
+  const inReplyTo = resolveRef(obj.inReplyTo)
   const summary = (obj.summary as string) ?? null
   const sensitive = Boolean(obj.sensitive)
   const language = extractLanguage(obj)
   const attachments = extractAttachments(obj)
   const tags = extractTags(obj)
+
+  // Re-ingesting an object (a redelivery, a boost of a post we already hold, an outbox
+  // re-crawl, or an edit) must refresh the mutable fields too — not just the text.
+  // Freezing `tags`/`attachments` at first-seen is what let a hashtag added in an edit go
+  // missing from the `tag=` filter. `type` refreshes so a row first seen under BookWyrm's
+  // "pure" serialization (Note/Article) can upgrade to its native type on a later
+  // re-ingest. The nullable fields below are refreshed only when the incoming payload
+  // actually carries them, so a thinner re-delivery can never blank a good row.
+  const set: Record<string, unknown> = {
+    type, summary, attachments, tags, sensitive, language, raw: obj, updatedAt: new Date(),
+  }
+  if (content) { set.content = content; set.contentText = contentText }
+  if (publishedAt) set.publishedAt = publishedAt
+  if (updatedAtAp) set.updatedAtAp = updatedAtAp
+  if (url) set.url = url
+  if (inReplyTo) set.inReplyTo = inReplyTo
 
   const db = getDb()
   await db.insert(objects).values({
@@ -48,6 +96,7 @@ export async function handleCreate(activity: AnyObject): Promise<void> {
     url,
     inReplyTo,
     publishedAt,
+    updatedAtAp,
     attachments,
     tags,
     sensitive,
@@ -55,13 +104,7 @@ export async function handleCreate(activity: AnyObject): Promise<void> {
     raw: obj,
   }).onConflictDoUpdate({
     target: objects.apId,
-    // Re-ingesting an object (a redelivery, an outbox re-crawl, or a Create that
-    // arrives after an edit) must refresh the mutable fields too — not just the
-    // text. Freezing `tags`/`attachments` at first-seen is what let a hashtag
-    // added in an edit go missing from the `tag=` filter. `type` refreshes so a
-    // row first seen under BookWyrm's "pure" serialization (Note/Article) can
-    // upgrade to its native type (Comment/Review/Quotation) on a later re-ingest.
-    set: { type, content, contentText, summary, attachments, tags, sensitive, language, updatedAt: new Date(), raw: obj },
+    set,
   })
 
   // BookWyrm-specific extra data
@@ -94,11 +137,20 @@ export async function handleCreate(activity: AnyObject): Promise<void> {
     if (mark) {
       try {
         await upsertNeodbMark(mark)
+        logger.debug({ apId, itemUrl: mark.itemUrl, status: mark.status, source }, 'Ingested NeoDB mark')
       } catch (e) {
         logger.warn({ apId, itemUrl: mark.itemUrl, error: e }, 'Failed to upsert NeoDB mark')
       }
     }
   }
+}
+
+// An AP timestamp, or null when absent/unparseable. Dates are taken verbatim: a mark is
+// routinely backdated by years, so nothing here may clamp or reject an old one.
+function parseApDate(v: unknown): Date | null {
+  if (typeof v !== 'string' || !v.trim()) return null
+  const d = new Date(v)
+  return Number.isNaN(d.getTime()) ? null : d
 }
 
 // Every way an ingested object can reference a BookWyrm Edition: comments and

@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest'
-import { getWatchedSchema, getCatalogueDetailsSchema } from './watched.js'
+import { getWatchedSchema, getCatalogueDetailsSchema, markCommentsExpr } from './watched.js'
+import { getDb } from '../../db/client.js'
+import { catalogMetadata } from '../../db/schema.js'
+
+describe('mark_comments correlation', () => {
+  // Drizzle qualifies a column reference in WHERE ("catalog_metadata"."item_url") but NOT
+  // inside a select-list expression, where it renders a bare "item_url". In this subquery
+  // that binds to neodb_marks' own column — an always-true self-comparison that silently
+  // hands every catalogue row every comment in the table. It throws no error and the
+  // response shape looks right, so only the rendered SQL catches a regression.
+  it('correlates on catalog_metadata.item_url, table-qualified', () => {
+    const { sql } = getDb()
+      .select({ markComments: markCommentsExpr })
+      .from(catalogMetadata)
+      .toSQL()
+    expect(sql).toContain('m.item_url = catalog_metadata.item_url')
+    expect(sql).not.toMatch(/m\.item_url = "?item_url"?/)
+  })
+})
 
 describe('getWatchedSchema', () => {
   it('applies defaults for limit, page, sort_order, and include_unenriched', () => {
@@ -22,6 +40,7 @@ describe('getWatchedSchema', () => {
       item_type: 'TVSeason',
       genre: 'thriller',
       imdb: 'tt27579939',
+      mark_comment: 'kino',
       sort_order: 'asc',
       cursor: 'tok',
     })
@@ -31,9 +50,17 @@ describe('getWatchedSchema', () => {
       item_type: 'TVSeason',
       genre: 'thriller',
       imdb: 'tt27579939',
+      mark_comment: 'kino',
       sort_order: 'asc',
       cursor: 'tok',
     })
+  })
+
+  it('leaves mark_comment unset by default and takes it verbatim — no parsing, no trimming', () => {
+    expect(getWatchedSchema.parse({}).mark_comment).toBeUndefined()
+    // The comments are Nynorsk prose, full stop included; the filter must not
+    // normalise what it is handed.
+    expect(getWatchedSchema.parse({ mark_comment: 'Sett på kino.' }).mark_comment).toBe('Sett på kino.')
   })
 
   it('enforces limit bounds (1..200)', () => {

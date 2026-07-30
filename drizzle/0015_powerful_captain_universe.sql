@@ -1,0 +1,1 @@
+ALTER TABLE "neodb_marks" ADD COLUMN "comment" text;

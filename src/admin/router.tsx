@@ -25,6 +25,7 @@ import {
   importTrainTrips,
   BARE_OBJECT_TYPES,
 } from './import.js'
+import { repairNeodbIngest } from '../jobs/repair-neodb-ingest.js'
 import { parseTrainTripsCsv } from '../lib/parse-trips-csv.js'
 import { resolveActorByHandle } from '../lib/fetch-actor.js'
 import { logger } from '../lib/logger.js'
@@ -353,6 +354,25 @@ app.post('/import/reprocess', async (c) => {
     imported: String(result.imported),
     skipped: String(result.skipped),
     errorCount: String(result.errors.length),
+  })
+  return c.redirect(`/admin/import/result?${params}`)
+})
+
+// Rebuild what stored NeoDB marks should have produced: post text, mark-store rows, and
+// the catalogue entries get_watched reads. Nothing is re-marked on NeoDB and no post is
+// re-federated, so this is safe to press repeatedly.
+app.post('/import/repair-neodb', async (c) => {
+  const r = await repairNeodbIngest({ force: true })
+  const summary = r
+    ? `${r.postsRepaired} post(s) re-texted, ${r.postsRefetched} refetched, ${r.marksUpserted} mark(s) reprocessed, ${r.itemsSkipped} item(s) already enriched`
+    : 'nothing to do'
+
+  const params = new URLSearchParams({
+    actor: `NeoDB ingest repair — ${summary}`,
+    total: String((r?.itemsEnriched ?? 0) + (r?.itemsFailed ?? 0) + (r?.itemsSkipped ?? 0)),
+    imported: String(r?.itemsEnriched ?? 0),
+    skipped: String(r?.itemsSkipped ?? 0),
+    errorCount: String(r?.itemsFailed ?? 0),
   })
   return c.redirect(`/admin/import/result?${params}`)
 })

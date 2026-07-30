@@ -231,8 +231,10 @@ async function recordFailure(itemUrl: string, hint: { category?: string | null; 
 }
 
 // Fetch, dedup (books), and persist one item — recording a failure row if the fetch
-// yields nothing. Returns the mapped metadata on success, else null.
-async function enrichOne(itemUrl: string, hint: { category?: string | null; itemType?: string | null }): Promise<NeodbItemMetadata | null> {
+// yields nothing. Returns the mapped metadata on success, else null. Exported as
+// `enrichCatalogueItem` for the repair job, which needs an awaited, per-item result
+// rather than the fire-and-forget ingest queue.
+export async function enrichOne(itemUrl: string, hint: { category?: string | null; itemType?: string | null }): Promise<NeodbItemMetadata | null> {
   const meta = await fetchNeodbItem(itemUrl)
   if (!meta) {
     await recordFailure(itemUrl, hint, 'fetch failed or returned no JSON')
@@ -244,6 +246,8 @@ async function enrichOne(itemUrl: string, hint: { category?: string | null; item
   await upsertCatalogMetadata(meta)
   return meta
 }
+
+export { enrichOne as enrichCatalogueItem }
 
 // --- On-ingest enrichment ----------------------------------------------------
 //
