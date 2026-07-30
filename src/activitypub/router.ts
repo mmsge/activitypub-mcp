@@ -8,7 +8,7 @@ import { outboxRouter } from './outbox.js'
 import { getDb } from '../db/client.js'
 import { follows } from '../db/schema.js'
 import { eq } from 'drizzle-orm'
-import { AP_HEADERS } from '../lib/content-type.js'
+import { AP_HEADERS, isActivityPubRequest } from '../lib/content-type.js'
 
 const app = new Hono()
 
@@ -37,7 +37,20 @@ app.get(`/users/${config.APP_USERNAME}`, (c) => {
 
 // Mastodon-style human-readable profile URL — what the actor document advertises
 // as `url`, and what someone is likely to type after seeing the handle.
-app.get(`/@${config.APP_USERNAME}`, (c) => c.html(renderProfilePage()))
+//
+// Defaults to HTML, being the human-facing URL, but answers the actor document to a
+// caller that explicitly asks for ActivityPub and not HTML. Mastodon's URL search
+// fetches this with `Accept: application/activity+json` and gives up if it cannot
+// reach the actor from here, so serving HTML unconditionally made the account
+// unfindable by link. The page also carries a `rel="alternate"` link for clients
+// that only parse the HTML.
+app.get(`/@${config.APP_USERNAME}`, (c) => {
+  const accept = c.req.header('accept')
+  if (accept && isActivityPubRequest(accept) && !prefersHtml(accept)) {
+    return c.json(buildActorDocument(), 200, AP_HEADERS)
+  }
+  return c.html(renderProfilePage())
+})
 
 // Avatar and header images referenced by the actor document.
 app.route('/assets', profileAssetsRouter)

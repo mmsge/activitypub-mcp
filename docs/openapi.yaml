@@ -2005,7 +2005,14 @@ paths:
         The page a person lands on when they look the bot up: who operates it, what it
         archives, what it does not store about anyone else, and links to verify each
         claim. This is the URL the actor document advertises as `url`, and the
-        `profile-page` link in the WebFinger response. Always HTML.
+        `profile-page` link in the WebFinger response.
+
+        HTML by default, being the human-facing URL. A caller that explicitly asks for
+        ActivityPub and not HTML gets the actor document instead: Mastodon's URL search
+        fetches this with `Accept: application/activity+json` and reports no results if
+        it cannot reach the actor from here. The page also carries a
+        `<link rel="alternate" type="application/activity+json">` for clients that only
+        parse the HTML.
       operationId: getProfilePage
       security: []
       parameters:
@@ -2014,12 +2021,19 @@ paths:
           required: true
           description: The configured `APP_USERNAME`.
           schema: { type: string }
+        - name: Accept
+          in: header
+          required: false
+          description: Ask for `application/activity+json` (without `text/html`) to get the actor document.
+          schema: { type: string }
       responses:
         "200":
-          description: Profile page.
+          description: Profile page, or the actor document for ActivityPub resolvers.
           content:
             text/html:
               schema: { type: string }
+            application/activity+json:
+              schema: { $ref: "#/components/schemas/Actor" }
 
   /assets/{image}.png:
     get:

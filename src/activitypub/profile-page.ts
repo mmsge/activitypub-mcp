@@ -1,4 +1,5 @@
 import { config, getActorUrl, getOwnerIdentity, getActorPublished } from '../config.js'
+import { getProfilePageUrl } from './actor.js'
 import { getAssetUrl } from './profile-assets.js'
 import { escapeHtml } from '../lib/html.js'
 
@@ -45,6 +46,12 @@ export function renderProfilePage(): string {
 <title>${escapeHtml(config.APP_DISPLAY_NAME)} — ${escapeHtml(handle)}</title>
 <meta name="description" content="Personleg ActivityPub-bot. Arkiverer offentlege innlegg frå eit fast sett kontoar, og ingenting om andre.">
 <link rel="icon" type="image/png" href="${escapeHtml(getAssetUrl('avatar'))}">
+<!-- How a fediverse server gets from this page back to the actor. Searching the
+     page URL on Mastodon fetches it and, finding HTML, looks for exactly this link
+     to discover the ActivityPub representation. Without it the URL resolves to
+     nothing and the account is unfindable by link. -->
+<link rel="alternate" type="application/activity+json" href="${actorUrl}">
+<link rel="canonical" href="${escapeHtml(getProfilePageUrl())}">
 <style>
   :root {
     --green: #143521; --green-deep: #0f2a1a; --panel: #1c4a2d;
