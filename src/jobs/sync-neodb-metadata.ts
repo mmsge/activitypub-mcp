@@ -158,7 +158,28 @@ async function upsertCatalogMetadata(meta: NeodbItemMetadata): Promise<void> {
   const sourceMap = markTitles.length
     ? { ...meta.sourceMap, mark_titles: 'activitypub' }
     : meta.sourceMap
-  const values = {
+  const values = catalogUpsertValues(meta, markTitles, sourceMap, now)
+  await db
+    .insert(catalogMetadata)
+    .values(values)
+    .onConflictDoUpdate({ target: catalogMetadata.itemUrl, set: values })
+}
+
+/**
+ * The column set an enrichment pass writes, built explicitly.
+ *
+ * `hiddenAt` is deliberately absent. The upsert does `set: values`, so any key present
+ * here is overwritten on every refresh — adding `hiddenAt` (the "obvious" way to keep the
+ * row in sync) would silently unhide an admin-hidden item on the next 6-hourly pass.
+ * Extracted and exported purely so a test can assert that absence. See ADR 0013.
+ */
+export function catalogUpsertValues(
+  meta: NeodbItemMetadata,
+  markTitles: string[],
+  sourceMap: unknown,
+  now: Date,
+) {
+  return {
     itemUrl: meta.itemUrl,
     category: meta.category,
     itemType: meta.itemType,
@@ -192,10 +213,6 @@ async function upsertCatalogMetadata(meta: NeodbItemMetadata): Promise<void> {
     fetchAttempts: 0,
     lastAttemptAt: now,
   }
-  await db
-    .insert(catalogMetadata)
-    .values(values)
-    .onConflictDoUpdate({ target: catalogMetadata.itemUrl, set: values })
 }
 
 // Record a failed fetch instead of dropping it: an existing row keeps its good data

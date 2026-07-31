@@ -18,6 +18,13 @@ interface DashboardData {
   }>
   lastReceivedAt: Date | null
   deliveryErrors: number
+  media: {
+    books: number
+    films: number
+    tv: number
+    failedEnrichment: number
+    hidden: number
+  }
 }
 
 export function DashboardPage({ data }: { data: DashboardData }) {
@@ -49,6 +56,32 @@ export function DashboardPage({ data }: { data: DashboardData }) {
           <div class="num" style="color: #f87171">{data.deliveryErrors}</div>
           <div class="label">Delivery Errors</div>
         </div>
+      </div>
+
+      {/* Titles, not viewings — the Watched tab counts one row per viewing, so a
+          re-watched film is one here and two there. These count what the server actually
+          serves, so hidden rows are excluded from all but the last tile. */}
+      <div class="grid">
+        <a class="card" href="/admin/media?tab=books">
+          <div class="num">{data.media.books}</div>
+          <div class="label">Books (cached)</div>
+        </a>
+        <a class="card" href="/admin/media?tab=watched&category=movie">
+          <div class="num">{data.media.films}</div>
+          <div class="label">Films (titles)</div>
+        </a>
+        <a class="card" href="/admin/media?tab=watched&category=tv">
+          <div class="num">{data.media.tv}</div>
+          <div class="label">TV (titles)</div>
+        </a>
+        <a class="card" href="/admin/media?tab=other&health=failed">
+          <div class="num" style="color: #f87171">{data.media.failedEnrichment}</div>
+          <div class="label">Failed Enrichment</div>
+        </a>
+        <a class="card" href="/admin/media?tab=other&hidden=only">
+          <div class="num" style="color: #888">{data.media.hidden}</div>
+          <div class="label">Hidden</div>
+        </a>
       </div>
 
       {data.lastReceivedAt && (

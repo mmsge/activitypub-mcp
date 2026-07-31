@@ -6,6 +6,7 @@ import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 import { loadCollapsedBooks } from '../../lib/reading-query.js'
 import { fillNamesFromLiveShelf } from '../../lib/book-identity.js'
 import { normalizeSubjects } from '../../lib/subjects.js'
+import { applyHiddenFilter } from '../../lib/hidden.js'
 
 // Formats whose page count isn't a prose-comparable "length", so the prose-only
 // average excludes them (comics/graphic novels and audiobooks). Poetry has no
@@ -27,6 +28,8 @@ export const getReadingStatsSchema = z.object({
   group_by: z.enum(['year', 'month', 'format', 'author', 'rating', 'series', 'subject']).default('year')
     .describe('Dimension for the top-N breakdown returned in "top". "subject" counts a book once per subject (multi-valued), so subject group sizes can sum to more than total_books.'),
   limit: z.number().int().min(1).max(100).default(20),
+  include_hidden: z.boolean().default(false)
+    .describe('Include books an admin has hidden from the served catalogue. Off by default — a hidden book is dropped from the aggregation entirely, not just stripped of its metadata.'),
 })
 
 type ReadingStatsInput = z.infer<typeof getReadingStatsSchema>
@@ -210,7 +213,12 @@ export async function getReadingStats(input: ReadingStatsInput) {
 
   // Collapse the actor's stored reading events to one row per book (same shared
   // loader as get_actor_reading_status's offline path and get_reading_pace).
-  const collapsed = await loadCollapsedBooks(actor.apId)
+  //
+  // Hidden books are dropped from the collapsed set, NOT from the metadata join below.
+  // Filtering only the join would leave the book counted in `total_books` while stripped
+  // of its pages/format/author — quietly skewing avg_pages and pages_coverage instead of
+  // removing it. See ADR 0013.
+  const collapsed = await applyHiddenFilter(await loadCollapsedBooks(actor.apId), input.include_hidden)
 
   // Join cached per-edition metadata by book URL.
   const db = getDb()

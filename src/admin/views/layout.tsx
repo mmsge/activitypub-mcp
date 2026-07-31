@@ -18,6 +18,7 @@ export const Layout: FC<PropsWithChildren<{ title?: string }>> = ({ title, child
             <a href="/admin">Dashboard</a>
             <a href="/admin/activities">Activities</a>
             <a href="/admin/objects">Posts</a>
+            <a href="/admin/media">Media</a>
             <a href="/admin/follows">Follows</a>
             <a href="/admin/logs">Logs</a>
             <a href="/admin/tools">Tools</a>
@@ -73,4 +74,17 @@ a:hover { text-decoration: underline; }
 pre { background: #111; border: 1px solid #333; border-radius: 6px; padding: 12px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; max-height: 300px; overflow-y: auto; }
 details { margin-top: 4px; }
 summary { cursor: pointer; color: #888; font-size: 12px; }
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid #333; margin-bottom: 16px; }
+.tabs a { padding: 8px 14px; color: #888; border-bottom: 2px solid transparent; }
+.tabs a:hover { color: #fff; text-decoration: none; }
+.tabs a.active { color: #fff; border-bottom-color: #7c6ef7; }
+.cover { width: 36px; height: 54px; object-fit: cover; border-radius: 3px; background: #222; display: block; }
+.cover-empty { border: 1px solid #2a2a2a; }
+.cover-cell { width: 36px; padding-right: 0; }
+.row-actions { display: flex; gap: 6px; }
+.row-actions button { padding: 4px 8px; font-size: 12px; }
+.btn-ghost { background: #333; }
+.btn-ghost:hover { background: #444; }
+.notice { background: #1a1a3a; color: #60a5fa; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; }
+.muted { color: #888; font-size: 12px; }
 `

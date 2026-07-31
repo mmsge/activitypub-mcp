@@ -1,5 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import { Layout } from './layout.js'
+import { Pager, EmptyRow } from './ui.js'
 
 interface Activity {
   id: string
@@ -64,15 +65,10 @@ export function ActivitiesPage({ activities, page, hasMore, filters }: Activitie
               </td>
             </tr>
           ))}
-          {activities.length === 0 && (
-            <tr><td colspan={6} style="color: #666; text-align: center">No activities found</td></tr>
-          )}
+          {activities.length === 0 && <EmptyRow colspan={6} text="No activities found" />}
         </tbody>
       </table>
-      <div style="display:flex; gap:12px; margin-top:16px">
-        {page > 0 && <a href={`/admin/activities?page=${page - 1}&actor=${filters.actor ?? ''}&type=${filters.type ?? ''}`} class="btn">← Previous</a>}
-        {hasMore && <a href={`/admin/activities?page=${page + 1}&actor=${filters.actor ?? ''}&type=${filters.type ?? ''}`} class="btn">Next →</a>}
-      </div>
+      <Pager base="/admin/activities" page={page} hasMore={hasMore} params={filters} />
     </Layout>
   )
 }

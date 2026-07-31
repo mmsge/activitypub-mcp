@@ -1,5 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import { Layout } from './layout.js'
+import { Pager, EmptyRow } from './ui.js'
 
 interface ObjectRow {
   id: string
@@ -71,15 +72,10 @@ export function ObjectsPage({ objects, page, hasMore, filters }: ObjectsPageProp
               </td>
             </tr>
           ))}
-          {objects.length === 0 && (
-            <tr><td colspan={6} style="color:#666;text-align:center">No posts found</td></tr>
-          )}
+          {objects.length === 0 && <EmptyRow colspan={6} text="No posts found" />}
         </tbody>
       </table>
-      <div style="display:flex;gap:12px;margin-top:16px">
-        {page > 0 && <a href={`/admin/objects?page=${page - 1}&actor=${filters.actor ?? ''}&type=${filters.type ?? ''}&q=${filters.q ?? ''}`} class="btn">← Previous</a>}
-        {hasMore && <a href={`/admin/objects?page=${page + 1}&actor=${filters.actor ?? ''}&type=${filters.type ?? ''}&q=${filters.q ?? ''}`} class="btn">Next →</a>}
-      </div>
+      <Pager base="/admin/objects" page={page} hasMore={hasMore} params={filters} />
     </Layout>
   )
 }

@@ -269,8 +269,50 @@ Available at `https://yourdomain.com/admin`.
 | Dashboard | Activity counts (24h / 7d), follow status, delivery errors |
 | Activities | Every raw ActivityPub activity received, filterable by actor and type |
 | Posts | Parsed posts and objects, searchable by text |
+| Media | Books, film/TV viewings, other catalogue items and scrobbles — see below |
 | Follows | Status of all follow relationships |
 | Logs | Every HTTP request in and out, including signature validity |
+
+### Media
+
+Four tabs over everything the server holds about what you have read, watched and listened to:
+
+| Tab | Source | One row is |
+|---|---|---|
+| Books | `book_metadata`, joined with the reading state derived from stored posts | a book |
+| Watched | `neodb_marks` joined to `catalog_metadata`, film and TV only | **a viewing** |
+| Other media | `catalog_metadata` minus film and TV — music, games, podcasts, performances | a catalogue item |
+| Scrobbles | `scrobbles`, rolled up | an artist/album pair |
+
+The Watched tab is per-viewing, not per-title: a film seen in 2016 and again in 2020 is two
+rows, each with its own date and note. That is the difference from `get_watched`, which
+collapses an item to its latest viewing — so the tab's row count is higher than the tool's.
+
+Every catalogue row carries an enrichment badge (enriched / stale / failed / pending) read
+from `catalog_metadata`'s fetch bookkeeping, and a **Re-enrich** button that refetches that
+one item immediately — bypassing both the on-ingest "skip if already cached" rule and the
+30-day staleness window, so it works on a row whose stored data is simply wrong. The Other
+media tab additionally has **Retry all failed enrichments** (capped at 50 per press).
+
+The four global sync buttons run the same jobs the scheduler runs, on demand. They are
+detached: the page returns immediately and progress goes to the server log. Pressing one
+twice while it is still running is a no-op, so a double-click can't stampede
+BookWyrm/NeoDB/Last.fm.
+
+### Hiding a bad record
+
+Books and catalogue items have a **Hide** button. A hidden row stops being served: it
+disappears from `get_books`, `get_watched`, `get_book_details`, `get_catalogue_details`
+and the reading tools, and from the matching `/api/v1` endpoints. Pass `include_hidden:
+true` to see it again. Hiding a book removes it from `get_reading_stats` and the shelf
+entirely, not just its metadata — so the page and rating averages stay honest.
+
+Hiding is a soft flag (`hidden_at`), not a delete, because a delete would not stick: both
+enrichment jobs re-derive their work list from stored posts and marks, so the row would
+reappear within the six-hour cycle. Enrichment never clears `hidden_at`, so a hidden row
+can still be re-enriched and stays hidden. Nothing is editable by hand — if a record is
+wrong, hide it, and re-enrich if upstream has since fixed it. See
+[ADR 0013](docs/decision-records/0013-hide-media-rows-instead-of-deleting.md).
 
 The Logs page is the most useful for debugging. A `✗` in the signature column means a request was rejected — this is normal for spam or misconfigured servers. If your own follows are not being received, check this page for unexpected `✗` entries on inbound requests.
 

@@ -14,7 +14,23 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 async function upsertBookMetadata(meta: BookMetadata): Promise<void> {
   const db = getDb()
-  const values = {
+  const values = bookUpsertValues(meta)
+  await db
+    .insert(bookMetadata)
+    .values(values)
+    .onConflictDoUpdate({ target: bookMetadata.bookUrl, set: values })
+}
+
+/**
+ * The column set an enrichment pass writes, built explicitly.
+ *
+ * `hiddenAt` is deliberately absent. The upsert does `set: values`, so any key present
+ * here is overwritten on every refresh — adding `hiddenAt` would silently unhide an
+ * admin-hidden book the next time its metadata went stale. Extracted and exported purely
+ * so a test can assert that absence. See ADR 0013.
+ */
+export function bookUpsertValues(meta: BookMetadata) {
+  return {
     bookUrl: meta.bookUrl,
     workUrl: meta.workUrl,
     title: meta.title,
@@ -38,10 +54,6 @@ async function upsertBookMetadata(meta: BookMetadata): Promise<void> {
     raw: meta as unknown as Record<string, unknown>,
     fetchedAt: new Date(),
   }
-  await db
-    .insert(bookMetadata)
-    .values(values)
-    .onConflictDoUpdate({ target: bookMetadata.bookUrl, set: values })
 }
 
 // --- On-ingest enrichment ----------------------------------------------------
@@ -73,9 +85,22 @@ async function enrichIfMissing(bookUrl: string): Promise<void> {
     .where(eq(bookMetadata.bookUrl, bookUrl))
     .limit(1)
   if (existing.length > 0) return
+  await enrichBookEdition(bookUrl)
+}
 
-  // Same context the periodic pass provides: the markus.plus review (the fetch
-  // is process-cached for 6 h) and any ISBN federated on this book's objects.
+/**
+ * Fetch and upsert one Edition's metadata unconditionally.
+ *
+ * The on-ingest path above deliberately skips books already in the cache, and the
+ * periodic pass only revisits them once they are 30 days stale — so neither can serve an
+ * admin pressing "Re-enrich" on a book whose metadata is simply wrong. This is the forced
+ * version: no existence check, no staleness window, no `attempted` dedupe.
+ *
+ * Same context the periodic pass provides: the markus.plus review (the fetch is
+ * process-cached for 6 h) and any ISBN federated on this book's objects.
+ */
+export async function enrichBookEdition(bookUrl: string): Promise<boolean> {
+  const db = getDb()
   const reviews = await fetchGardenBookReviews().catch(() => new Map<string, never>())
   const isbnRow = await db
     .select({ isbn: bookwyrmObjects.bookIsbn })
@@ -84,10 +109,11 @@ async function enrichIfMissing(bookUrl: string): Promise<void> {
     .limit(1)
 
   const meta = await fetchEditionMetadata(bookUrl, reviews.get(bookUrl) ?? null, isbnRow[0]?.isbn ?? null)
-  if (!meta) return
+  if (!meta) return false
   await upsertBookMetadata(meta)
-  logger.info({ bookUrl, pages: meta.pages, author: meta.author }, 'Enriched book metadata on ingest')
+  logger.info({ bookUrl, pages: meta.pages, author: meta.author }, 'Enriched book metadata')
   await sleep(FETCH_DELAY_MS)
+  return true
 }
 
 /**
