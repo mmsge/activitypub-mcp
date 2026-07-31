@@ -71,7 +71,7 @@ export const endpoints: RestEndpoint[] = [
     schema: getActorReadingStatusSchema,
     handler: getActorReadingStatus,
     numbers: ['limit'],
-    booleans: ['use_live'],
+    booleans: ['use_live', 'include_hidden'],
     arrays: [],
   },
   {
@@ -141,7 +141,7 @@ export const endpoints: RestEndpoint[] = [
     schema: getReadingStatsSchema,
     handler: getReadingStats,
     numbers: ['limit', 'year', 'rating'],
-    booleans: [],
+    booleans: ['include_hidden'],
     arrays: [],
   },
   {
@@ -151,7 +151,7 @@ export const endpoints: RestEndpoint[] = [
     schema: getReadingPaceSchema,
     handler: getReadingPace,
     numbers: ['limit', 'year'],
-    booleans: [],
+    booleans: ['include_hidden'],
     arrays: [],
   },
   {
@@ -231,7 +231,7 @@ export const endpoints: RestEndpoint[] = [
     schema: getBookDetailsSchema,
     handler: getBookDetails,
     numbers: [],
-    booleans: [],
+    booleans: ['include_hidden'],
     arrays: [],
   },
   {
@@ -241,7 +241,7 @@ export const endpoints: RestEndpoint[] = [
     schema: getBooksSchema,
     handler: getBooks,
     numbers: ['limit', 'page'],
-    booleans: [],
+    booleans: ['include_hidden'],
     arrays: [],
   },
   {
@@ -251,7 +251,7 @@ export const endpoints: RestEndpoint[] = [
     schema: getWatchedSchema,
     handler: getWatched,
     numbers: ['limit', 'page', 'watched_year'],
-    booleans: ['include_unenriched'],
+    booleans: ['include_unenriched', 'include_hidden'],
     arrays: [],
   },
   {
@@ -261,7 +261,7 @@ export const endpoints: RestEndpoint[] = [
     schema: getCatalogueDetailsSchema,
     handler: getCatalogueDetails,
     numbers: [],
-    booleans: [],
+    booleans: ['include_hidden'],
     arrays: [],
   },
   {

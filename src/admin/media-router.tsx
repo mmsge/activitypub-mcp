@@ -10,6 +10,8 @@ import {
   failedCatalogueItems,
   catalogueItemById,
   bookById,
+  setHidden,
+  setCatalogHiddenByUrl,
   bookwyrmActorHandles,
   type BookFilters,
   type WatchedFilters,
@@ -80,6 +82,7 @@ app.get('/', async (c) => {
       from: q('from'),
       to: q('to'),
       health: q('health'),
+      hidden: q('hidden'),
       showDeleted: c.req.query('showDeleted') === '1',
       sort: q('sort') === 'enriched' ? 'enriched' : 'watched',
     }
@@ -99,6 +102,7 @@ app.get('/', async (c) => {
       title: q('title'),
       category: q('category'),
       health: q('health'),
+      hidden: q('hidden'),
       sort: q('sort') === 'watched' ? 'watched' : 'enriched',
     }
     const [data, categories] = await Promise.all([queryOther(filters, page), catalogueCategories()])
@@ -140,6 +144,7 @@ app.get('/', async (c) => {
     series: q('series'),
     subject: q('subject'),
     shelf: q('shelf'),
+    hidden: q('hidden'),
     sort: q('sort') === 'enriched' ? 'enriched' : 'read',
     actor,
   }
@@ -191,6 +196,33 @@ app.post('/reenrich', async (c) => {
     return redirectWith(c, returnTo, 'Re-enrich errored — see server logs')
   }
 })
+
+// --- POST: hide / unhide -----------------------------------------------------
+
+// Soft, not a DELETE: both enrichment jobs re-derive their URL sets from stored posts and
+// marks on every pass, so a deleted row simply comes back within the six-hour cycle —
+// silently, with nothing to notice. `hidden_at` is what actually sticks. See ADR 0013.
+app.post('/hide', async (c) => handleHide(c, true))
+app.post('/unhide', async (c) => handleHide(c, false))
+
+async function handleHide(c: Context, hidden: boolean) {
+  const body = await c.req.parseBody()
+  const returnTo = safeReturn(body.return)
+  const kind = String(body.kind ?? '')
+  const id = String(body.id ?? '')
+  const verb = hidden ? 'Hidden' : 'Unhidden'
+
+  // The Watched grid's row id is a mark id, so it hides by catalogue URL instead —
+  // hiding is an editorial act on the catalogue entry, not on one viewing of it.
+  const ok = kind === 'catalogUrl'
+    ? await setCatalogHiddenByUrl(id, hidden)
+    : kind === 'book' || kind === 'catalog'
+      ? await setHidden(kind, id, hidden)
+      : false
+
+  if (!ok) return redirectWith(c, returnTo, kind ? 'Row not found' : 'Unknown row kind')
+  return redirectWith(c, returnTo, `${verb} — ${hidden ? 'no longer' : 'again'} served by the API`)
+}
 
 const RETRY_MAX = 50
 const RETRY_DELAY_MS = 200

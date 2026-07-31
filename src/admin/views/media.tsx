@@ -57,6 +57,39 @@ const HealthFilter: FC<{ value?: string }> = ({ value }) => (
   </select>
 )
 
+const HiddenFilter: FC<{ value?: string }> = ({ value }) => (
+  <select name="hidden">
+    <option value="" selected={!value}>Hidden and visible</option>
+    <option value="only" selected={value === 'only'}>Hidden only</option>
+  </select>
+)
+
+/**
+ * Hide/unhide toggle. `kind` is 'catalogUrl' on the Watched tab, where the row is a mark
+ * and `id` is the catalogue URL — hiding acts on the catalogue entry, not one viewing.
+ */
+const HideButton: FC<{
+  kind: 'book' | 'catalog' | 'catalogUrl'
+  id: string
+  hidden: boolean
+  returnTo: string
+}> = ({ kind, id, hidden, returnTo }) => (
+  <form method="post" action={hidden ? '/admin/media/unhide' : '/admin/media/hide'} style="display:inline">
+    <input type="hidden" name="kind" value={kind} />
+    <input type="hidden" name="id" value={id} />
+    <input type="hidden" name="return" value={returnTo} />
+    <button
+      type="submit"
+      class="btn-ghost"
+      title={hidden
+        ? 'Serve this again from the MCP tools and REST API'
+        : 'Stop serving this from the MCP tools and REST API (not deleted)'}
+    >
+      {hidden ? 'Unhide' : 'Hide'}
+    </button>
+  </form>
+)
+
 // --- books -------------------------------------------------------------------
 
 export const BooksTab: FC<{
@@ -83,6 +116,7 @@ export const BooksTab: FC<{
         <option value="read" selected={filters.sort !== 'enriched'}>Recently read</option>
         <option value="enriched" selected={filters.sort === 'enriched'}>Recently enriched</option>
       </select>
+      <HiddenFilter value={filters.hidden} />
       {actors.length > 1 && (
         <select name="actor">
           {actors.map(a => <option value={a} selected={a === actor}>{a}</option>)}
@@ -116,7 +150,7 @@ export const BooksTab: FC<{
       </thead>
       <tbody>
         {data.rows.map(b => (
-          <tr key={b.id}>
+          <tr key={b.id} class={b.hiddenAt ? 'hidden-row' : ''}>
             <td class="cover-cell"><Cover url={b.coverUrl} alt={b.title ?? ''} /></td>
             <td>
               <a href={b.bookUrl} target="_blank" rel="noreferrer noopener">{b.title ?? '—'}</a>
@@ -129,8 +163,14 @@ export const BooksTab: FC<{
             <td class="mono">{b.rating ?? '—'}</td>
             <td class="mono">{b.pages ?? '—'}</td>
             <td>{b.physicalFormat ?? '—'}</td>
-            <td><BookBadge fetchedAt={b.fetchedAt} /></td>
-            <td class="row-actions"><ReenrichButton kind="book" id={b.id} returnTo={returnTo} /></td>
+            <td>
+              <BookBadge fetchedAt={b.fetchedAt} />
+              {b.hiddenAt && <span class="badge badge-red" style="margin-left:4px">Hidden</span>}
+            </td>
+            <td class="row-actions">
+              <ReenrichButton kind="book" id={b.id} returnTo={returnTo} />
+              <HideButton kind="book" id={b.id} hidden={Boolean(b.hiddenAt)} returnTo={returnTo} />
+            </td>
           </tr>
         ))}
         {data.rows.length === 0 && <EmptyRow colspan={11} text="No books found" />}
@@ -162,6 +202,7 @@ export const WatchedTab: FC<{
         <option value="tv" selected={filters.category === 'tv'}>TV only</option>
       </select>
       <HealthFilter value={filters.health} />
+      <HiddenFilter value={filters.hidden} />
       <select name="sort">
         <option value="watched" selected={filters.sort !== 'enriched'}>Recently watched</option>
         <option value="enriched" selected={filters.sort === 'enriched'}>Recently enriched</option>
@@ -193,7 +234,7 @@ export const WatchedTab: FC<{
       </thead>
       <tbody>
         {data.rows.map(r => (
-          <tr key={r.id} class={r.deletedAt ? 'hidden-row' : ''}>
+          <tr key={r.id} class={r.deletedAt || r.hiddenAt ? 'hidden-row' : ''}>
             <td class="cover-cell"><Cover url={r.coverUrl} alt={r.title ?? ''} /></td>
             <td>
               <a href={r.markUrl ?? r.itemUrl} target="_blank" rel="noreferrer noopener">
@@ -208,6 +249,7 @@ export const WatchedTab: FC<{
             <td class="mono">{r.year ?? '—'}</td>
             <td>
               <EnrichBadge enrichedAt={r.enrichedAt} fetchError={r.fetchError} fetchAttempts={r.fetchAttempts} />
+              {r.hiddenAt && <span class="badge badge-red" style="margin-left:4px">Hidden</span>}
             </td>
             <td class="row-actions">
               <form method="post" action="/admin/media/reenrich" style="display:inline">
@@ -216,6 +258,7 @@ export const WatchedTab: FC<{
                 <input type="hidden" name="return" value={returnTo} />
                 <button type="submit" class="btn-ghost">Re-enrich</button>
               </form>
+              <HideButton kind="catalogUrl" id={r.itemUrl} hidden={Boolean(r.hiddenAt)} returnTo={returnTo} />
             </td>
           </tr>
         ))}
@@ -246,6 +289,7 @@ export const OtherTab: FC<{
         ))}
       </select>
       <HealthFilter value={filters.health} />
+      <HiddenFilter value={filters.hidden} />
       <select name="sort">
         <option value="enriched" selected={filters.sort !== 'watched'}>Recently enriched</option>
         <option value="watched" selected={filters.sort === 'watched'}>Recently marked</option>
@@ -277,7 +321,7 @@ export const OtherTab: FC<{
       </thead>
       <tbody>
         {data.rows.map(r => (
-          <tr key={r.id}>
+          <tr key={r.id} class={r.hiddenAt ? 'hidden-row' : ''}>
             <td class="cover-cell"><Cover url={r.coverUrl} alt={r.title ?? ''} /></td>
             <td>
               <a href={r.itemUrl} target="_blank" rel="noreferrer noopener">
@@ -296,8 +340,12 @@ export const OtherTab: FC<{
             <td class="mono">{fmtDate(r.latestAt)}</td>
             <td>
               <EnrichBadge enrichedAt={r.enrichedAt} fetchError={r.fetchError} fetchAttempts={r.fetchAttempts} />
+              {r.hiddenAt && <span class="badge badge-red" style="margin-left:4px">Hidden</span>}
             </td>
-            <td class="row-actions"><ReenrichButton kind="catalog" id={r.id} returnTo={returnTo} /></td>
+            <td class="row-actions">
+              <ReenrichButton kind="catalog" id={r.id} returnTo={returnTo} />
+              <HideButton kind="catalog" id={r.id} hidden={Boolean(r.hiddenAt)} returnTo={returnTo} />
+            </td>
           </tr>
         ))}
         {data.rows.length === 0 && <EmptyRow colspan={9} text="No items found" />}

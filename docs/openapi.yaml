@@ -214,6 +214,10 @@ paths:
           in: query
           description: Fetch the live shelf from the BookWyrm instance (ground truth) instead of local data.
           schema: { type: boolean, default: true }
+        - name: include_hidden
+          in: query
+          description: Include rows an admin has hidden from the served catalogue. Off by default. Hidden rows still exist and are still enriched; they are suppressed from listings, not deleted.
+          schema: { type: boolean, default: false }
       responses:
         "200":
           description: Reading status entries.
@@ -238,6 +242,7 @@ paths:
               type: object
               required: [actor_handle]
               properties:
+                include_hidden: { type: boolean, default: false }
                 actor_handle: { type: string }
                 status: { type: string, enum: [reading, read, to-read] }
                 limit: { type: integer, minimum: 1, maximum: 50, default: 10 }
@@ -1329,6 +1334,10 @@ paths:
             description: Number of top results.,
             schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
           }
+        - name: include_hidden
+          in: query
+          description: Include rows an admin has hidden from the served catalogue. Off by default. Hidden rows still exist and are still enriched; they are suppressed from listings, not deleted.
+          schema: { type: boolean, default: false }
       responses:
         "200":
           description: Aggregate reading metrics.
@@ -1350,6 +1359,7 @@ paths:
               type: object
               required: [actor_handle]
               properties:
+                include_hidden: { type: boolean, default: false }
                 actor_handle: { type: string }
                 status:
                   {
@@ -1424,6 +1434,10 @@ paths:
             in: query,
             schema: { type: integer, minimum: 1, maximum: 100, default: 50 },
           }
+        - name: include_hidden
+          in: query
+          description: Include rows an admin has hidden from the served catalogue. Off by default. Hidden rows still exist and are still enriched; they are suppressed from listings, not deleted.
+          schema: { type: boolean, default: false }
       responses:
         "200":
           description: Reading pace analytics.
@@ -1445,6 +1459,7 @@ paths:
               type: object
               required: [actor_handle]
               properties:
+                include_hidden: { type: boolean, default: false }
                 actor_handle: { type: string }
                 year: { type: integer }
                 from: { type: string }
@@ -1638,6 +1653,10 @@ paths:
           description: Offset-based page (legacy). Ignored when `cursor` is supplied.
           schema: { type: integer, minimum: 1, default: 1 }
         - $ref: "#/components/parameters/Cursor"
+        - name: include_hidden
+          in: query
+          description: Include rows an admin has hidden from the served catalogue. Off by default. Hidden rows still exist and are still enriched; they are suppressed from listings, not deleted.
+          schema: { type: boolean, default: false }
       responses:
         "200":
           description: Page of books.
@@ -1658,6 +1677,7 @@ paths:
             schema:
               type: object
               properties:
+                include_hidden: { type: boolean, default: false }
                 title: { type: string }
                 author: { type: string }
                 format: { type: string }
@@ -1760,6 +1780,10 @@ paths:
           in: query
           description: Include rows not yet successfully enriched (pending/failed, carrying fetch_error/fetch_attempts).
           schema: { type: boolean, default: false }
+        - name: include_hidden
+          in: query
+          description: Include rows an admin has hidden from the served catalogue. Off by default. Hidden rows still exist and are still enriched; they are suppressed from listings, not deleted.
+          schema: { type: boolean, default: false }
         - name: sort_by
           in: query
           description: >
@@ -1812,6 +1836,7 @@ paths:
                 watched_to: { type: string }
                 watched_year: { type: integer, minimum: 1000, maximum: 9999 }
                 include_unenriched: { type: boolean, default: false }
+                include_hidden: { type: boolean, default: false }
                 sort_by:
                   {
                     type: string,
@@ -1859,6 +1884,10 @@ paths:
           in: query
           description: Optional category filter to disambiguate a title match.
           schema: { type: string }
+        - name: include_hidden
+          in: query
+          description: Include rows an admin has hidden from the served catalogue. Off by default. Hidden rows still exist and are still enriched; they are suppressed from listings, not deleted.
+          schema: { type: boolean, default: false }
       responses:
         "200":
           description: The catalogue item's full record.
@@ -1880,6 +1909,7 @@ paths:
             schema:
               type: object
               properties:
+                include_hidden: { type: boolean, default: false }
                 item_url: { type: string }
                 title: { type: string }
                 category: { type: string }
@@ -1920,6 +1950,10 @@ paths:
           in: query
           description: Case-insensitive partial title match.
           schema: { type: string }
+        - name: include_hidden
+          in: query
+          description: Include rows an admin has hidden from the served catalogue. Off by default. Hidden rows still exist and are still enriched; they are suppressed from listings, not deleted.
+          schema: { type: boolean, default: false }
       responses:
         "200":
           description: The enriched book metadata record, or an error object when not found.
@@ -1940,6 +1974,7 @@ paths:
             schema:
               type: object
               properties:
+                include_hidden: { type: boolean, default: false }
                 book_url: { type: string }
                 isbn: { type: string }
                 title: { type: string }
@@ -2563,6 +2598,7 @@ components:
                   type: boolean
                   description: true when `to` is the following midnight (a bare YYYY-MM-DD bound), false when it is the caller's own inclusive instant.
             include_unenriched: { type: boolean }
+            include_hidden: { type: boolean }
         titles:
           type: array
           items: { $ref: "#/components/schemas/WatchedTitle" }

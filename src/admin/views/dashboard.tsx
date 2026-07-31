@@ -23,6 +23,7 @@ interface DashboardData {
     films: number
     tv: number
     failedEnrichment: number
+    hidden: number
   }
 }
 
@@ -58,7 +59,8 @@ export function DashboardPage({ data }: { data: DashboardData }) {
       </div>
 
       {/* Titles, not viewings — the Watched tab counts one row per viewing, so a
-          re-watched film is one here and two there. */}
+          re-watched film is one here and two there. These count what the server actually
+          serves, so hidden rows are excluded from all but the last tile. */}
       <div class="grid">
         <a class="card" href="/admin/media?tab=books">
           <div class="num">{data.media.books}</div>
@@ -75,6 +77,10 @@ export function DashboardPage({ data }: { data: DashboardData }) {
         <a class="card" href="/admin/media?tab=other&health=failed">
           <div class="num" style="color: #f87171">{data.media.failedEnrichment}</div>
           <div class="label">Failed Enrichment</div>
+        </a>
+        <a class="card" href="/admin/media?tab=other&hidden=only">
+          <div class="num" style="color: #888">{data.media.hidden}</div>
+          <div class="label">Hidden</div>
         </a>
       </div>
 

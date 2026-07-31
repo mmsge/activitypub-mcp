@@ -14,7 +14,23 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 async function upsertBookMetadata(meta: BookMetadata): Promise<void> {
   const db = getDb()
-  const values = {
+  const values = bookUpsertValues(meta)
+  await db
+    .insert(bookMetadata)
+    .values(values)
+    .onConflictDoUpdate({ target: bookMetadata.bookUrl, set: values })
+}
+
+/**
+ * The column set an enrichment pass writes, built explicitly.
+ *
+ * `hiddenAt` is deliberately absent. The upsert does `set: values`, so any key present
+ * here is overwritten on every refresh — adding `hiddenAt` would silently unhide an
+ * admin-hidden book the next time its metadata went stale. Extracted and exported purely
+ * so a test can assert that absence. See ADR 0013.
+ */
+export function bookUpsertValues(meta: BookMetadata) {
+  return {
     bookUrl: meta.bookUrl,
     workUrl: meta.workUrl,
     title: meta.title,
@@ -38,10 +54,6 @@ async function upsertBookMetadata(meta: BookMetadata): Promise<void> {
     raw: meta as unknown as Record<string, unknown>,
     fetchedAt: new Date(),
   }
-  await db
-    .insert(bookMetadata)
-    .values(values)
-    .onConflictDoUpdate({ target: bookMetadata.bookUrl, set: values })
 }
 
 // --- On-ingest enrichment ----------------------------------------------------

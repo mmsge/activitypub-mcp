@@ -3,6 +3,7 @@ import { getDb } from '../../db/client.js'
 import { catalogMetadata } from '../../db/schema.js'
 import { and, eq, isNotNull, count, desc, getTableColumns, sql, type SQL } from 'drizzle-orm'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
+import { visibleCatalog } from '../../lib/hidden.js'
 
 // ---- shared helpers --------------------------------------------------------
 
@@ -202,8 +203,12 @@ function buildConditions(input: {
   watched_to?: string
   watched_year?: number
   include_unenriched?: boolean
+  include_hidden?: boolean
 }): SQL[] {
   const conditions: SQL[] = []
+  // Admin-hidden rows are out by default; `include_hidden` opts back in, exactly as
+  // `include_unenriched` does below. See ADR 0013.
+  if (!input.include_hidden) conditions.push(visibleCatalog())
   if (input.title) conditions.push(titleMatch(input.title))
   if (input.mark_comment) conditions.push(markCommentMatch(input.mark_comment))
   const window = resolveWatchedWindow(input)
@@ -268,6 +273,8 @@ export const getWatchedSchema = z.object({
     .describe('Sugar for watched_from/watched_to spanning one calendar year (UTC), e.g. 2016 for "everything I watched in 2016". An explicit watched_from/watched_to overrides it on that edge.'),
   include_unenriched: z.boolean().default(false)
     .describe('Include rows that have not been successfully enriched yet (pending or failed fetches, carrying fetch_error/fetch_attempts). Off by default.'),
+  include_hidden: z.boolean().default(false)
+    .describe('Include items an admin has hidden from the served catalogue. Off by default. Hidden items still exist and are still enriched; they are suppressed from listings, not deleted.'),
   sort_by: z.enum(['fetched_at', 'watched_at']).default('fetched_at')
     .describe('Which timestamp to order by. "fetched_at" (default) is enrichment time — for a backfilled import that is the order the import ran in, not a reading of history. "watched_at" orders by the item\'s newest shelf date; items with no date sort last in both directions.'),
   sort_order: z.enum(['asc', 'desc']).default('desc')
@@ -435,6 +442,8 @@ export const getCatalogueDetailsSchema = z.object({
   item_url: z.string().optional().describe('NeoDB catalog URL (exact match, the primary key)'),
   title: z.string().optional().describe('Case-insensitive partial title match (most recently-enriched wins)'),
   category: z.string().optional().describe('Optional category filter to disambiguate a title match ("tv", "movie", "book", "music", "game", "podcast", "performance")'),
+  include_hidden: z.boolean().default(false)
+    .describe('Include an item an admin has hidden from the served catalogue. Off by default. Hidden items still exist and are still enriched; they are suppressed from listings, not deleted.'),
 })
 
 type CatalogueDetailsInput = z.infer<typeof getCatalogueDetailsSchema>
@@ -446,6 +455,8 @@ export async function getCatalogueDetails(input: CatalogueDetailsInput) {
   const db = getDb()
 
   const conditions: SQL[] = []
+  // A hidden item must not stay reachable by exact URL just because the listing dropped it.
+  if (!input.include_hidden) conditions.push(visibleCatalog())
   if (input.item_url) conditions.push(eq(catalogMetadata.itemUrl, input.item_url))
   if (input.title) conditions.push(titleMatch(input.title))
   if (input.category) conditions.push(eq(catalogMetadata.category, input.category))

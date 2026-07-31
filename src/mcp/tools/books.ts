@@ -4,6 +4,7 @@ import { bookMetadata } from '../../db/schema.js'
 import { and, eq, ilike, count, sql, type SQL } from 'drizzle-orm'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
 import { normalizeSubjects } from '../../lib/subjects.js'
+import { visibleBooks } from '../../lib/hidden.js'
 
 // ---- shared filter handling ------------------------------------------------
 
@@ -16,8 +17,12 @@ export function buildConditions(input: {
   language?: string
   series?: string
   subject?: string
+  include_hidden?: boolean
 }): SQL[] {
   const conditions: SQL[] = []
+  // Admin-hidden rows are out by default; `include_hidden` opts back in. Mirrors how
+  // `include_unenriched` works in get_watched — the default changes, nothing is lost.
+  if (!input.include_hidden) conditions.push(visibleBooks())
   if (input.title) conditions.push(ilike(bookMetadata.title, `%${input.title}%`))
   if (input.author) conditions.push(ilike(bookMetadata.author, `%${input.author}%`))
   if (input.format) conditions.push(eq(bookMetadata.physicalFormat, input.format))
@@ -44,6 +49,8 @@ export const getBooksSchema = z.object({
   language: z.string().optional().describe('Filter by exact language (normalized ISO-639-1 code, e.g. "en", "no")'),
   series: z.string().optional().describe('Filter by series name (case-insensitive, partial match)'),
   subject: z.string().optional().describe('Filter by subject/genre (case-insensitive partial match against any of the book\'s subjects)'),
+  include_hidden: z.boolean().default(false)
+    .describe('Include books an admin has hidden from the served catalogue. Off by default. Hidden books still exist and are still enriched; they are suppressed from listings, not deleted.'),
   sort_order: z.enum(['asc', 'desc']).default('desc')
     .describe('Order by fetched_at. "desc" (default) is most-recently-enriched first; "asc" is oldest first.'),
   limit: z.number().int().min(1).max(200).default(50),

@@ -144,11 +144,17 @@ export const bookMetadata = pgTable('book_metadata', {
   sourceMap: jsonb('source_map'), // { field: winning source } — provenance for every populated field
   raw: jsonb('raw').notNull(),
   fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+  // Set when an admin hides the row: it stops being served by get_books/get_book_details
+  // and drops out of the derived reading tools, without being deleted. A DELETE would not
+  // stick — collectBookUrls re-derives its URL set from stored posts every pass and the
+  // row would simply come back. See ADR 0013.
+  hiddenAt: timestamp('hidden_at', { withTimezone: true }),
 }, (t) => [
   index('book_metadata_book_url_idx').on(t.bookUrl),
   index('book_metadata_work_url_idx').on(t.workUrl),
   index('book_metadata_format_idx').on(t.physicalFormat),
   index('book_metadata_isbn13_idx').on(t.isbn13),
+  index('book_metadata_hidden_idx').on(t.hiddenAt),
 ])
 
 // Per-title metadata for every NeoDB catalog item behind a federated mark, cached
@@ -216,11 +222,19 @@ export const catalogMetadata = pgTable('catalog_metadata', {
   fetchError: text('fetch_error'),
   fetchAttempts: integer('fetch_attempts').notNull().default(0),
   lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+  // Set when an admin hides the row: it stops being served by get_watched and
+  // get_catalogue_details, without being deleted. Deleting does not stick —
+  // collectNeodbTagHrefs re-derives its URL set from the stored marks every pass, so the
+  // row reappears within the enrichment cycle. Hiding is also deliberately NOT part of
+  // the upsert's values object: see ADR 0013 for why adding it there would unhide the row
+  // on every refresh.
+  hiddenAt: timestamp('hidden_at', { withTimezone: true }),
 }, (t) => [
   index('catalog_metadata_item_url_idx').on(t.itemUrl),
   index('catalog_metadata_category_idx').on(t.category),
   index('catalog_metadata_imdb_idx').on(t.imdb),
   index('catalog_metadata_bookwyrm_idx').on(t.bookwyrmBookUrl),
+  index('catalog_metadata_hidden_idx').on(t.hiddenAt),
 ])
 
 // One row per NeoDB "mark" (a watched/read/shelved event) from a followed actor —

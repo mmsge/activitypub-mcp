@@ -299,6 +299,21 @@ detached: the page returns immediately and progress goes to the server log. Pres
 twice while it is still running is a no-op, so a double-click can't stampede
 BookWyrm/NeoDB/Last.fm.
 
+### Hiding a bad record
+
+Books and catalogue items have a **Hide** button. A hidden row stops being served: it
+disappears from `get_books`, `get_watched`, `get_book_details`, `get_catalogue_details`
+and the reading tools, and from the matching `/api/v1` endpoints. Pass `include_hidden:
+true` to see it again. Hiding a book removes it from `get_reading_stats` and the shelf
+entirely, not just its metadata — so the page and rating averages stay honest.
+
+Hiding is a soft flag (`hidden_at`), not a delete, because a delete would not stick: both
+enrichment jobs re-derive their work list from stored posts and marks, so the row would
+reappear within the six-hour cycle. Enrichment never clears `hidden_at`, so a hidden row
+can still be re-enriched and stays hidden. Nothing is editable by hand — if a record is
+wrong, hide it, and re-enrich if upstream has since fixed it. See
+[ADR 0013](docs/decision-records/0013-hide-media-rows-instead-of-deleting.md).
+
 The Logs page is the most useful for debugging. A `✗` in the signature column means a request was rejected — this is normal for spam or misconfigured servers. If your own follows are not being received, check this page for unexpected `✗` entries on inbound requests.
 
 ---

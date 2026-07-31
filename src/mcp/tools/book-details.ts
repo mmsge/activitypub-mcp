@@ -1,9 +1,10 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
 import { bookMetadata } from '../../db/schema.js'
-import { eq, or, ilike, desc } from 'drizzle-orm'
+import { and, eq, or, ilike, desc } from 'drizzle-orm'
 import { normalizeIsbn, isbn10to13 } from '../../lib/isbn.js'
 import { normalizeSubjects } from '../../lib/subjects.js'
+import { visibleBooks } from '../../lib/hidden.js'
 
 // Look up the full enriched metadata for one book from the book_metadata cache,
 // resolved by Edition URL (exact), ISBN (13 or 10), or a partial title match.
@@ -11,6 +12,8 @@ export const getBookDetailsSchema = z.object({
   book_url: z.string().optional().describe('BookWyrm Edition AP id (exact match, the primary key)'),
   isbn: z.string().optional().describe('ISBN-13 or ISBN-10 (hyphens/spaces ignored)'),
   title: z.string().optional().describe('Case-insensitive partial title match (most recent wins)'),
+  include_hidden: z.boolean().default(false)
+    .describe('Include a book an admin has hidden from the served catalogue. Off by default. Hidden books still exist and are still enriched; they are suppressed from listings, not deleted.'),
 })
 
 type BookDetailsInput = z.infer<typeof getBookDetailsSchema>
@@ -36,10 +39,13 @@ export async function getBookDetails(input: BookDetailsInput) {
     where = ilike(bookMetadata.title, `%${input.title}%`)
   }
 
+  // Hidden books are not served unless asked for; a hidden row must not be reachable by
+  // ISBN or title just because the listing suppressed it.
+  const visibility = input.include_hidden ? undefined : visibleBooks()
   const rows = await db
     .select()
     .from(bookMetadata)
-    .where(where)
+    .where(visibility ? and(where, visibility) : where)
     .orderBy(desc(bookMetadata.fetchedAt))
     .limit(1)
 

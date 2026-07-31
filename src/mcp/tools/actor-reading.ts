@@ -6,6 +6,7 @@ import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 import { fetchBookwyrmShelf, type ShelfItem } from '../../lib/fetch-bookwyrm-shelf.js'
 import { normalizeTitle, indexCollapsedBooks, type CollapsedBook } from '../../lib/bookwyrm-reading.js'
 import { loadCollapsedBooks } from '../../lib/reading-query.js'
+import { hiddenBookUrls } from '../../lib/hidden.js'
 
 export const getActorReadingStatusSchema = z.object({
   actor_handle: z.string().describe('Actor handle (@user@domain) or full actor URL'),
@@ -15,6 +16,8 @@ export const getActorReadingStatusSchema = z.object({
     'Fetch live shelf data directly from the BookWyrm instance (ground truth). ' +
     'When false, falls back to locally stored activity data only.'
   ),
+  include_hidden: z.boolean().default(false)
+    .describe('Include books an admin has hidden from the served catalogue. Off by default — a hidden book is dropped from the shelf entirely, not just stripped of its metadata.'),
 })
 
 type Shelf = 'reading' | 'read' | 'to-read'
@@ -76,8 +79,24 @@ export async function getActorReadingStatus(input: z.infer<typeof getActorReadin
     ? await fetchLiveShelf(actor.apId, input.status, input.limit)
     : await fetchFromDb(actor.apId, input.status, input.limit)
 
-  if (Array.isArray(results)) await enrichWithMetadata(results)
-  return results
+  if (!Array.isArray(results)) return results
+
+  // Drop hidden books here rather than inside either fetch path: the live path merges
+  // BookWyrm's own shelf collection and the offline path derives from stored posts, but
+  // both converge on a `bookwyrm_book_url`, so one filter covers both. Dropping the whole
+  // row (not just its metadata) is the point — a hidden book should not appear on the
+  // shelf at all. See ADR 0013.
+  const visible = input.include_hidden
+    ? results
+    : await (async () => {
+        const hidden = await hiddenBookUrls()
+        return hidden.size === 0
+          ? results
+          : results.filter((r) => !(r.bookwyrm_book_url && hidden.has(r.bookwyrm_book_url)))
+      })()
+
+  await enrichWithMetadata(visible)
+  return visible
 }
 
 /**
