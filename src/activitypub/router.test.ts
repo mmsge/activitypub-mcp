@@ -1,7 +1,30 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 vi.mock('../crypto/keys.js', () => ({
   getPublicKeyPem: () => '-----BEGIN PUBLIC KEY-----\ntest\n-----END PUBLIC KEY-----\n',
+}))
+
+const NOTE = {
+  id: '11111111-2222-4333-8444-555555555555',
+  kind: 'intro',
+  content: '<p>Dette er ein personleg ActivityPub-bot.</p>',
+  contentText: 'Dette er ein personleg ActivityPub-bot.',
+  digest: 'deadbeefdeadbeef',
+  pinned: true,
+  publishedAt: new Date('2026-05-02T10:00:00.000Z'),
+  updatedAt: new Date('2026-05-02T10:00:00.000Z'),
+}
+
+// The router's note reads all go through this module; mocking it keeps the suite off a
+// database while still exercising the real documents built from a row.
+const listNotesForProfile = vi.fn(async () => [] as typeof NOTE[])
+const listPinnedNotes = vi.fn(async () => [] as typeof NOTE[])
+const getNote = vi.fn(async (_id: string): Promise<typeof NOTE | null> => null)
+const listNotes = vi.fn(async () => [] as typeof NOTE[])
+const countNotes = vi.fn(async () => 0)
+
+vi.mock('./notes-store.js', () => ({
+  listNotesForProfile, listPinnedNotes, getNote, listNotes, countNotes,
 }))
 
 const { activityPubRouter } = await import('./router.js')
@@ -10,6 +33,14 @@ const { activityPubRouter } = await import('./router.js')
 function get(path: string, headers: Record<string, string> = {}) {
   return activityPubRouter.request(path, { headers })
 }
+
+beforeEach(() => {
+  listNotesForProfile.mockResolvedValue([])
+  listPinnedNotes.mockResolvedValue([])
+  getNote.mockResolvedValue(null)
+  listNotes.mockResolvedValue([])
+  countNotes.mockResolvedValue(0)
+})
 
 describe('GET /actor content negotiation', () => {
   it('serves the actor document when the client asks for activity+json', async () => {
@@ -43,6 +74,17 @@ describe('GET /actor content negotiation', () => {
   it('keeps the Mastodon /users alias on JSON regardless of Accept', async () => {
     const res = await get('/users/bot', { accept: 'text/html' })
     expect(res.headers.get('content-type')).toContain('application/activity+json')
+  })
+
+  it('tells caches the two representations are not interchangeable', async () => {
+    // Without Vary a shared cache is free to hand a fediverse server the page a browser
+    // asked for a moment earlier, and the account stops resolving.
+    for (const accept of ['application/activity+json', 'text/html']) {
+      expect((await get('/actor', { accept })).headers.get('vary')).toBe('Accept')
+    }
+    for (const accept of ['application/activity+json', 'text/html']) {
+      expect((await get('/@bot', { accept })).headers.get('vary')).toBe('Accept')
+    }
   })
 })
 
@@ -83,6 +125,86 @@ describe('GET /@username', () => {
     expect(html).toContain(
       '<link rel="alternate" type="application/activity+json" href="https://test.local/actor">',
     )
+  })
+})
+
+describe('GET /actor/featured', () => {
+  it('is an empty collection until something is pinned', async () => {
+    const res = await get('/actor/featured')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('application/activity+json')
+    expect(await res.json()).toMatchObject({
+      id: 'https://test.local/actor/featured',
+      type: 'OrderedCollection',
+      totalItems: 0,
+      orderedItems: [],
+    })
+  })
+
+  it('embeds the pinned note rather than listing its URI', async () => {
+    // Mastodon refetches this on every profile refresh; embedding saves it one fetch
+    // per pinned note, and is what puts a readable post on an otherwise bare profile.
+    listPinnedNotes.mockResolvedValue([NOTE])
+    const body = await (await get('/actor/featured')).json() as any
+
+    expect(body.totalItems).toBe(1)
+    expect(body.orderedItems[0]).toMatchObject({
+      id: `https://test.local/notes/${NOTE.id}`,
+      type: 'Note',
+      attributedTo: 'https://test.local/actor',
+      content: NOTE.content,
+      to: ['https://www.w3.org/ns/activitystreams#Public'],
+    })
+  })
+})
+
+describe('GET /notes/:id', () => {
+  it('404s an unknown note', async () => {
+    expect((await get('/notes/11111111-2222-4333-8444-999999999999')).status).toBe(404)
+    // A non-UUID never reaches Postgres as a failed cast.
+    expect((await get('/notes/not-a-uuid')).status).toBe(404)
+  })
+
+  it('defaults to the ActivityPub object, because this URL is the note id', async () => {
+    // A server dereferencing the id may send nothing more specific than Accept: */*;
+    // handing it HTML would fail ingestion.
+    getNote.mockResolvedValue(NOTE)
+    const cases: Record<string, string>[] = [{}, { accept: '*/*' }, { accept: 'application/activity+json' }]
+    for (const headers of cases) {
+      const res = await get(`/notes/${NOTE.id}`, headers)
+      expect(res.headers.get('content-type')).toContain('application/activity+json')
+      const body = await res.json() as any
+      expect(body['@context']).toBe('https://www.w3.org/ns/activitystreams')
+      expect(body.id).toBe(`https://test.local/notes/${NOTE.id}`)
+      expect(body.url).toBe(body.id)
+    }
+  })
+
+  it('serves a readable page to a browser', async () => {
+    getNote.mockResolvedValue(NOTE)
+    const res = await get(`/notes/${NOTE.id}`, { accept: 'text/html' })
+    expect(res.headers.get('content-type')).toContain('text/html')
+    expect(res.headers.get('vary')).toBe('Accept')
+
+    const html = await res.text()
+    expect(html).toContain('Dette er ein personleg ActivityPub-bot.')
+    expect(html).toContain(`<link rel="canonical" href="https://test.local/notes/${NOTE.id}">`)
+  })
+})
+
+describe('collection aliases under /users/<name>', () => {
+  // Only the inbox had an alias before, so anything composing collection URLs from the
+  // /users form — rather than reading them off the actor document — hit a 404 and
+  // concluded the account had nothing.
+  it('answers followers, featured and the outbox under both prefixes', async () => {
+    for (const path of ['/followers', '/featured', '/outbox']) {
+      const canonical = await get(`/actor${path}`)
+      const alias = await get(`/users/bot${path}`)
+      expect(canonical.status).toBe(200)
+      expect(alias.status).toBe(200)
+      // The alias answers with the canonical ids, so nothing ends up with two identities.
+      expect(await alias.json()).toEqual(await canonical.json())
+    }
   })
 })
 

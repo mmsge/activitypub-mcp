@@ -32,7 +32,7 @@ function buildSummary(): string {
     `<p>Personleg ActivityPub-bot. ${ownerLink} eig og driftar han.</p>`,
     '<p>Han følgjer eit fast og ope sett med kontoar — i praksis dei Markus eig sjølv' +
       ' — og arkiverer dei offentlege innlegga derfrå, slik at arkivet kan spørjast' +
-      ' gjennom MCP.</p>',
+      ' gjennom MCP. Sjølv postar han berre korte statusmeldingar om seg sjølv.</p>',
     // "arkiverer", not "lagrar": the archive genuinely holds nothing from actors we do
     // not follow, but inbound requests do pass through a short-lived debug log. The
     // profile page discloses that in full; the bio must not claim more than is true.
@@ -91,6 +91,8 @@ export function buildActorDocument() {
         value: 'schema:value',
         toot: 'http://joinmastodon.org/ns#',
         discoverable: 'toot:discoverable',
+        indexable: 'toot:indexable',
+        featured: { '@id': 'toot:featured', '@type': '@id' },
       },
     ],
     id: actorUrl,
@@ -107,6 +109,10 @@ export function buildActorDocument() {
     // spell the actual behaviour out in the bio and on the profile page.
     manuallyApprovesFollowers: true,
     discoverable: true,
+    // Opt in to search indexing. Mastodon 4.2 and later will not put a profile or its
+    // posts in full-text search without this, and treats its absence as a "no" — so
+    // leaving it out is what kept the account from turning up in searches at all.
+    indexable: true,
     ...(owner ? { attributedTo: owner.url } : {}),
     attachment: buildAttachments(actorUrl),
     icon: {
@@ -123,6 +129,10 @@ export function buildActorDocument() {
     outbox: `${actorUrl}/outbox`,
     followers: `${actorUrl}/followers`,
     following: `${actorUrl}/following`,
+    // Pinned posts. Mastodon fetches this whenever it discovers or refreshes the
+    // account, and renders what it finds on the profile — which is how this bot's
+    // intro note reaches people even though it has no followers to deliver to.
+    featured: `${actorUrl}/featured`,
     endpoints: {
       sharedInbox: `https://${config.APP_DOMAIN}/inbox`,
     },

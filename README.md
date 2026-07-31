@@ -13,6 +13,7 @@ Works with **Mastodon**, **BookWyrm**, **Pixelfed**, and **Loops**.
 - Incoming activities (posts, boosts, book updates, etc.) are verified, stored, and parsed. BookWyrm reading data gets its own structured table.
 - The server **auto-rejects all incoming Follow requests** — it is a read-only bot, not a social participant.
 - The actor publishes an informative profile — bot type, avatar, header and metadata fields — plus a human-readable page at `/@<username>` that spells out what it archives and what it keeps about everyone else (see [Actor profile](#actor-profile)).
+- It posts about **itself and nothing else**: a pinned intro and a periodic status note giving the size of its own archive. The archive it collects stays private (see [What the bot posts](#what-the-bot-posts)).
 - An admin UI at `/admin` lets you review stored data and inspect every HTTP request the server has handled, including signature validity.
 - An MCP server at `/mcp` lets AI agents answer questions like "What did this user post today?" or "What book is this user currently reading?"
 - A read-only **REST API** at `/api/v1` exposes the same data to non-MCP clients (scripts, cron jobs, dashboards), gated by an API key.
@@ -93,6 +94,7 @@ Here is what each variable means:
 | `OWNER_ACTOR` | No | Your own fediverse handle (`@you@example.social`) or actor URL. Credited as the operator on the actor profile, and used as the default scope for the hashtag-analytics tools. |
 | `ACTOR_PUBLISHED` | No | Date this actor went live (`YYYY-MM-DD`), published as its join date. Default `2026-05-02`. |
 | `ACTIVITY_LOG_RETENTION_DAYS` | No | How long request-log rows are kept. Default `30`; `0` keeps them forever. See [Actor profile](#actor-profile). |
+| `STATUS_NOTE_INTERVAL_HOURS` | No | Floor between the status notes the bot publishes about its own archive. Default `168` (weekly); `0` publishes only the pinned intro. See [What the bot posts](#what-the-bot-posts). |
 | `DB_PASSWORD` | Yes | Password for the PostgreSQL database. Choose something strong. |
 | `FOLLOW_ACTORS` | Yes | Comma-separated list of handles to follow (see below) |
 | `ADMIN_PASSWORD_HASH` | Yes | The bcrypt hash you generated in step 3 |
@@ -194,7 +196,16 @@ From **any Mastodon instance**, search for your actor handle:
 @bot@bot.example.com
 ```
 
-It should appear as a profile. If it does not, check `docker compose logs app` for errors and confirm your DNS record is pointing to the correct IP.
+It should appear as a profile, with the pinned intro note on it. If it does not, check `docker compose logs app` for errors and confirm your DNS record is pointing to the correct IP.
+
+You can also check the discovery endpoints directly — all four must answer `200`:
+
+```bash
+curl -s https://bot.example.com/.well-known/nodeinfo
+curl -s https://bot.example.com/.well-known/host-meta
+curl -s 'https://bot.example.com/.well-known/webfinger?resource=acct:bot@bot.example.com'
+curl -s -H 'Accept: application/activity+json' https://bot.example.com/actor/featured
+```
 
 ### 8. Check that follows were sent
 
@@ -240,6 +251,34 @@ What the actor document publishes:
 | `manuallyApprovesFollowers` | `true` — the closest standard signal to "never followable"; every Follow is auto-rejected |
 | `published` | Join date, from `ACTOR_PUBLISHED` |
 | `attributedTo` | The operator's actor, from `OWNER_ACTOR` |
+| `discoverable` / `indexable` | `true` — without `indexable`, Mastodon 4.2+ keeps the profile out of search entirely |
+| `featured` | The pinned-posts collection Mastodon fetches on every profile refresh |
+
+### Being findable
+
+An actor that resolves is not the same as an actor anyone can find. Four things carry that, beyond the actor document itself:
+
+| Endpoint | Why it matters |
+|---|---|
+| `/.well-known/webfinger` | Resolves the handle. Accepts the `acct:` URI, the bare `user@domain` handle and the actor's URLs, case-insensitively — implementations ask in all of these forms |
+| `/.well-known/host-meta` (and `.json`) | The pre-WebFinger hop. Friendica, GNU Social and several WebFinger clients fetch this first and give up on the account when it 404s |
+| `/.well-known/nodeinfo` → `/nodeinfo/2.0`, `/nodeinfo/2.1` | Where the fediverse crawlers and instance-info lookups probe. The bare `/nodeinfo` path answers the same document |
+| `/actor/featured` | Pinned posts. Fetched on every profile discovery and refresh, and rendered at the top of the profile — the one way a post of this bot's reaches someone else, since it has no followers |
+
+`/actor` and `/@<username>` both send `Vary: Accept`, so a shared cache cannot hand a fediverse server the HTML page a browser asked for a moment earlier.
+
+### What the bot posts
+
+The bot publishes two kinds of note, both about itself and never about anyone else:
+
+- **A pinned intro** explaining what it is, with links to the open following list and the profile page. Created on first start; reworded in place — never duplicated — when the configuration it quotes changes.
+- **A periodic status** giving the size of the archive: how many accounts it follows, how many public posts it has archived, and the date of the oldest. Every figure is an aggregate over the operator's own accounts.
+
+`STATUS_NOTE_INTERVAL_HOURS` (default 168, weekly) is the *floor* between status notes, not a guarantee of one: an unchanged status never reposts, and no status is published at all until there is something to report. Set it to `0` to publish only the pinned intro.
+
+`GET /actor/outbox` serves these notes and nothing else — the archive of the followed accounts' posts is private and never appears there. Without `?page` it is the `OrderedCollection` with `totalItems`; with `?page=N` a page of 20, newest-first. Each note also has its own permalink at `/notes/<id>`, content-negotiated like the actor.
+
+There are no followers to deliver to, so nothing is queued for delivery. The notes reach people through `featured`, the outbox, and the profile page. See [ADR 0014](docs/decision-records/0014-make-the-account-visible-over-activitypub.md).
 
 ### Keeping the privacy claim true
 

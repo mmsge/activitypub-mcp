@@ -1,7 +1,8 @@
 import { config, getActorUrl, getOwnerIdentity, getActorPublished } from '../config.js'
 import { getProfilePageUrl } from './actor.js'
-import { getAssetUrl } from './profile-assets.js'
 import { escapeHtml } from '../lib/html.js'
+import { renderPage, renderIdentityHeader } from './page-chrome.js'
+import { renderNoteCard, type LocalNote } from './note.js'
 
 /**
  * The human-readable profile page, served to browsers at /actor and /@<username>.
@@ -11,10 +12,12 @@ import { escapeHtml } from '../lib/html.js'
  * actually want to know when a stranger's bot shows up in their notifications —
  * exactly what it does not keep about them, with links to verify each claim.
  *
- * Nynorsk, matching the owner's other public writing. Self-contained: no external
- * stylesheet, font or script, so it renders the same regardless of network policy.
+ * Nynorsk, matching the owner's other public writing.
+ *
+ * `notes` is passed in rather than read here so the page stays a pure function: the
+ * router does the query, and the tests render it without a database.
  */
-export function renderProfilePage(): string {
+export function renderProfilePage(notes: LocalNote[] = []): string {
   const actorUrl = getActorUrl()
   const owner = getOwnerIdentity()
   const published = getActorPublished()
@@ -38,120 +41,28 @@ export function renderProfilePage(): string {
        ${retentionDays} dagar vert sletta automatisk.`
     : `Innkomande førespurnader vert logga teknisk for feilsøking.`
 
-  return `<!doctype html>
-<html lang="nn">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(config.APP_DISPLAY_NAME)} — ${escapeHtml(handle)}</title>
-<meta name="description" content="Personleg ActivityPub-bot. Arkiverer offentlege innlegg frå eit fast sett kontoar, og ingenting om andre.">
-<link rel="icon" type="image/png" href="${escapeHtml(getAssetUrl('avatar'))}">
-<!-- How a fediverse server gets from this page back to the actor. Searching the
-     page URL on Mastodon fetches it and, finding HTML, looks for exactly this link
-     to discover the ActivityPub representation. Without it the URL resolves to
-     nothing and the account is unfindable by link. -->
-<link rel="alternate" type="application/activity+json" href="${actorUrl}">
-<link rel="canonical" href="${escapeHtml(getProfilePageUrl())}">
-<style>
-  :root {
-    --green: #143521; --green-deep: #0f2a1a; --panel: #1c4a2d;
-    --line: #2f5a3e; --lime: #9fe822; --cream: #f1ede2;
-    --sub: #bcd2bb; --foot: #6f8c74;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--green); color: var(--cream);
-    font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    -webkit-text-size-adjust: 100%;
-  }
-  /* Full width, anchored to the bottom, so the artwork's lime rule always lands
-     exactly on the banner's bottom edge instead of being cropped to a stripe that
-     floats through the middle. Heights are chosen so the scaled 3:1 image is never
-     shorter than the banner (no gap) down to a 300px viewport. */
-  .banner {
-    height: 160px; background: var(--green) center bottom / 100% auto no-repeat
-      url("${escapeHtml(getAssetUrl('header'))}");
-  }
-  main { max-width: 720px; margin: 0 auto; padding: 0 24px 72px; }
-  /* Avatar overlaps the banner; the name sits fully below it, so the artwork's lime
-     rule never runs through the title at any viewport width. */
-  header.id { margin-top: -52px; }
-  header.id img {
-    width: 104px; height: 104px; border-radius: 20px; display: block;
-    border: 4px solid var(--green); background: var(--green);
-  }
-  .who { margin-top: 16px; }
-  h1 { font-size: 1.5rem; line-height: 1.25; margin: 0 0 4px; letter-spacing: -0.01em; }
-  .handle { color: var(--sub); font-size: 0.95rem; }
-  .badge {
-    display: inline-block; margin-left: 8px; padding: 2px 8px; border-radius: 999px;
-    background: var(--lime); color: #10301d; font-size: 0.7rem; font-weight: 700;
-    letter-spacing: 0.06em; text-transform: uppercase; vertical-align: 2px;
-  }
-  .lead { font-size: 1.1rem; color: var(--cream); margin: 28px 0 0; }
-  h2 {
-    font-size: 0.78rem; letter-spacing: 0.12em; text-transform: uppercase;
-    color: #d6ecca; margin: 40px 0 0; padding-bottom: 8px;
-  }
-  h2::after {
-    content: ""; display: block; width: 38px; height: 3px;
-    background: var(--lime); border-radius: 2px; margin-top: 8px;
-  }
-  ul { list-style: none; padding: 0; margin: 18px 0 0; }
-  li {
-    position: relative; padding: 0 0 0 26px; margin-bottom: 14px; color: var(--sub);
-  }
-  li::before {
-    content: ""; position: absolute; left: 4px; top: 0.62em;
-    width: 8px; height: 8px; border-radius: 2px; background: var(--lime);
-  }
-  li strong { color: var(--cream); font-weight: 600; }
-  .facts {
-    margin: 18px 0 0; border: 1px solid var(--line); border-radius: 14px;
-    background: var(--panel); overflow: hidden;
-  }
-  .facts div {
-    display: flex; flex-wrap: wrap; gap: 4px 16px; justify-content: space-between;
-    padding: 12px 18px; border-top: 1px solid var(--line);
-  }
-  .facts div:first-child { border-top: 0; }
-  .facts dt, .facts dd { margin: 0; }
-  .facts dt { color: var(--sub); font-size: 0.9rem; }
-  .facts dd { font-variant-numeric: tabular-nums; }
-  a { color: var(--lime); text-decoration-thickness: 1px; text-underline-offset: 2px; }
-  a:hover { color: var(--cream); }
-  code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em;
-    background: var(--green-deep); border: 1px solid var(--line);
-    border-radius: 6px; padding: 1px 6px;
-  }
-  footer {
-    margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line);
-    color: var(--foot); font-size: 0.9rem;
-  }
-  @media (max-width: 520px) {
-    .banner { height: 100px; }
-    h1 { font-size: 1.3rem; }
-  }
-</style>
-</head>
-<body>
-<div class="banner"></div>
-<main>
-  <header class="id">
-    <img src="${escapeHtml(getAssetUrl('avatar'))}" alt="" width="104" height="104">
-    <div class="who">
-      <h1>${escapeHtml(config.APP_DISPLAY_NAME)}<span class="badge">bot</span></h1>
-      <div class="handle">${escapeHtml(handle)}</div>
-    </div>
-  </header>
+  // Dropped entirely when the bot has not published anything yet, rather than left as
+  // an empty heading that reads like something broke.
+  const notesSection = notes.length
+    ? `
+  <h2>Siste innlegg</h2>
+  ${notes.map(renderNoteCard).join('\n  ')}
+`
+    : ''
+
+  return renderPage({
+    title: `${config.APP_DISPLAY_NAME} — ${handle}`,
+    description: 'Personleg ActivityPub-bot. Arkiverer offentlege innlegg frå eit fast sett kontoar, og ingenting om andre.',
+    canonical: getProfilePageUrl(),
+    alternate: actorUrl,
+    body: `${renderIdentityHeader()}
 
   <p class="lead">
     Dette er ein personleg ActivityPub-bot. ${ownerLink} eig og driftar han.
     Han finst for at Markus skal kunna spørja sitt eige arkiv gjennom MCP — ikkje
     for å samla inn noko om andre.
   </p>
-
+${notesSection}
   <h2>Kva han gjer</h2>
   <ul>
     <li>Følgjer <strong>eit fast og ope sett med kontoar</strong> — i praksis dei
@@ -160,7 +71,8 @@ export function renderProfilePage(): string {
     <li>Arkiverer dei <strong>offentlege</strong> innlegga frå desse kontoane, saman
       med lesing, musikk, film og reiser som kontoane sjølve publiserer.</li>
     <li>Gjer arkivet søkbart for Markus gjennom MCP og eit privat REST-API.</li>
-    <li><strong>Postar ingenting.</strong> Utboksen er tom, og han svarar ikkje,
+    <li><strong>Postar berre om seg sjølv.</strong> Utboksen inneheld korte
+      statusmeldingar om kva han arkiverer, og ingenting anna. Han svarar ikkje,
       likar ikkje og deler ikkje vidare.</li>
   </ul>
 
@@ -182,6 +94,8 @@ export function renderProfilePage(): string {
   <dl class="facts">
     <div><dt>Kontoar han følgjer</dt>
       <dd><a href="${actorUrl}/following">/actor/following</a></dd></div>
+    <div><dt>Alt han har posta</dt>
+      <dd><a href="${actorUrl}/outbox">/actor/outbox</a></dd></div>
     <div><dt>Aktørdokument (JSON)</dt>
       <dd><a href="${actorUrl}">/actor</a></dd></div>
     <div><dt>Programvare</dt>
@@ -193,8 +107,6 @@ export function renderProfilePage(): string {
     Har du spørsmål, eller vil du ikkje at boten skal følgja kontoen din?
     Ta kontakt med ${ownerLink}.
   </footer>
-</main>
-</body>
-</html>
-`
+</main>`,
+  })
 }

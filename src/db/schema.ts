@@ -91,6 +91,28 @@ export const objects = pgTable('objects', {
   index('objects_actor_published_idx').on(t.actorApId, t.publishedAt),
 ])
 
+// Notes this actor wrote itself — the only content it ever publishes. Deliberately
+// not part of `objects`: that table is the archive of *remote* posts, keyed by a
+// remote actor, and every reading/music/film aggregation reads from it. Mixing our
+// own output in there would quietly pollute Markus' archive.
+export const localNotes = pgTable('local_notes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // 'intro' — the pinned note explaining what this bot is; 'status' — a periodic
+  // summary of the archive. One intro row at most; status rows accumulate.
+  kind: text('kind').notNull(),
+  content: text('content').notNull(),
+  contentText: text('content_text').notNull(),
+  // Fingerprint of the composed text. The publisher compares against it so an
+  // unchanged status never posts twice and a reworded intro edits in place.
+  digest: text('digest').notNull(),
+  pinned: boolean('pinned').notNull().default(false),
+  publishedAt: timestamp('published_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('local_notes_published_idx').on(t.publishedAt),
+  index('local_notes_kind_idx').on(t.kind),
+])
+
 export const bookwyrmObjects = pgTable('bookwyrm_objects', {
   id: uuid('id').primaryKey().defaultRandom(),
   objectApId: text('object_ap_id').notNull().unique(),

@@ -6,6 +6,7 @@ import { ensureKeys } from './crypto/keys.js'
 import { activityPubRouter } from './activitypub/router.js'
 import { webfingerRouter } from './activitypub/webfinger.js'
 import { nodeinfoRouter } from './activitypub/nodeinfo.js'
+import { hostMetaRouter } from './activitypub/host-meta.js'
 import { adminRouter } from './admin/router.js'
 import { mcpRouter } from './mcp/router.js'
 import { oauthRouter } from './oauth/router.js'
@@ -25,13 +26,19 @@ import { backfillNeodbMarks } from './jobs/backfill-neodb-marks.js'
 import { repairNeodbIngest } from './jobs/repair-neodb-ingest.js'
 import { runDeliveryWorker } from './jobs/deliver.js'
 import { pruneActivityLog } from './jobs/prune-activity-log.js'
+import { publishStatusNote } from './jobs/publish-status-note.js'
 import { getDb } from './db/client.js'
 
 const app = new Hono()
 
 // Well-known endpoints
 app.route('/.well-known', webfingerRouter)
+app.route('/.well-known', hostMetaRouter)
 app.route('/.well-known', oauthWellknownRouter)
+// NodeInfo answers under /.well-known — where every crawler and instance-info lookup
+// probes — and keeps the bare /nodeinfo path it has always had, which the profile page
+// and the published OpenAPI spec both link to.
+app.route('/.well-known', nodeinfoRouter)
 app.route('', nodeinfoRouter)
 
 // ActivityPub
@@ -167,6 +174,16 @@ async function main() {
       await repairNeodbIngest()
     } catch (e) {
       logger.error(e, 'NeoDB ingest repair failed on startup')
+    }
+  })()
+
+  // Make sure the pinned intro note exists (and matches the current config) before the
+  // first remote server asks for the featured collection. Cheap, and idempotent.
+  void (async () => {
+    try {
+      await publishStatusNote()
+    } catch (e) {
+      logger.error(e, 'Status-note publish failed on startup')
     }
   })()
 

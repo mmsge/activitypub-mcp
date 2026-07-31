@@ -7,6 +7,7 @@ import { syncReadingHistory } from './sync-reading-history.js'
 import { syncGardenContent } from './sync-garden-content.js'
 import { sampleEngagement } from './sample-engagement.js'
 import { pruneActivityLog } from './prune-activity-log.js'
+import { publishStatusNote } from './publish-status-note.js'
 import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
 
@@ -62,6 +63,14 @@ export function startScheduler(): void {
   setInterval(async () => {
     try { await pruneActivityLog() } catch (e) { logger.error(e, 'Activity-log prune error') }
   }, SIX_HOURS_MS)
+
+  // The bot's own notes. Checked hourly rather than on the publishing interval itself,
+  // because the job decides for itself whether anything is due — the interval is the
+  // floor between status notes, not the tick rate — and the pinned intro should pick up
+  // a config change without waiting out a whole week.
+  setInterval(async () => {
+    try { await publishStatusNote() } catch (e) { logger.error(e, 'Status-note publish error') }
+  }, 60 * 60_000)
 
   logger.info({ scrobbleIntervalSeconds: config.LASTFM_SYNC_INTERVAL_SECONDS }, 'Scheduler started')
 }
