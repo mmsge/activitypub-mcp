@@ -24,3 +24,4 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | [0011](0011-one-ingest-path-for-create-announce-update.md) | One ingest path for Create/Announce/Update, plus a repair job for marks the old paths dropped |
 | [0012](0012-surface-the-mark-shelf-date.md) | Store the mark's shelf date (`watched_at`) as its own column, and let `get_watched` filter and sort on it |
 | [0013](0013-hide-media-rows-instead-of-deleting.md) | Hide catalogue rows with `hidden_at` instead of deleting them, and default every public tool to excluding them |
+| [0014](0014-make-the-account-visible-over-activitypub.md) | Make the account visible: complete the discovery surface, and publish notes the actor actually wrote (the outbox was serving the inbox archive) |

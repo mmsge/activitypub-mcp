@@ -51,4 +51,45 @@ describe('renderProfilePage', () => {
     const matches = html.match(/\/assets\/avatar\.png\?v=[0-9a-f]{12}/g) ?? []
     expect(matches.length).toBeGreaterThanOrEqual(2)
   })
+
+  it('says what it posts, rather than claiming an outbox that is no longer empty', () => {
+    // The page used to promise "Postar ingenting. Utboksen er tom." while the outbox
+    // republished the archive. It now posts status notes, and says so.
+    expect(html).toContain('Postar berre om seg sjølv')
+    expect(html).not.toContain('Utboksen er tom')
+    expect(html).toContain('https://test.local/actor/outbox')
+  })
+
+  it('leaves out the notes section entirely when nothing is published', () => {
+    // An empty heading reads like something broke.
+    expect(html).not.toContain('Siste innlegg')
+  })
+})
+
+describe('renderProfilePage with notes', () => {
+  const note = {
+    id: '11111111-2222-4333-8444-555555555555',
+    kind: 'intro',
+    content: '<p>Dette er ein personleg ActivityPub-bot.</p>',
+    contentText: 'Dette er ein personleg ActivityPub-bot.',
+    digest: 'deadbeefdeadbeef',
+    pinned: true,
+    publishedAt: new Date('2026-05-02T10:00:00.000Z'),
+    updatedAt: new Date('2026-05-02T10:00:00.000Z'),
+  }
+
+  it('lists them, marks the pinned one, and links each permalink', () => {
+    const html = renderProfilePage([note])
+    expect(html).toContain('Siste innlegg')
+    expect(html).toContain('<p>Dette er ein personleg ActivityPub-bot.</p>')
+    expect(html).toContain('class="pin">Festa<')
+    expect(html).toContain(`href="https://test.local/notes/${note.id}"`)
+    expect(html).toContain('datetime="2026-05-02T10:00:00.000Z"')
+  })
+
+  it('flags an edited note, and only an edited one', () => {
+    expect(renderProfilePage([note])).not.toContain('Endra')
+    const edited = { ...note, updatedAt: new Date('2026-06-01T10:00:00.000Z') }
+    expect(renderProfilePage([edited])).toContain('Endra')
+  })
 })

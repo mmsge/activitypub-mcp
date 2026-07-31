@@ -1994,16 +1994,28 @@ paths:
       tags: [Discovery]
       summary: WebFinger lookup
       description: |
-        Resolves an `acct:` URI to the bot's actor document. Only the bot's own account
+        Resolves the bot's account to its actor document. Only the bot's own account
         resolves. The response also links the human-readable profile page
         (`profile-page`) and the avatar.
+
+        Accepts any spelling of the account, case-insensitively: the `acct:` URI, the
+        bare `user@domain` handle, and the actor's URLs (`/actor`, `/@{username}`,
+        `/users/{username}`). `subject` is always returned in the canonical `acct:`
+        form, whichever was asked for.
       operationId: webfinger
       security: []
       parameters:
         - name: resource
           in: query
           required: true
-          description: "Account URI, e.g. `acct:bot@bot.skvip.lol`."
+          description: "Account URI or handle, e.g. `acct:bot@bot.skvip.lol`."
+          schema: { type: string }
+        - name: rel
+          in: query
+          required: false
+          description: |
+            Narrows the response to the given link relations. May be repeated. An
+            unmatched value returns the subject with an empty `links` array.
           schema: { type: string }
       responses:
         "200":
@@ -2022,11 +2034,59 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
 
-  /nodeinfo:
+  /.well-known/host-meta:
+    get:
+      tags: [Discovery]
+      summary: Host-meta (XRD)
+      description: |
+        The pre-WebFinger discovery hop, carrying the LRDD template that points at
+        `/.well-known/webfinger`. Friendica, GNU Social and several WebFinger clients
+        fetch this first and give up on the account when it 404s.
+      operationId: hostMeta
+      security: []
+      responses:
+        "200":
+          description: XRD document.
+          content:
+            application/xrd+xml:
+              schema: { type: string }
+
+  /.well-known/host-meta.json:
+    get:
+      tags: [Discovery]
+      summary: Host-meta (JRD)
+      description: The same LRDD template as `/.well-known/host-meta`, as JSON.
+      operationId: hostMetaJson
+      security: []
+      responses:
+        "200":
+          description: JRD document.
+          content:
+            application/jrd+json:
+              schema: { $ref: "#/components/schemas/HostMetaJrd" }
+
+  /.well-known/nodeinfo:
     get:
       tags: [Discovery]
       summary: NodeInfo discovery
-      description: Points to the NodeInfo 2.0 document.
+      description: |
+        Points to the NodeInfo 2.0 and 2.1 documents. This is where the fediverse
+        crawlers and instance-info lookups probe; the same document is also served at
+        the bare `/nodeinfo` path.
+      operationId: nodeinfoWellKnown
+      security: []
+      responses:
+        "200":
+          description: NodeInfo link document.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NodeInfoLinks" }
+
+  /nodeinfo:
+    get:
+      tags: [Discovery]
+      summary: NodeInfo discovery (alias)
+      description: Identical to `/.well-known/nodeinfo`.
       operationId: nodeinfoIndex
       security: []
       responses:
@@ -2034,16 +2094,7 @@ paths:
           description: NodeInfo link document.
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  links:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        rel: { type: string }
-                        href: { type: string, format: uri }
+              schema: { $ref: "#/components/schemas/NodeInfoLinks" }
 
   /nodeinfo/2.0:
     get:
@@ -2057,6 +2108,20 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/NodeInfo20" }
+
+  /nodeinfo/2.1:
+    get:
+      tags: [Discovery]
+      summary: NodeInfo 2.1 document
+      description: NodeInfo 2.0 plus `software.repository`, which the 2.0 schema forbids.
+      operationId: nodeinfo21
+      security: []
+      responses:
+        "200":
+          description: NodeInfo 2.1 document.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NodeInfo21" }
 
   # ------------------------------------------------------------ ActivityPub
   /actor:
@@ -2235,20 +2300,80 @@ paths:
     get:
       tags: [ActivityPub]
       summary: Actor outbox
-      description: Paginated feed of received/archived activities as an `OrderedCollectionPage` (20 per page, newest-first).
+      description: |
+        The notes the bot wrote itself, wrapped in public `Create` activities — the only
+        content it ever publishes. The archive of the followed accounts' posts is
+        private and never appears here.
+
+        Without `page` this is the `OrderedCollection` itself, carrying `totalItems`,
+        `first` and `last`. With `page` it is an `OrderedCollectionPage` (20 per page,
+        newest-first) carrying `partOf` and, where applicable, `next` and `prev`.
+
+        Also served under the Mastodon-style `/users/{username}/outbox` alias, which
+        answers with the same canonical ids.
       operationId: getOutbox
       security: []
       parameters:
         - name: page
           in: query
-          description: Zero-indexed page number.
-          schema: { type: integer, minimum: 0, default: 0 }
+          description: One-indexed page number. Omit to get the collection itself.
+          schema: { type: integer, minimum: 1 }
       responses:
         "200":
-          description: Ordered collection page.
+          description: Ordered collection, or one page of it.
           content:
             application/activity+json:
-              schema: { $ref: "#/components/schemas/OrderedCollectionPage" }
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/OrderedCollection"
+                  - $ref: "#/components/schemas/OrderedCollectionPage"
+
+  /actor/featured:
+    get:
+      tags: [ActivityPub]
+      summary: Featured (pinned) collection
+      description: |
+        The bot's pinned notes, embedded rather than listed as bare URIs. Mastodon
+        fetches this whenever it discovers or refreshes the account and renders what it
+        finds at the top of the profile — the one route by which a note of ours reaches
+        someone else, given the bot has no followers to deliver to.
+
+        Also served under `/users/{username}/featured`.
+      operationId: getFeatured
+      security: []
+      responses:
+        "200":
+          description: Ordered collection of `Note` objects.
+          content:
+            application/activity+json:
+              schema: { $ref: "#/components/schemas/OrderedCollection" }
+
+  /notes/{id}:
+    get:
+      tags: [ActivityPub]
+      summary: A single note
+      description: |
+        One of the bot's own notes. This URL is both the note's ActivityPub `id` and its
+        web address, so it defaults to the ActivityPub object: a server dereferencing
+        the id may send nothing more specific than `Accept: */*`, and HTML would fail
+        ingestion. A request whose `Accept` includes `text/html` gets a readable page.
+      operationId: getNote
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The note, as ActivityPub JSON or as HTML.
+          content:
+            application/activity+json:
+              schema: { type: object }
+            text/html:
+              schema: { type: string }
+        "404":
+          description: No such note.
 
   /actor/followers:
     get:
@@ -3317,6 +3442,31 @@ components:
               type: { type: string }
               href: { type: string, format: uri }
 
+    HostMetaJrd:
+      type: object
+      properties:
+        links:
+          type: array
+          items:
+            type: object
+            properties:
+              rel: { type: string, example: lrdd }
+              type: { type: string, example: application/jrd+json }
+              template:
+                type: string
+                example: https://bot.skvip.lol/.well-known/webfinger?resource={uri}
+
+    NodeInfoLinks:
+      type: object
+      properties:
+        links:
+          type: array
+          items:
+            type: object
+            properties:
+              rel: { type: string }
+              href: { type: string, format: uri }
+
     NodeInfo20:
       type: object
       properties:
@@ -3329,6 +3479,12 @@ components:
         protocols:
           type: array
           items: { type: string }
+        services:
+          type: object
+          description: Required by the schema even when empty — this host bridges no third-party service.
+          properties:
+            inbound: { type: array, items: { type: string } }
+            outbound: { type: array, items: { type: string } }
         usage:
           type: object
           properties:
@@ -3336,8 +3492,30 @@ components:
               type: object
               properties:
                 total: { type: integer }
-            localPosts: { type: integer }
+                activeMonth: { type: integer }
+                activeHalfyear: { type: integer }
+            localPosts:
+              type: integer
+              description: Notes the bot has published. 0 if the database is unreachable.
         openRegistrations: { type: boolean }
+        metadata:
+          type: object
+          properties:
+            nodeName: { type: string }
+            nodeDescription: { type: string }
+
+    NodeInfo21:
+      allOf:
+        - $ref: "#/components/schemas/NodeInfo20"
+        - type: object
+          properties:
+            version: { type: string, example: "2.1" }
+            software:
+              type: object
+              properties:
+                name: { type: string }
+                version: { type: string }
+                repository: { type: string, format: uri }
 
     Actor:
       type: object

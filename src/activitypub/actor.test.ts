@@ -34,7 +34,15 @@ describe('buildActorDocument', () => {
       PropertyValue: 'schema:PropertyValue',
       value: 'schema:value',
       discoverable: 'toot:discoverable',
+      indexable: 'toot:indexable',
     })
+    expect(ctx.featured).toMatchObject({ '@id': 'toot:featured', '@type': '@id' })
+  })
+
+  it('opts in to search indexing', () => {
+    // Mastodon 4.2+ reads a missing `indexable` as a no and keeps the profile out of
+    // search entirely, which is most of why this account was invisible.
+    expect(doc.indexable).toBe(true)
   })
 
   it('publishes a truthful join date', () => {
@@ -48,6 +56,10 @@ describe('buildActorDocument', () => {
     expect(doc.summary).toContain('arkiverer ingenting om deg')
     expect(doc.summary).not.toContain('lagrar ingenting')
     expect(doc.summary).toContain('vert avviste automatisk')
+  })
+
+  it('says it posts about itself, since the outbox is no longer empty', () => {
+    expect(doc.summary).toContain('Sjølv postar han berre korte statusmeldingar om seg sjølv')
   })
 
   it('carries at most four metadata fields, the most Mastodon will show', () => {
@@ -79,6 +91,9 @@ describe('buildActorDocument', () => {
     expect(doc.outbox).toBe('https://test.local/actor/outbox')
     expect(doc.followers).toBe('https://test.local/actor/followers')
     expect(doc.following).toBe('https://test.local/actor/following')
+    // Mastodon fetches `featured` on every profile refresh; it is how the pinned intro
+    // note reaches a profile we have no followers to deliver to.
+    expect(doc.featured).toBe('https://test.local/actor/featured')
     expect(doc.endpoints.sharedInbox).toBe('https://test.local/inbox')
     expect(doc.publicKey.id).toBe('https://test.local/actor#main-key')
     expect(doc.publicKey.publicKeyPem).toContain('BEGIN PUBLIC KEY')

@@ -20,6 +20,13 @@ const schema = z.object({
   // from actors we do not follow; the actor profile promises we keep nothing about
   // them, so it is pruned on a schedule. 0 disables pruning (keeps forever).
   ACTIVITY_LOG_RETENTION_DAYS: z.coerce.number().int().min(0).default(30),
+  // How often the bot publishes a status note about its own archive, in hours. It has
+  // no followers to deliver to, so these notes exist to give the account something
+  // real to show: they sit in the outbox, on the profile page, and — for the pinned
+  // intro — in the `featured` collection Mastodon reads on every profile refresh.
+  // An unchanged status never reposts regardless of this interval. 0 disables them,
+  // leaving only the pinned intro.
+  STATUS_NOTE_INTERVAL_HOURS: z.coerce.number().int().min(0).default(168),
   ADMIN_PASSWORD_HASH: z.string().min(1),
   SESSION_SECRET: z.string().min(32),
   REST_API_KEY: z.string().default(''),
