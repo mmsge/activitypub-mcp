@@ -1054,6 +1054,70 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/scrobble-race:
+    get:
+      tags: [REST API]
+      summary: Head-to-head standings between two artists
+      description:
+        Exact all-time play counts for two artists, the gap between them, plays
+        needed to level and to overtake, plays/day over a trailing window, and a
+        projected crossover date. Defaults to the configured race; pass leader and
+        challenger to race any two artists. Artist names are matched EXACTLY here,
+        unlike `/scrobble-stats`, which does a substring match.
+      operationId: getScrobbleRace
+      parameters:
+        - {
+            name: leader,
+            in: query,
+            description: Exact artist name of the artist in front.,
+            schema: { type: string },
+          }
+        - {
+            name: challenger,
+            in: query,
+            description: Exact artist name of the artist catching up.,
+            schema: { type: string },
+          }
+        - {
+            name: pace_days,
+            in: query,
+            description: Trailing window used for plays/day and the projection.,
+            schema: { type: integer, minimum: 1, maximum: 3650, default: 90 },
+          }
+      responses:
+        "200":
+          description: Current standings in the race.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScrobbleRaceResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Head-to-head standings between two artists (JSON body)
+      operationId: getScrobbleRacePost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                leader: { type: string }
+                challenger: { type: string }
+                pace_days:
+                  { type: integer, minimum: 1, maximum: 3650, default: 90 }
+      responses:
+        "200":
+          description: Current standings in the race.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScrobbleRaceResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/now-playing:
     get:
       tags: [REST API]
@@ -3165,6 +3229,52 @@ components:
           properties:
             from: { type: [string, "null"] }
             to: { type: [string, "null"] }
+
+    ScrobbleRaceResponse:
+      type: object
+      properties:
+        leader: { $ref: "#/components/schemas/RaceSide" }
+        challenger: { $ref: "#/components/schemas/RaceSide" }
+        gap:
+          type: integer
+          description: Leader's plays minus the challenger's. Negative once passed.
+        leader_ahead: { type: boolean }
+        plays_to_level: { type: integer }
+        plays_to_overtake: { type: integer }
+        pace:
+          type: object
+          properties:
+            window_days: { type: integer }
+            leader_plays_per_day: { type: number }
+            challenger_plays_per_day: { type: number }
+            net_closing_per_day: { type: number }
+            projected_crossover_date:
+              type: [string, "null"]
+              format: date
+              description: Null when the gap is not closing.
+            projected_days: { type: [integer, "null"] }
+        notifications:
+          type: object
+          description: State of the ntfy watcher for the configured pairing.
+          properties:
+            armed: { type: boolean }
+            topic: { type: [string, "null"] }
+            last_milestone: { type: [integer, "null"] }
+            next_milestone: { type: [integer, "null"] }
+            endgame_gap: { type: integer }
+            endgame_armed: { type: boolean }
+            overtaken_at: { type: [string, "null"], format: date-time }
+        error:
+          type: string
+          description: Present when no race is configured and none was given.
+
+    RaceSide:
+      type: object
+      properties:
+        artist: { type: string }
+        plays: { type: integer }
+        last_played_at: { type: [string, "null"], format: date-time }
+        last_track: { type: [string, "null"] }
 
     Trip:
       type: object

@@ -402,6 +402,33 @@ export const scrobbles = pgTable('scrobbles', {
   uniqueIndex('scrobbles_dedupe_idx').on(t.playedAt, t.trackName, t.artistName),
 ])
 
+// Watcher state for the head-to-head scrobble race (see src/lib/scrobble-race.ts).
+// One row per artist pairing, so re-pointing RACE_* at a different pair starts a
+// fresh race instead of inheriting the old one's fired milestones.
+export const scrobbleRaceState = pgTable('scrobble_race_state', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  leaderArtist: text('leader_artist').notNull(),
+  challengerArtist: text('challenger_artist').notNull(),
+  leaderPlays: integer('leader_plays').notNull(),
+  challengerPlays: integer('challenger_plays').notNull(),
+  // Tightest milestone already announced. Ratchets downward only — the leader
+  // pulling ahead again must not re-announce a milestone already spent.
+  lastMilestone: integer('last_milestone'),
+  // Gap at the last per-play (endgame) alert, so a sync with nothing new stays quiet.
+  lastAnnouncedGap: integer('last_announced_gap'),
+  // Set once, when the challenger draws level or goes ahead. Its presence makes the
+  // watcher inert: the race is run, and later plays are just plays.
+  overtakenAt: timestamp('overtaken_at', { withTimezone: true }),
+  // The now-playing track the predictive alert already fired for, so a four-minute
+  // song doesn't produce an alert on every poll. The timestamp re-arms it after a
+  // while, so genuinely putting the same song on again does alert again.
+  lastNowPlayingKey: text('last_nowplaying_key'),
+  lastNowPlayingAt: timestamp('last_nowplaying_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('scrobble_race_pair_idx').on(t.leaderArtist, t.challengerArtist),
+])
+
 // Point-in-time favourite/boost/reply counts for public statuses, read live from
 // each status's ORIGIN instance by the get_engagement tool (REST /api/v1/statuses/:id
 // first, ActivityPub collection totals as fallback). One row per successful read,

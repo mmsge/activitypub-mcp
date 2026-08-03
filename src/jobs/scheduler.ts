@@ -1,6 +1,8 @@
 import { runDeliveryWorker } from './deliver.js'
 import { refreshStaleActors } from './refresh-actors.js'
 import { syncScrobbles } from './sync-scrobbles.js'
+import { runScrobbleRace } from './scrobble-race.js'
+import { checkRaceNowPlaying } from './scrobble-race-nowplaying.js'
 import { syncBookMetadata } from './sync-book-metadata.js'
 import { syncNeodbMetadata } from './sync-neodb-metadata.js'
 import { syncReadingHistory } from './sync-reading-history.js'
@@ -24,11 +26,25 @@ export function startScheduler(): void {
     try { await refreshStaleActors() } catch (e) { logger.error(e, 'Actor refresh error') }
   }, 60 * 60_000)
 
-  // Last.fm scrobble sync — interval configurable via LASTFM_SYNC_INTERVAL_SECONDS (default 60s)
+  // Last.fm scrobble sync — interval configurable via LASTFM_SYNC_INTERVAL_SECONDS
+  // (default 60s). The race watcher is chained to the sync rather than given its own
+  // timer: it reacts to rows the sync just wrote, so an independent interval would
+  // only add a window in which it reads stale counts.
   const scrobbleIntervalMs = config.LASTFM_SYNC_INTERVAL_SECONDS * 1_000
   setInterval(async () => {
-    try { await syncScrobbles() } catch (e) { logger.error(e, 'Scrobble sync error') }
+    try {
+      await syncScrobbles()
+      await runScrobbleRace()
+    } catch (e) { logger.error(e, 'Scrobble sync error') }
   }, scrobbleIntervalMs)
+
+  // Live now-playing watch for the endgame of the scrobble race. Outside the endgame
+  // this is one indexed row read and no API call, so a short interval is cheap.
+  if (config.RACE_ENDGAME_GAP > 0) {
+    setInterval(async () => {
+      try { await checkRaceNowPlaying() } catch (e) { logger.error(e, 'Scrobble race now-playing error') }
+    }, config.RACE_NOWPLAYING_INTERVAL_SECONDS * 1_000)
+  }
 
   // Reading-history outbox backfill + book metadata enrichment — every 6 hours.
   // History first so newly-ingested books are present when metadata enrichment

@@ -15,6 +15,7 @@ import { restRouter } from './rest/router.js'
 import { startScheduler } from './jobs/scheduler.js'
 import { syncFollows } from './jobs/sync-follows.js'
 import { syncScrobbles } from './jobs/sync-scrobbles.js'
+import { runScrobbleRace } from './jobs/scrobble-race.js'
 import { syncBookMetadata } from './jobs/sync-book-metadata.js'
 import { syncNeodbMetadata } from './jobs/sync-neodb-metadata.js'
 import { syncReadingHistory } from './jobs/sync-reading-history.js'
@@ -73,9 +74,12 @@ async function main() {
     logger.error(e, 'Follow sync failed on startup')
   }
 
-  // Ingest Last.fm scrobbles (backfill on first run, incremental after)
+  // Ingest Last.fm scrobbles (backfill on first run, incremental after), then settle
+  // the scrobble race against what just landed — so a restart seeds or catches up
+  // before the port binds, rather than a minute later.
   try {
     await syncScrobbles()
+    await runScrobbleRace()
   } catch (e) {
     logger.error(e, 'Scrobble sync failed on startup')
   }
