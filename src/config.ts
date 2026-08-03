@@ -36,6 +36,27 @@ const schema = z.object({
   // sync is a single lightweight API call, so this can run frequently; the floor
   // of 15s keeps us well within Last.fm's rate limits.
   LASTFM_SYNC_INTERVAL_SECONDS: z.coerce.number().int().min(15).default(60),
+  // ntfy push target. The broker lives in the hetzner-server Compose project, so we
+  // reach it over its public URL rather than the internal `proxy` network. Auth is
+  // HTTP basic as the single shared `markus` user (hetzner-server ADR 0011); an empty
+  // NTFY_PASSWORD leaves every push a logged no-op, so the feature is inert until the
+  // password is present in /srv/bot/.env.
+  NTFY_URL: z.string().default('https://n.msge.no'),
+  NTFY_TOPIC: z.string().default('scrobble-race'),
+  NTFY_USER: z.string().default('markus'),
+  NTFY_PASSWORD: z.string().default(''),
+  // Head-to-head scrobble race: watch the challenger close on the leader and push an
+  // ntfy alert as the gap shrinks. Exact artist names as Last.fm scrobbles them
+  // ("Taylor Swift", "Maisie Peters"). Either one empty disables both race jobs.
+  RACE_LEADER_ARTIST: z.string().default(''),
+  RACE_CHALLENGER_ARTIST: z.string().default(''),
+  // Gap values that each fire a one-off milestone alert. Below the smallest of them,
+  // every play that moves the gap gets its own alert.
+  RACE_MILESTONES: z.string().default('300,250,200,150,100,75,50,25,20,15,10'),
+  // Gap at or below which the live now-playing watcher arms itself. Above it that job
+  // costs one DB read and zero Last.fm calls, so its interval can stay short.
+  RACE_ENDGAME_GAP: z.coerce.number().int().min(0).default(3),
+  RACE_NOWPLAYING_INTERVAL_SECONDS: z.coerce.number().int().min(20).default(30),
   // BookWyrm actors (comma-separated @user@domain or actor URLs) whose outbox the
   // reading-history backfill walks for finished/started/review/rating posts. These
   // are typically also in FOLLOW_ACTORS; listed separately so we only crawl the
@@ -143,6 +164,26 @@ export function getActorPublished(raw: string = config.ACTOR_PUBLISHED): string 
   if (!trimmed) return null
   const d = new Date(trimmed)
   return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
+
+/** The configured race, or null when either racer is unset or they're the same artist
+ *  — the off-switch, mirroring the LASTFM_API_KEY-empty precedent in syncScrobbles(). */
+export function getScrobbleRacers(): { leader: string; challenger: string } | null {
+  const leader = config.RACE_LEADER_ARTIST.trim()
+  const challenger = config.RACE_CHALLENGER_ARTIST.trim()
+  if (!leader || !challenger || leader === challenger) return null
+  return { leader, challenger }
+}
+
+/** RACE_MILESTONES parsed into a descending list of positive gap values. Invalid or
+ *  duplicate entries are dropped rather than failing boot — a typo in one milestone
+ *  should not take the whole service down. */
+export function getRaceMilestones(raw: string = config.RACE_MILESTONES): number[] {
+  const values = raw
+    .split(',')
+    .map(s => Number(s.trim()))
+    .filter(n => Number.isInteger(n) && n > 0)
+  return [...new Set(values)].sort((a, b) => b - a)
 }
 
 export function getBookwyrmActors(): string[] {

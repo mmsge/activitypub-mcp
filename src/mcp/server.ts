@@ -9,6 +9,7 @@ import { getReadingEventsSchema, getReadingEvents } from './tools/reading-events
 import { getReadingStatsSchema, getReadingStats } from './tools/reading-stats.js'
 import { getReadingPaceSchema, getReadingPace } from './tools/reading-pace.js'
 import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleStats } from './tools/scrobbles.js'
+import { getScrobbleRaceSchema, getScrobbleRace } from './tools/scrobble-race.js'
 import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
 import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats } from './tools/train-trips.js'
 import { getGardenPagesSchema, getGardenPages } from './tools/garden-pages.js'
@@ -142,6 +143,16 @@ export function createMcpServer(): McpServer {
     getScrobbleStatsSchema.shape,
     async (input) => {
       const result = await getScrobbleStats(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_scrobble_race',
+    "Head-to-head standings between two artists in the Last.fm scrobble history: exact all-time play counts, the gap, plays needed to level and to overtake, plays/day over a trailing window, and a projected crossover date. Defaults to the configured race (RACE_LEADER_ARTIST vs RACE_CHALLENGER_ARTIST) — pass leader/challenger to race any two artists. Artist names are matched EXACTLY here, unlike get_scrobble_stats, which does a substring match.",
+    getScrobbleRaceSchema.shape,
+    async (input) => {
+      const result = await getScrobbleRace(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

@@ -434,6 +434,7 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_recent_activities` | "What has come in recently?" |
 | `get_scrobbles` | "What did I listen to yesterday? Show my Aphex Twin scrobbles." |
 | `get_scrobble_stats` | "Who are my top artists this month? How many tracks have I scrobbled?" |
+| `get_scrobble_race` | "How far behind Taylor Swift is Maisie Peters? When will she overtake?" |
 | `get_reading_events` | "Show my reading timeline. When did I start and finish each book? What have I quoted?" |
 | `get_reading_stats` | "What's the average length of the books I read in 2026? How many pages have I read this year? Which subjects do I read most?" |
 | `get_reading_pace` | "How fast do I read? Which books did I read in parallel? What have I reread?" |
@@ -465,6 +466,21 @@ without paginating backward through thousands of rows:
 - **Deep traversal:** each `get_scrobbles` response includes a `next_cursor` token (a `played_at`-based
   keyset cursor, `null` when exhausted). Pass it back as `cursor` to continue from where the last page
   ended — far cheaper than large offsets. Offset-based `page` remains available for compatibility.
+
+#### The scrobble race
+
+Two artists can be watched head-to-head: `get_scrobble_race` reports their exact all-time
+counts, the gap, the recent closing rate and a projected crossover date. Set
+`RACE_LEADER_ARTIST` and `RACE_CHALLENGER_ARTIST` (plus `NTFY_PASSWORD`) and a background
+watcher also pushes to ntfy as the gap closes: one alert per milestone in
+`RACE_MILESTONES`, then an alert on every play once inside the smallest of them, then —
+while the gap is within `RACE_ENDGAME_GAP` — a live alert naming the track playing *right
+now* as the one that will tie or win it, before it has even scrobbled. The first run after
+enabling it seeds state silently, so switching it on mid-race never replays the ladder.
+
+Artist names are matched **exactly** here, unlike the substring filters on `get_scrobbles`
+and `get_scrobble_stats`: a countdown that reaches zero must not have its finish line moved
+by a stray collaboration credit. See decision record 0015.
 
 ### Watch dates
 
@@ -570,6 +586,7 @@ All paths accept `GET`, `QUERY`, and `POST`.
 | `/reading-events` | `get_reading_events` | `actor_handle`, `event_type`, `limit`, `since`, `sort_order`, `cursor` |
 | `/scrobbles` | `get_scrobbles` | `artist`, `album`, `track`, `from`, `to`, `since`, `sort_order`, `limit`, `page`, `cursor` |
 | `/scrobble-stats` | `get_scrobble_stats` | `artist`, `album`, `track`, `from`, `to`, `since`, `group_by`, `limit` |
+| `/scrobble-race` | `get_scrobble_race` | `leader`, `challenger`, `pace_days` |
 | `/reading-stats` | `get_reading_stats` | `actor_handle`, `status`, `year`, `from`, `to`, `format`, `author`, `rating`, `group_by`, `limit` |
 | `/reading-pace` | `get_reading_pace` | `actor_handle`, `year`, `from`, `to`, `sort`, `limit` |
 | `/books` | `get_books` | `title`, `format`, `language`, `series`, `subject`, `sort_order`, `limit`, `page`, `cursor` |

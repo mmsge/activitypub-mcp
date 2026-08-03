@@ -29,6 +29,7 @@ import {
   getHashtagStatsSchema, getHashtagStats,
   getHashtagTrendsSchema, getHashtagTrends,
 } from '../mcp/tools/hashtag-stats.js'
+import { getScrobbleRaceSchema, getScrobbleRace } from '../mcp/tools/scrobble-race.js'
 import {
   getEngagementSchema, getEngagement,
   getEngagementTrendsSchema, getEngagementTrends,
@@ -171,6 +172,16 @@ export const endpoints: RestEndpoint[] = [
     schema: getScrobbleStatsSchema,
     handler: getScrobbleStats,
     numbers: ['limit'],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/scrobble-race',
+    name: 'get_scrobble_race',
+    description: 'Head-to-head standings between two artists in the scrobble history: exact all-time play counts, the gap, plays needed to level and to overtake, plays/day over a trailing window, and a projected crossover date. Defaults to the configured race; pass leader/challenger to race any two artists. Artist names are matched EXACTLY here, unlike /scrobble-stats.',
+    schema: getScrobbleRaceSchema,
+    handler: getScrobbleRace,
+    numbers: ['pace_days'],
     booleans: [],
     arrays: [],
   },
