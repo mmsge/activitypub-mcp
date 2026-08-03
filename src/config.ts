@@ -53,9 +53,16 @@ const schema = z.object({
   // Gap values that each fire a one-off milestone alert. Below the smallest of them,
   // every play that moves the gap gets its own alert.
   RACE_MILESTONES: z.string().default('300,250,200,150,100,75,50,25,20,15,10'),
-  // Gap at or below which the live now-playing watcher arms itself. Above it that job
-  // costs one DB read and zero Last.fm calls, so its interval can stay short.
-  RACE_ENDGAME_GAP: z.coerce.number().int().min(0).default(3),
+  // Gap at or below which the live now-playing watcher arms itself, naming the track
+  // playing right now as the one about to tie or win. 0 (the default) disables it.
+  //
+  // It is off by default because it only works if your scrobbler sends Last.fm the
+  // `track.updateNowPlaying` call — a SEPARATE submission from the scrobble itself,
+  // which many players skip entirely. Verify before enabling it: play something and
+  // check that get_now_playing returns nowPlaying:true. If it doesn't, this job
+  // polls Last.fm forever for a signal that never arrives; the armed alerts at gap
+  // 1 and 0 cover the same ground off scrobbles alone. See decision record 0016.
+  RACE_ENDGAME_GAP: z.coerce.number().int().min(0).default(0),
   RACE_NOWPLAYING_INTERVAL_SECONDS: z.coerce.number().int().min(20).default(30),
   // BookWyrm actors (comma-separated @user@domain or actor URLs) whose outbox the
   // reading-history backfill walks for finished/started/review/rating posts. These

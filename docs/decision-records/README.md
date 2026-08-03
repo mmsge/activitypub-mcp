@@ -26,3 +26,4 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | [0013](0013-hide-media-rows-instead-of-deleting.md) | Hide catalogue rows with `hidden_at` instead of deleting them, and default every public tool to excluding them |
 | [0014](0014-make-the-account-visible-over-activitypub.md) | Make the account visible: complete the discovery surface, and publish notes the actor actually wrote (the outbox was serving the inbox archive) |
 | [0015](0015-scrobble-race-notifications.md) | Notify a head-to-head scrobble race: exact artist matching, a one-way milestone ladder, and state that only advances on a delivered push |
+| [0016](0016-arm-the-race-one-play-early.md) | Arm the decisive race alerts one play early (scrobblers don't report now-playing), and never treat a dead heat as the finish |

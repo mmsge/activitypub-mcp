@@ -54,6 +54,12 @@ describe('decideRaceAlert — seeding', () => {
     expect(d.message).toBeNull()
     expect(d.state.overtakenAt).toEqual(NOW)
   })
+
+  it('seeds a dead heat as still live — level is not won', () => {
+    const d = decideRaceAlert(snap(10_439, 10_439), null, MILESTONES, NOW)
+    expect(d.message).toBeNull()
+    expect(d.state.overtakenAt).toBeNull()
+  })
 })
 
 describe('decideRaceAlert — milestones', () => {
@@ -141,16 +147,49 @@ describe('decideRaceAlert — endgame', () => {
   })
 })
 
-describe('decideRaceAlert — the finish', () => {
-  it('calls a dead heat when the counts level', () => {
-    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_438, lastMilestone: 10, lastAnnouncedGap: 1 })
-    const d = decideRaceAlert(snap(10_439, 10_439), prev, MILESTONES, NOW)
-    expect(d.kind).toBe('overtake')
-    expect(d.message?.title).toBe('Dead heat')
+describe('decideRaceAlert — the armed rungs', () => {
+  // The scrobbler reports what finished playing, never what is about to start, so the
+  // only honest "this one wins it" is one play early.
+  it('warns at 1 that the next play levels it', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_437, lastMilestone: 10, lastAnnouncedGap: 2 })
+    const d = decideRaceAlert(snap(10_439, 10_438), prev, MILESTONES, NOW)
+    expect(d.kind).toBe('armed')
     expect(d.message?.priority).toBe('max')
-    expect(d.state.overtakenAt).toEqual(NOW)
+    expect(d.message?.body).toContain('One more Maisie Peters play levels it')
   })
 
+  it('arms you at a dead heat: the next play you choose takes #1', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_438, lastMilestone: 10, lastAnnouncedGap: 1 })
+    const d = decideRaceAlert(snap(10_439, 10_439), prev, MILESTONES, NOW)
+    expect(d.kind).toBe('level')
+    expect(d.message?.title).toBe('Next Maisie Peters song wins it')
+    expect(d.message?.body).toContain('play next takes the all-time #1')
+    expect(d.message?.priority).toBe('max')
+  })
+
+  // The bug this replaced: a dead heat set overtakenAt, the watcher went inert, and
+  // the actual overtake — the alert the whole feature exists for — never fired.
+  it('stays live through a dead heat and still announces the real overtake', () => {
+    const atOne = state({ leaderPlays: 10_439, challengerPlays: 10_438, lastMilestone: 10, lastAnnouncedGap: 1 })
+    const level = decideRaceAlert(snap(10_439, 10_439), atOne, MILESTONES, NOW)
+    expect(level.state.overtakenAt).toBeNull()
+
+    const ahead = decideRaceAlert(snap(10_439, 10_440), level.state, MILESTONES, NOW)
+    expect(ahead.kind).toBe('overtake')
+    expect(ahead.state.overtakenAt).toEqual(NOW)
+  })
+
+  it('re-arms the dead heat if the leader answers and is caught again', () => {
+    const level = state({ leaderPlays: 10_439, challengerPlays: 10_439, lastMilestone: 10, lastAnnouncedGap: 0 })
+    const answered = decideRaceAlert(snap(10_440, 10_439), level, MILESTONES, NOW)
+    expect(answered.kind).toBe('armed')
+
+    const caught = decideRaceAlert(snap(10_440, 10_440), answered.state, MILESTONES, NOW)
+    expect(caught.kind).toBe('level')
+  })
+})
+
+describe('decideRaceAlert — the finish', () => {
   it('announces the overtake with the track that did it', () => {
     const prev = state({ leaderPlays: 10_439, challengerPlays: 10_439, lastMilestone: 10, lastAnnouncedGap: 0 })
     const d = decideRaceAlert(snap(10_439, 10_440), prev, MILESTONES, NOW)

@@ -44,6 +44,8 @@ export type RaceAlertKind =
   | 'milestone'
   | 'per-play'
   | 'leader-answered'
+  | 'armed'
+  | 'level'
   | 'overtake'
 
 export interface RaceDecision {
@@ -109,7 +111,8 @@ export function decideRaceAlert(
         ...counts,
         lastMilestone: crossed,
         lastAnnouncedGap: gap <= fineZone ? gap : null,
-        overtakenAt: gap <= 0 ? now : null,
+        // Level is not won: seeding at a dead heat must leave the watcher live.
+        overtakenAt: gap < 0 ? now : null,
       },
     }
   }
@@ -130,20 +133,22 @@ export function decideRaceAlert(
     ? crossed
     : prev.lastMilestone
 
-  if (gap <= 0) {
+  // Only a NEGATIVE gap is the finish. A dead heat is not a win, and treating it as
+  // one would set overtakenAt, go inert, and swallow the alert this whole feature
+  // exists for — see decision record 0016.
+  if (gap < 0) {
     const play = snap.latestChallengerPlay
     const days = snap.challengerFirstPlayedAt
       ? Math.round((now.getTime() - snap.challengerFirstPlayedAt.getTime()) / 86_400_000)
       : null
-    const lead = gap === 0
-      ? `${snap.challengerArtist} has drawn level with ${snap.leaderArtist}.`
-      : `${snap.challengerArtist} is your new all-time #1.`
     return {
       kind: 'overtake',
       message: {
-        title: gap === 0 ? 'Dead heat' : `${snap.challengerArtist} takes the lead`,
+        title: `${snap.challengerArtist} takes the lead`,
         body: [
-          play ? `${quote(play.track)} did it at ${oslo(play.playedAt)}. ${lead}` : lead,
+          play
+            ? `${quote(play.track)} did it at ${oslo(play.playedAt)}. ${snap.challengerArtist} is your new all-time #1.`
+            : `${snap.challengerArtist} is your new all-time #1.`,
           standings(snap),
           days != null ? `${num(days)} days after the first play.` : '',
         ].filter(Boolean).join(' '),
@@ -165,11 +170,38 @@ export function decideRaceAlert(
       }
     }
 
+    const play = snap.latestChallengerPlay
+    const nextState = {
+      ...counts, lastMilestone: nextMilestone, lastAnnouncedGap: gap, overtakenAt: null,
+    }
+
+    // The two decisive rungs arm you BEFORE you press play, which is the whole point:
+    // the scrobbler tells us what you finished, never what you're about to start, so
+    // the only honest way to say "this one wins it" is to say it one play early.
+    if (gap <= 1) {
+      const outcome = gap === 0
+        ? `Whatever ${snap.challengerArtist} track you play next takes the all-time #1. Choose it.`
+        : `One more ${snap.challengerArtist} play levels it.`
+      return {
+        kind: gap === 0 ? 'level' : 'armed',
+        message: {
+          title: gap === 0
+            ? `Next ${snap.challengerArtist} song wins it`
+            : `1 to go — next one levels it`,
+          body: `${play ? `${quote(play.track)} — ` : ''}${standings(snap)} ${outcome}`,
+          tags: ['rotating_light'],
+          priority: 'max',
+          click: play?.url ?? undefined,
+        },
+        state: nextState,
+      }
+    }
+
     const widened = prev.lastAnnouncedGap != null && gap > prev.lastAnnouncedGap
-    const play = widened ? snap.latestLeaderPlay : snap.latestChallengerPlay
+    const movedPlay = widened ? snap.latestLeaderPlay : play
     const body = widened
-      ? `${snap.leaderArtist} just scrobbled${play ? ` ${quote(play.track)}` : ''}. ${standings(snap)}`
-      : `${play ? `${quote(play.track)} — ` : ''}${standings(snap)}`
+      ? `${snap.leaderArtist} just scrobbled${movedPlay ? ` ${quote(movedPlay.track)}` : ''}. ${standings(snap)}`
+      : `${movedPlay ? `${quote(movedPlay.track)} — ` : ''}${standings(snap)}`
 
     return {
       kind: widened ? 'leader-answered' : 'per-play',
@@ -178,9 +210,9 @@ export function decideRaceAlert(
         body,
         tags: [widened ? 'arrow_up' : 'fire'],
         priority: widened ? 'default' : 'high',
-        click: play?.url ?? undefined,
+        click: movedPlay?.url ?? undefined,
       },
-      state: { ...counts, lastMilestone: nextMilestone, lastAnnouncedGap: gap, overtakenAt: null },
+      state: nextState,
     }
   }
 
