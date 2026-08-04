@@ -1,4 +1,5 @@
 import { KINDS, isPlatform, type Kind, type Platform } from './sources.js'
+import { osloMonthStart } from './event-date.js'
 import { decodeCursor, InvalidCursorError, type SortOrder } from '../mcp/tools/pagination.js'
 
 /**
@@ -94,17 +95,23 @@ export function parseCursor(raw: string | undefined | null): string | null {
 }
 
 /**
- * Half-open [start, end) bounds for an archive month, in UTC.
+ * Half-open [start, end) bounds for an archive month, on Oslo's calendar.
  *
- * The stream's dates are a mix of real timestamps and dates parsed from
- * day-precision strings normalised to UTC midnight, so the month boundary is UTC
- * too. Using Oslo local time here would pull the last hour of the previous month
- * into the page in summer.
+ * The month has to mean what the page says it means. Every date on the site is
+ * rendered in Oslo and the scrobble lane groups by Oslo day, so bounding the
+ * archive in UTC put entries in a month that contradicted their own printed date —
+ * an entry reading "1. juli" served from `/arkiv/2026/06`, and every scrobble
+ * digest for the 1st filed under the month before. See `osloMonthStart`.
+ *
+ * Garden notes, whose dates are day-precision strings normalised to UTC midnight,
+ * still land correctly: Oslo is east of UTC, so its month starts *before* the UTC
+ * month does and every UTC midnight inside the calendar month falls in the window.
  */
 export function archiveRange(year: number, month: number): { start: Date; end: Date } {
-  const start = new Date(Date.UTC(year, month - 1, 1))
-  const end = new Date(Date.UTC(month === 12 ? year + 1 : year, month === 12 ? 0 : month, 1))
-  return { start, end }
+  return {
+    start: osloMonthStart(year, month),
+    end: osloMonthStart(month === 12 ? year + 1 : year, month === 12 ? 1 : month + 1),
+  }
 }
 
 /**

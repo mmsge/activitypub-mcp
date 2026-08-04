@@ -35,6 +35,58 @@ export function osloDay(at: Date): string {
   return OSLO_YMD.format(at)
 }
 
+const OSLO_WALL = new Intl.DateTimeFormat('en-CA', {
+  timeZone: STREAM_TIMEZONE,
+  hour12: false,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+})
+
+/** How far ahead of UTC Oslo's wall clock is at `at`, in milliseconds. */
+function osloOffsetMs(at: Date): number {
+  const p: Record<string, string> = {}
+  for (const part of OSLO_WALL.formatToParts(at)) p[part.type] = part.value
+  // `hour12: false` reports midnight as "24" in some ICU builds.
+  const wallAsUtc = Date.UTC(
+    Number(p.year),
+    Number(p.month) - 1,
+    Number(p.day),
+    Number(p.hour) % 24,
+    Number(p.minute),
+    Number(p.second),
+  )
+  return wallAsUtc - at.getTime()
+}
+
+/**
+ * The instant at which an Oslo month begins — midnight local, not midnight UTC.
+ *
+ * The stream renders every date in Oslo (`entry.tsx`) and files scrobble digests by
+ * Oslo day, so a UTC month boundary puts entries in an archive month that
+ * contradicts the date printed on them. In summer the last two hours of a UTC month
+ * are already the next month in Oslo: a post at `2026-06-30T23:30Z` reads "1. juli"
+ * on the page and belonged to `/arkiv/2026/06`. The scrobble lane made it worse —
+ * its `event_at` *is* Oslo midnight, so the digest for the 1st of every month landed
+ * in the previous month's archive, every month, all year.
+ *
+ * Derived through `Intl` rather than a fixed +01:00/+02:00 because the offset
+ * depends on the date. The second pass covers the case where the first guess lands
+ * on the other side of a DST transition; month boundaries never do (Norway switches
+ * at 02:00/03:00 on a Sunday, never at midnight on the 1st), but the correction is
+ * cheap and the function should not quietly depend on that.
+ */
+export function osloMonthStart(year: number, month: number): Date {
+  const wall = Date.UTC(year, month - 1, 1)
+  const first = osloOffsetMs(new Date(wall))
+  const utc = wall - first
+  const second = osloOffsetMs(new Date(utc))
+  return new Date(second === first ? utc : wall - second)
+}
+
 /**
  * Parse a hand-written garden frontmatter date. These are authored by hand and vary
  * in precision — "2024", "2024-03", "2024-03-11", and occasionally a full timestamp.
