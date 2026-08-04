@@ -219,6 +219,15 @@ describe('every lane', () => {
     }
   })
 
+  // Regression: the viaduct.world import carries *planned* journeys, and the stream
+  // is ordered by event date — so three months of trips Markus had not taken were
+  // sorting above everything real and filling the front page.
+  it('excludes anything that has not happened yet', () => {
+    for (const [name, build] of ALL) {
+      expect(render(build(ctx())), name).toContain('<= now()')
+    }
+  })
+
   it('applies the archive bound', () => {
     for (const [name, build] of ALL) {
       const sql = render(build(ctx({ year: 2026, month: 8 })))
@@ -281,5 +290,13 @@ describe('mergedCandidateSql', () => {
   it('binds actor ids as parameters, never inlined', () => {
     const { params } = dialect.sqlToQuery(mergedCandidateSql(ctx())!)
     expect(params).toContain('https://skvip.lol/users/markus')
+  })
+})
+
+describe('tripsLane', () => {
+  it('excludes planned journeys — intent is not activity', () => {
+    // The same call as NeoDB wishlists. viaduct.world exports both; 13 planned
+    // trips reaching to October were leading the front page.
+    expect(render(tripsLane(ctx()))).toContain("t.status IS DISTINCT FROM 'Planned'")
   })
 })
