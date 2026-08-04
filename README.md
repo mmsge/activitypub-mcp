@@ -473,10 +473,18 @@ Two artists can be watched head-to-head: `get_scrobble_race` reports their exact
 counts, the gap, the recent closing rate and a projected crossover date. Set
 `RACE_LEADER_ARTIST` and `RACE_CHALLENGER_ARTIST` (plus `NTFY_PASSWORD`) and a background
 watcher also pushes to ntfy as the gap closes: one alert per milestone in
-`RACE_MILESTONES`, then an alert on every play once inside the smallest of them, then —
-while the gap is within `RACE_ENDGAME_GAP` — a live alert naming the track playing *right
-now* as the one that will tie or win it, before it has even scrobbled. The first run after
-enabling it seeds state silently, so switching it on mid-race never replays the ladder.
+`RACE_MILESTONES`, then an alert on every play once inside the smallest of them, then the
+two decisive rungs — at a gap of 1 ("one more levels it") and at a dead heat ("whatever
+you play next takes the all-time #1") — and finally the overtake itself. The first run
+after enabling it seeds state silently, so switching it on mid-race never replays the
+ladder.
+
+The decisive alerts fire **one play early** on purpose. A scrobbler reports what finished
+playing, never what is about to start, so the only honest way to say "this one wins it" is
+to say it before you press play. There is an optional live variant (`RACE_ENDGAME_GAP`,
+off by default) that names the currently-playing track instead — but it only works if your
+scrobbler sends Last.fm the separate `track.updateNowPlaying` call, which many players
+never do. Verify with `get_now_playing` before enabling it. See decision record 0016.
 
 Artist names are matched **exactly** here, unlike the substring filters on `get_scrobbles`
 and `get_scrobble_stats`: a countdown that reaches zero must not have its finish line moved
