@@ -10,12 +10,13 @@ const REAL = [
   '@markus@pixelfed.babb.no|pixelfed',
   '@markus@loops.video|loops',
   '@markus@minreol.dk|neodb',
+  '@markus@rullen.no|rullen',
 ].join(',')
 
 describe('parseSources', () => {
-  it('parses the five real accounts', () => {
+  it('parses the six real accounts', () => {
     const sources = parseSources(REAL)
-    expect(sources).toHaveLength(5)
+    expect(sources).toHaveLength(6)
     expect(sources.map((s) => s.platform)).toEqual([...AP_PLATFORMS])
     expect(sources[0]).toEqual({ handle: '@markus@skvip.lol', platform: 'mastodon', apId: null })
   })
@@ -62,7 +63,7 @@ describe('parseSources', () => {
 
 describe('platform registry', () => {
   it('gives every platform a lane and a Nynorsk label', () => {
-    for (const p of ['mastodon', 'bookwyrm', 'pixelfed', 'loops', 'neodb', 'lastfm', 'tog', 'hage'] as const) {
+    for (const p of ['mastodon', 'bookwyrm', 'pixelfed', 'loops', 'neodb', 'rullen', 'lastfm', 'tog', 'hage'] as const) {
       const info = platformInfo(p)
       expect(info.lane).toBeTruthy()
       expect(info.label).toBeTruthy()
@@ -75,6 +76,8 @@ describe('platform registry', () => {
     expect(platformInfo('mastodon').lane).toBe('posts')
     expect(platformInfo('pixelfed').lane).toBe('posts')
     expect(platformInfo('loops').lane).toBe('posts')
+    // Markus' own server, for railway clips — posts, like the others.
+    expect(platformInfo('rullen').lane).toBe('posts')
     expect(platformInfo('bookwyrm').lane).toBe('reading')
     expect(platformInfo('neodb').lane).toBe('marks')
   })

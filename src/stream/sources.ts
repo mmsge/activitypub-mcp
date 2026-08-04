@@ -15,7 +15,7 @@
  */
 
 /** The five federated platforms. A closed set — an unrecognised slug is a config error. */
-export const AP_PLATFORMS = ['mastodon', 'bookwyrm', 'pixelfed', 'loops', 'neodb'] as const
+export const AP_PLATFORMS = ['mastodon', 'bookwyrm', 'pixelfed', 'loops', 'neodb', 'rullen'] as const
 export type ApPlatform = (typeof AP_PLATFORMS)[number]
 
 /** Local, non-federated sources. Always present; not configurable. */
@@ -53,6 +53,8 @@ const PLATFORM_INFO: Record<Platform, Omit<PlatformInfo, 'platform'>> = {
   mastodon: { lane: 'posts', label: 'Mastodon', linkLabel: 'Mastodon' },
   pixelfed: { lane: 'posts', label: 'Pixelfed', linkLabel: 'Pixelfed' },
   loops: { lane: 'posts', label: 'Loops', linkLabel: 'Loops' },
+  // Markus' own ActivityPub server (software name "rullen"), for railway clips.
+  rullen: { lane: 'posts', label: 'Rullen', linkLabel: 'Rullen' },
   bookwyrm: { lane: 'reading', label: 'BookWyrm', linkLabel: 'BookWyrm' },
   neodb: { lane: 'marks', label: 'NeoDB', linkLabel: 'NeoDB' },
   lastfm: { lane: 'music', label: 'Musikk', linkLabel: 'Last.fm' },

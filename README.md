@@ -308,7 +308,7 @@ event-ordered stream. See ADR [0018](docs/decision-records/0018-publish-the-arch
 
 ```sh
 STREAM_DOMAIN=meg.msge.no
-STREAM_SOURCES=@markus@skvip.lol|mastodon,@mvrkws@bookwyrm.social|bookwyrm,@markus@pixelfed.babb.no|pixelfed,@markus@loops.video|loops,@markus@minreol.dk|neodb
+STREAM_SOURCES=@markus@skvip.lol|mastodon,@mvrkws@bookwyrm.social|bookwyrm,@markus@pixelfed.babb.no|pixelfed,@markus@loops.video|loops,@markus@minreol.dk|neodb,@markus@rullen.no|rullen
 STREAM_INCLUDE_UNLISTED=          # unset = unlisted posts stay withheld
 STREAM_SCROBBLE_CUTOFF_MONTHS=12  # daily music digests only this far back
 STREAM_CACHE_TTL_SECONDS=180
