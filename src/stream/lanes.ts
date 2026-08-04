@@ -50,6 +50,23 @@ function keyset(facets: Facets, eventAt: SQL, refId: SQL): SQL | null {
     OR (${eventAt} = ${c.p}::timestamptz AND ${refId} COLLATE "C" < ${c.id}::text COLLATE "C"))`
 }
 
+/**
+ * Nothing that has not happened yet.
+ *
+ * The stream says what Markus has done, and it is ordered by event date — so a
+ * future-dated row does not merely appear, it sorts to the very top and pushes real
+ * activity off the front page. The viaduct.world import carries *planned* journeys
+ * alongside completed ones, which is how this was found: three months of trips he
+ * has not taken were leading the page.
+ *
+ * Applied to every lane rather than only to trips. Any source can hand us a future
+ * date — a scheduled post, a mistyped frontmatter year, a mark shelved with
+ * tomorrow's date — and in each case the answer is the same.
+ */
+function notFuture(eventAt: SQL): SQL {
+  return sql`${eventAt} <= now()`
+}
+
 /** Archive bounds, applied to whatever the lane calls its date. */
 function archiveBound(facets: Facets, eventAt: SQL): SQL | null {
   if (facets.year == null || facets.month == null) return null
@@ -130,6 +147,7 @@ export function postsLane(ctx: LaneContext): SQL | null {
       sql`o.in_reply_to IS NULL`,
       facets.tag ? tagCondition(facets.tag) : null,
       facets.kind ? sql`${kind} = ${facets.kind}` : null,
+      notFuture(eventAt),
       archiveBound(facets, eventAt),
       keyset(facets, eventAt, refId),
     ])}
@@ -176,6 +194,7 @@ export function readingLane(ctx: LaneContext): SQL | null {
       sql`${eventAt} IS NOT NULL`,
       facets.tag ? tagCondition(facets.tag) : null,
       facets.kind ? readingKindOn('o', facets.kind) ?? sql`false` : null,
+      notFuture(eventAt),
       archiveBound(facets, eventAt),
       keyset(facets, eventAt, refId),
     ])}
@@ -220,6 +239,7 @@ export function marksLane(ctx: LaneContext): SQL | null {
       sql`m.status IS DISTINCT FROM 'wishlist'`,
       sql`coalesce(m.watched_at, m.published_at) IS NOT NULL`,
       facets.kind ? sql`${kind} = ${facets.kind}` : null,
+      notFuture(eventAt),
       archiveBound(facets, eventAt),
       keyset(facets, eventAt, refId),
     ])}
@@ -273,6 +293,7 @@ export function musicLane(ctx: LaneContext): SQL | null {
     WHERE ${allOf([cutoff, cursorBound, archive])}
     GROUP BY 1, 3
     HAVING ${allOf([
+      notFuture(sql`${day}`),
       archiveBound(facets, sql`${day}`),
       keyset(facets, sql`${day}`, refId),
     ])}
@@ -291,7 +312,13 @@ export function tripsLane(ctx: LaneContext): SQL | null {
   return sql`
     SELECT ${eventAt} AS event_at, 'trip' AS kind, ${refId} AS ref_id, 'tog' AS source
     FROM train_trips t
-    WHERE ${allOf([archiveBound(facets, eventAt), keyset(facets, eventAt, refId)])}
+    WHERE ${allOf([
+      // A planned journey is intent, not activity — the same call as NeoDB wishlists.
+      sql`t.status IS DISTINCT FROM 'Planned'`,
+      notFuture(eventAt),
+      archiveBound(facets, eventAt),
+      keyset(facets, eventAt, refId),
+    ])}
     ${laneOrder(eventAt, refId)}
     LIMIT ${ctx.limit}`
 }
@@ -319,6 +346,7 @@ export function gardenLane(ctx: LaneContext): SQL | null {
     WHERE ${allOf([
       sql`g.deleted_at IS NULL`,
       sql`g.note_date ~ '^\\d{4}(-\\d{2}(-\\d{2})?)?$'`,
+      notFuture(eventAt),
       archiveBound(facets, eventAt),
       keyset(facets, eventAt, refId),
     ])}
