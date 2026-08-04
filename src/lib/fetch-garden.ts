@@ -36,6 +36,12 @@ export interface GardenNoteRef {
   sourcePath: string
   path: string
   title: string
+  // The note's own date, from the same `dato`/`modified`/`anskaffet` frontmatter
+  // GardenPage reads. Persisted by sync-garden-content so the public stream can
+  // order a note by when it was written rather than by when the bot first saw it.
+  // Absent on plenty of notes, and on the RSS fallback.
+  date: string | null
+  tags: string[]
 }
 
 // Book-review frontmatter, keyed by the `bookwyrm` field (== a BookWyrm Edition
@@ -148,7 +154,13 @@ export function parseNoteRefs(data: AnyObject): GardenNoteRef[] {
     const permalink = str(fm.permalink)
     if (!permalink) continue
     const path = permalink.startsWith('/') ? permalink : `/${permalink}`
-    refs.push({ sourcePath: key, path, title: str(fm.title) || titleFromKey(key) })
+    refs.push({
+      sourcePath: key,
+      path,
+      title: str(fm.title) || titleFromKey(key),
+      date: str(fm.dato) || str(fm.modified) || str(fm.anskaffet),
+      tags: tagsFrom(value as AnyObject),
+    })
   }
   return refs
 }

@@ -354,6 +354,12 @@ export const gardenNotes = pgTable('garden_notes', {
   path: text('path').notNull(), // permalink path, e.g. "/meg"; "/" for the home note
   title: text('title').notNull(),
   content: text('content'), // raw markdown incl. frontmatter; null until first successful fetch
+  // The note's own date and tags, from its `dato`/`modified`/`anskaffet` frontmatter.
+  // Text, not `date`: these are hand-written and of varying precision ("2024",
+  // "2024-03-11"), and many notes carry none at all. The public stream parses what it
+  // can and skips what it cannot — an unparseable value must never block the sync.
+  noteDate: text('note_date'),
+  noteTags: jsonb('note_tags'), // string[] — frontmatter tags, '#' stripped
   etag: text('etag'), // verbatim ETag header from the last 200
   lastModified: text('last_modified'), // verbatim Last-Modified header from the last 200
   fetchedAt: timestamp('fetched_at', { withTimezone: true }), // last successful content fetch (200)
@@ -365,6 +371,7 @@ export const gardenNotes = pgTable('garden_notes', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index('garden_notes_path_idx').on(t.path),
+  index('garden_notes_note_date_idx').on(t.noteDate),
 ])
 
 export const deliveryQueue = pgTable('delivery_queue', {
