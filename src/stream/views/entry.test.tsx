@@ -2,7 +2,12 @@
 import { describe, it, expect, vi } from 'vitest'
 
 vi.mock('../../config.js', () => ({
-  config: { STREAM_DOMAIN: 'meg.msge.no', APP_DOMAIN: 'bot.skvip.lol', APP_USERNAME: 'bot', STREAM_SOURCES: '' },
+  config: {
+    STREAM_DOMAIN: 'meg.msge.no', APP_DOMAIN: 'bot.skvip.lol', APP_USERNAME: 'bot',
+    STREAM_SOURCES: '',
+    // The views mint proxy paths for every image now — see image-proxy.ts.
+    SESSION_SECRET: 'x'.repeat(32), STREAM_IMAGE_CACHE_MB: 250,
+  },
 }))
 
 const { EntryView, StreamList } = await import('./entry.js')
@@ -131,7 +136,12 @@ describe('rich cards', () => {
     const html = render(<EntryView entry={book as never} />)
     expect(html).toContain('Ein stad å vera')
     expect(html).toContain('Ei Forfattar')
-    expect(html).toContain('bookwyrm.social/cover.jpg')
+    // The cover is served through this origin, not hotlinked from BookWyrm.
+    expect(html).not.toContain('src="https://bookwyrm.social/cover.jpg"')
+    const src = html.match(/<img class="cover" src="([^"]+)"/)![1]
+    expect(src).toMatch(/^\/bilete\//)
+    expect(Buffer.from(src.split('/')[3], 'base64url').toString('utf8'))
+      .toBe('https://bookwyrm.social/cover.jpg')
     expect(html).toContain('★★★★☆')
     expect(html).toContain('312 sider')
     expect(html).toContain('Verdt tida')
