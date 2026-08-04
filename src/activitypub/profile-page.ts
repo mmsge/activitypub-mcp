@@ -34,6 +34,20 @@ export function renderProfilePage(notes: LocalNote[] = []): string {
       })
     : null
 
+  // The public stream, when there is one. The page's privacy claims are meant to be
+  // checkable (ADR 0009), so this sentence must follow the configuration rather than
+  // asserting something that may not be true: with STREAM_DOMAIN unset nothing is
+  // published, and the wording says exactly that.
+  const sharingSentence = config.STREAM_DOMAIN
+    ? `<strong>Ingenting om andre vert delt vidare.</strong> Arkivet er ikkje ope, og
+       det vert korkje selt eller utlevert. Markus publiserer eit utval av sine
+       <em>eigne</em> innlegg på
+       <a href="https://${escapeHtml(config.STREAM_DOMAIN)}">${escapeHtml(config.STREAM_DOMAIN)}</a>
+       — berre innlegg som alt var offentlege der dei vart lagde ut, aldri svar til
+       andre, aldri noko frå andre kontoar enn hans eigne.`
+    : `<strong>Ingenting vert delt vidare.</strong> Arkivet er privat, det er ikkje
+       publisert, og det vert korkje selt eller utlevert.`
+
   // Retention is configurable, and 0 means "keep forever" — so the sentence has to
   // change with it rather than promise a window that isn't enforced.
   const logSentence = retentionDays > 0
@@ -52,7 +66,9 @@ export function renderProfilePage(notes: LocalNote[] = []): string {
 
   return renderPage({
     title: `${config.APP_DISPLAY_NAME} — ${handle}`,
-    description: 'Personleg ActivityPub-bot. Arkiverer offentlege innlegg frå eit fast sett kontoar, og ingenting om andre.',
+    description: config.STREAM_DOMAIN
+      ? `Personleg ActivityPub-bot. Arkiverer offentlege innlegg frå eit fast sett kontoar, og ingenting om andre. Markus sine eigne innlegg er samla på ${config.STREAM_DOMAIN}.`
+      : 'Personleg ActivityPub-bot. Arkiverer offentlege innlegg frå eit fast sett kontoar, og ingenting om andre.',
     canonical: getProfilePageUrl(),
     alternate: actorUrl,
     body: `${renderIdentityHeader()}
@@ -83,8 +99,7 @@ ${notesSection}
       forkasta i innboksen — ikkje arkivert.</li>
     <li><strong>Han tek ikkje imot følgjarar.</strong> Alle følgjeførespurnader vert
       avviste automatisk, og difor kan han korkje følgja deg eller lesa tidslinja di.</li>
-    <li><strong>Ingenting vert delt vidare.</strong> Arkivet er privat, det er ikkje
-      publisert, og det vert korkje selt eller utlevert.</li>
+    <li>${sharingSentence}</li>
     <li>${logSentence}</li>
     <li>Slettar du eit innlegg, vert <code>Delete</code> respektert: innlegget vert
       markert sletta og kjem ikkje ut av arkivet igjen.</li>

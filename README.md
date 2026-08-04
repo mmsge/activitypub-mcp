@@ -299,6 +299,82 @@ This rewrites `src/assets/avatar.png` and `src/assets/header.png` from the shape
 
 ---
 
+## Offentleg straum (meg.msge.no)
+
+A second, public site served by the **same container on the same port**, routed on
+the `Host` header: `bot.skvip.lol` keeps the ActivityPub actor, the admin UI and
+MCP, while `meg.msge.no` is a public page republishing Markus' own posts as one
+event-ordered stream. See ADR [0018](docs/decision-records/0018-publish-the-archive-as-a-public-stream.md).
+
+```sh
+STREAM_DOMAIN=meg.msge.no
+STREAM_SOURCES=@markus@skvip.lol|mastodon,@mvrkws@bookwyrm.social|bookwyrm,@markus@pixelfed.babb.no|pixelfed,@markus@loops.video|loops,@markus@minreol.dk|neodb
+STREAM_INCLUDE_UNLISTED=          # unset = unlisted posts stay withheld
+STREAM_SCROBBLE_CUTOFF_MONTHS=12  # daily music digests only this far back
+STREAM_CACHE_TTL_SECONDS=180
+```
+
+**`STREAM_DOMAIN` unset disables the whole thing** — no route answers, nothing is
+published. That is the off-switch: it lets the code deploy and be verified before
+anything becomes visible, and it takes the site down without touching Caddy.
+
+### What it publishes
+
+| Included | Excluded |
+|---|---|
+| Original posts from the five accounts in `STREAM_SOURCES` | Replies to other people |
+| Markus' own threads, grouped into one entry | Boosts, and anything by anyone else |
+| BookWyrm starts, finishes, reviews and quotations | Bare ratings, automatic progress notes |
+| NeoDB marks with a status | Wishlist marks ("want to watch") |
+| Daily Last.fm digests, train trips, garden notes | Scrobbles older than the cutoff |
+| Posts that were **public** at their origin | Unlisted, followers-only, direct — and anything whose visibility cannot be read |
+
+Ordered by **when things happened**, not when they were posted: a film marked today
+but watched in 2016 sits in 2016. Content warnings are honoured — the body and its
+media collapse behind the warning, with no JavaScript.
+
+Routes: `/`, `/kjelde/<platform>`, `/type/<kind>`, `/emne/<tag>`, `/arkiv/YYYY/MM`,
+`/feed.atom`, `/robots.txt`, `/sitemap.xml`.
+
+### How to verify nothing private leaks
+
+The visibility rule is the load-bearing part, and it is the one irreversible step —
+a post that should not have been public is public the moment a crawler reads it. So
+deploy with `STREAM_DOMAIN` **unset**, then:
+
+1. Open **`/admin/visibility`**. Check the public counts per account look roughly
+   right; open ten withheld rows and confirm each should be withheld; open ten
+   publishable rows at their origin and confirm they really are public there.
+2. Set `STREAM_DOMAIN` and `STREAM_SOURCES`, restart, and check from the box before
+   DNS exists:
+
+   ```sh
+   curl -H 'Host: meg.msge.no' http://172.18.0.1:3000/ | head -50
+   curl -sI -H 'Host: meg.msge.no' http://172.18.0.1:3000/actor    # must be 404
+   curl -sI http://172.18.0.1:3000/actor                           # unchanged
+   ```
+3. After it is live:
+
+   ```sh
+   # a known followers-only post must be absent
+   curl -s https://meg.msge.no/ | grep -c '<a distinctive phrase from it>'   # 0
+   # hosts the page loads from — links are fine, these are what a reader fetches
+   curl -s https://meg.msge.no/ | grep -oE 'src="https?://[a-z0-9.-]+' | sort -u
+   ```
+
+Re-read `/admin/visibility` a week later: a growing `unknown` count means a platform
+changed how it serialises addressing and the fail-closed default is quietly costing
+posts.
+
+### Images
+
+Post media and cover art are **hotlinked** from their origin CDNs — the page is
+otherwise fully self-contained (no external stylesheet, font or script), and the
+colophon says so rather than implying otherwise. A caching image proxy is the
+intended next step; it would let the CSP tighten to `img-src 'self' data:`.
+
+---
+
 ## Admin UI
 
 Available at `https://yourdomain.com/admin`.

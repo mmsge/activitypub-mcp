@@ -30,8 +30,24 @@ This repo previously had its own bundled Caddy service in `docker-compose.yml` â
 | markescence | markescence.msge.no | 4002 |
 | daggerheart (river-sky) | rpg.msge.no | 4000 |
 | **activitypub-mcp** | bot.skvip.lol | **3000** |
+| **meg (offentleg straum)** | meg.msge.no | **3000** (same container) |
 
 **Port 3000 is reserved for this service.** Do not change it without updating the Caddyfile in `hetzner-server`.
+
+## Two domains, one container
+
+This app serves **two sites on port 3000**, routed on the `Host` header by a
+dispatcher at `serve()` in `src/index.ts`:
+
+| Host | What it is |
+|------|------------|
+| `bot.skvip.lol` | The ActivityPub actor, the admin UI, MCP and the REST API |
+| `meg.msge.no` | A public, unauthenticated stream of Markus' own posts |
+
+They are two separate Hono apps, not route groups â€” so the actor and the admin UI
+are *not mounted* on the public host, and a route added to the bot app cannot leak
+onto it. `STREAM_DOMAIN` unset disables the stream entirely. Caddy points both
+domains at `172.18.0.1:3000`. See ADR 0018.
 
 ## Stack
 
