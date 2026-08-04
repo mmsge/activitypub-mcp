@@ -2,6 +2,7 @@
 import type { FC } from 'hono/jsx'
 import { raw } from 'hono/html'
 import { platformInfo } from '../sources.js'
+import { proxyPath } from '../image-proxy.js'
 import type {
   Attachment, Entry, PostEntry, BookEntry, MarkEntry,
   ScrobbleDayEntry, TripEntry, GardenEntry, UndatedGardenNote,
@@ -27,6 +28,22 @@ function formatDate(at: Date): string {
   return DATE_FMT.format(at)
 }
 
+/**
+ * Where an image is actually loaded from.
+ *
+ * Through this origin when the proxy is on, straight from the origin CDN when it is
+ * off (`STREAM_IMAGE_CACHE_MB=0`) or when the host is not one we proxy. Falling
+ * back to the original URL rather than dropping the image: a picture from a host
+ * nobody anticipated is still a picture Markus posted.
+ *
+ * Every view goes through this. A view that used `a.url` directly would reintroduce
+ * a hotlink that the CSP then blocks, and the only symptom would be a missing image.
+ */
+function imageSrc(url: string | null | undefined): string | undefined {
+  if (!url) return undefined
+  return proxyPath(url) ?? url
+}
+
 const Meta: FC<{ entry: Entry; verb: string }> = ({ entry, verb }) => {
   const info = platformInfo(entry.source)
   return (
@@ -43,7 +60,7 @@ const Meta: FC<{ entry: Entry; verb: string }> = ({ entry, verb }) => {
   )
 }
 
-/** Media, hotlinked from the origin CDN — see the colophon. */
+/** Media, served through this origin's image proxy where it can be — see imageSrc. */
 const Media: FC<{ attachments: Attachment[] }> = ({ attachments }) => {
   if (attachments.length === 0) return null
   const shown = attachments.slice(0, 4)
@@ -57,14 +74,14 @@ const Media: FC<{ attachments: Attachment[] }> = ({ attachments }) => {
           // on two vCPUs is not viable.
           return (
             <a class="poster" href={a.url} rel="noopener nofollow" target="_blank">
-              <img src={a.url} alt={a.alt ?? ''} loading="lazy" referrerpolicy="no-referrer"
+              <img src={imageSrc(a.url)} alt={a.alt ?? ''} loading="lazy" referrerpolicy="no-referrer"
                 width={a.width ?? undefined} height={a.height ?? undefined} />
             </a>
           )
         }
         return (
           <figure>
-            <img src={a.url} alt={a.alt ?? ''} loading="lazy" referrerpolicy="no-referrer"
+            <img src={imageSrc(a.url)} alt={a.alt ?? ''} loading="lazy" referrerpolicy="no-referrer"
               width={a.width ?? undefined} height={a.height ?? undefined} />
             {a.alt ? <figcaption>{a.alt}</figcaption> : null}
           </figure>
@@ -135,7 +152,7 @@ const Book: FC<{ entry: BookEntry }> = ({ entry }) => (
     <Meta entry={entry} verb={BOOK_VERB[entry.kind]} />
     <div class="card">
       {entry.coverUrl ? (
-        <img class="cover" src={entry.coverUrl} alt="" loading="lazy" referrerpolicy="no-referrer" />
+        <img class="cover" src={imageSrc(entry.coverUrl)} alt="" loading="lazy" referrerpolicy="no-referrer" />
       ) : null}
       <div class="about">
         <h3>{entry.title ?? 'Ukjend bok'}</h3>
@@ -171,7 +188,7 @@ const Mark: FC<{ entry: MarkEntry }> = ({ entry }) => (
     <Meta entry={entry} verb={MARK_VERB[entry.kind]} />
     <div class="card">
       {entry.coverUrl ? (
-        <img class="cover" src={entry.coverUrl} alt="" loading="lazy" referrerpolicy="no-referrer" />
+        <img class="cover" src={imageSrc(entry.coverUrl)} alt="" loading="lazy" referrerpolicy="no-referrer" />
       ) : null}
       <div class="about">
         <h3>{entry.title ?? 'Ukjend'}</h3>

@@ -10,6 +10,8 @@ import { streamOrigin } from './host.js'
 import { loadStreamPage, loadArchiveMonths, loadUndatedGardenNotes } from './query.js'
 import { renderAtom } from './feed.js'
 import { renderHead, renderRobots, renderSitemap } from './meta.js'
+import { verifyProxyPath } from './image-proxy.js'
+import { getImage } from './image-cache.js'
 import { platformInfo, AP_PLATFORMS, LOCAL_PLATFORMS, type Platform } from './sources.js'
 import {
   EMPTY_FACETS, FRONT_PAGE_SIZE, PAGE_SIZE, cacheKey, parsePlatform, parseKind,
@@ -201,6 +203,38 @@ for (const [path, asset] of [['/ikon.png', 'avatar'], ['/kort.png', 'header']] a
     })
   })
 }
+
+/**
+ * Proxied images: /bilete/<sig>/<base64url of the upstream URL>.
+ *
+ * A path this app did not mint fails the signature and 404s, so there is no way to
+ * ask for an arbitrary host. See image-proxy.ts for why that matters and what else
+ * stands behind it.
+ *
+ * The response is immutable — the signature covers the exact upstream URL, so a
+ * given path always means the same image. That is what makes a year-long
+ * Cache-Control honest and keeps this off the hot path entirely.
+ */
+streamApp.get('/bilete/:sig/:encoded', async (c) => {
+  if (config.STREAM_IMAGE_CACHE_MB === 0) return c.notFound()
+  const url = verifyProxyPath(c.req.param('sig'), c.req.param('encoded'))
+  if (!url) return c.notFound()
+
+  const img = await getImage(url)
+  // A dead origin is a missing image, not a broken page: the <img> fails to load
+  // and everything around it still renders.
+  if (!img) return c.body(null, 404)
+
+  if (c.req.header('if-none-match') === img.etag) return c.body(null, 304, { ETag: img.etag })
+  return c.body(img.body, 200, {
+    'Content-Type': img.contentType,
+    'Content-Length': String(img.body.length),
+    ETag: img.etag,
+    'Cache-Control': 'public, max-age=31536000, immutable',
+    // The bytes are remote in origin even though they are served from here.
+    'X-Content-Type-Options': 'nosniff',
+  })
+})
 
 streamApp.get('/healthz', (c) => c.text('ok'))
 

@@ -23,6 +23,12 @@ services:
     environment:
       DATABASE_URL: postgres://apuser:${DB_PASSWORD:-changepassword}@db:5432/activitypub
       NODE_ENV: production
+    # Proxied images for meg.msge.no. A named volume, not a bind mount and not the
+    # container filesystem: a rebuild must not throw the cache away and refetch
+    # everything from seven CDNs at once. Bounded by STREAM_IMAGE_CACHE_MB (250 MB
+    # by default) — the app sweeps it, Docker does not.
+    volumes:
+      - image_cache:/data/images
     depends_on:
       db:
         condition: service_healthy
@@ -43,3 +49,4 @@ services:
 
 volumes:
   postgres_data:
+  image_cache:

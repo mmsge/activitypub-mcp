@@ -135,6 +135,15 @@ const schema = z.object({
   // How long a rendered page may be served from cache. The box is small and the
   // page is public, so every request must not run the lane merge.
   STREAM_CACHE_TTL_SECONDS: z.coerce.number().int().min(0).default(180),
+  // Disk budget for proxied images, in MB. Deliberately small: the box is a CAX11
+  // and a full disk is an outage for every service on it, while a cache miss is
+  // one upstream fetch. Eviction is by last access, so the front page and recent
+  // months stay warm and a crawl of the 2016 archive does not displace them.
+  // 0 disables the proxy — images are then hotlinked from the origin CDNs.
+  STREAM_IMAGE_CACHE_MB: z.coerce.number().int().min(0).default(250),
+  // Where those bytes live. A named volume in docker-compose, so a rebuild does
+  // not throw the cache away and refetch everything from seven CDNs at once.
+  STREAM_IMAGE_CACHE_DIR: z.string().default('/data/images'),
   PORT: z.coerce.number().default(3000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.string().default('info'),

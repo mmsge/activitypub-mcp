@@ -342,8 +342,16 @@ in `note_date`, and labelled as recovered on the page. Notes with neither are li
 by name under **"Utan dato"** at the foot of `/kjelde/hage` — outside the stream,
 because a stream ordered by real dates must not contain invented ones. See ADR 0020.
 
+**Images** are fetched by the app and served from its own origin at
+`/bilete/<sig>/<url>`, so reading the page contacts one host rather than seven, and a
+rotated CDN URL does not take the image with it. Signed (an unminted URL 404s), host
+allowlisted (checked again on serve and after every redirect), no SVG, and never
+resized — the box has two vCPUs. Bounded by `STREAM_IMAGE_CACHE_MB` (250 MB) with
+least-recently-used eviction, in the `image_cache` volume. Set it to `0` and the page
+goes back to hotlinking, and the colophon says so. See ADR 0021.
+
 Routes: `/`, `/kjelde/<platform>`, `/type/<kind>`, `/emne/<tag>`, `/arkiv/YYYY/MM`,
-`/feed.atom`, `/robots.txt`, `/sitemap.xml`.
+`/feed.atom`, `/bilete/<sig>/<url>`, `/robots.txt`, `/sitemap.xml`.
 
 ### How to verify nothing private leaks
 

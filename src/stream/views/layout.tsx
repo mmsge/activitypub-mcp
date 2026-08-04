@@ -11,9 +11,10 @@ import { parseSources } from '../sources.js'
  *
  * Self-contained, exactly as src/activitypub/page-chrome.ts is: no external
  * stylesheet, font or script. On the bot's pages that was about not leaking a
- * reader to a third party, and it holds here too — the one concession is that post
- * images are still served from their origin CDNs, which the colophon says out loud
- * rather than quietly hoping nobody checks.
+ * reader to a third party, and it holds here too — images now come through this
+ * origin's proxy rather than from seven CDNs (see image-proxy.ts). The colophon
+ * states whichever is actually true, rather than asserting the flattering one:
+ * with `STREAM_IMAGE_CACHE_MB=0` the page is back to hotlinking and says so.
  *
  * Its own look, deliberately unlike the bot's deep green: this is Markus' front
  * door, not infrastructure. Warm paper, terracotta accent, rounded cards.
@@ -135,8 +136,18 @@ const Colophon: FC = () => (
       ingenting om andre folk.
     </p>
     <p class="fine">
-      Sida hentar ikkje skrifter eller skript frå andre. Bilete og omslag ligg
-      framleis hjå tenestene dei kom frå, så nettlesaren din hentar dei derifrå.
+      {config.STREAM_IMAGE_CACHE_MB > 0 ? (
+        <>
+          Sida hentar ikkje skrifter, skript eller bilete frå andre. Bilete og
+          omslag går gjennom denne tenaren, så nettlesaren din treng ikkje kontakta
+          tenestene dei kom frå.
+        </>
+      ) : (
+        <>
+          Sida hentar ikkje skrifter eller skript frå andre. Bilete og omslag ligg
+          framleis hjå tenestene dei kom frå, så nettlesaren din hentar dei derifrå.
+        </>
+      )}
       {' '}
       <a href={`${streamOrigin()}/feed.atom`}>Atom-straum</a>
       {' · '}
