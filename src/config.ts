@@ -100,6 +100,41 @@ const schema = z.object({
   ENGAGEMENT_SAMPLE_INTERVAL_MINUTES: z.coerce.number().int().min(5).default(60),
   // How many of the owner's most recent posts the sampler tracks. 0 disables it.
   ENGAGEMENT_SAMPLE_RECENT_POSTS: z.coerce.number().int().min(0).max(50).default(20),
+  // ── The public stream at meg.msge.no ────────────────────────────────────────
+  // The app serves two sites on one port: bot.skvip.lol (the ActivityPub actor,
+  // admin and MCP) and this one, a public, unauthenticated page republishing
+  // Markus' own public posts. Requests are routed on the Host header.
+  //
+  // Unset disables the stream entirely — no route answers, nothing is published.
+  // That is the off-switch: it takes the site down without touching Caddy, and it
+  // lets the code deploy and be verified before anything becomes visible.
+  STREAM_DOMAIN: z.string().default(''),
+  // Which accounts may appear, as `@user@domain|platform` entries separated by
+  // commas. Platform is one of mastodon, bookwyrm, pixelfed, loops, neodb.
+  //
+  // An allowlist, not a convenience: `objects` also holds posts by *other people*,
+  // because the Announce handler files a boosted post under its original author.
+  // Nothing may be published that is not from an account named here.
+  STREAM_SOURCES: z.string().default(''),
+  // Whether unlisted posts join public ones on the page. Off by default: unlisted
+  // means the author kept it off public timelines, and an indexed page is the
+  // opposite of that. Flip only deliberately.
+  //
+  // NOT z.coerce.boolean() — that is Boolean(string), so the literal "false" would
+  // come out true and quietly publish unlisted posts. Only an explicit yes enables
+  // it; anything else, including nonsense, stays off.
+  STREAM_INCLUDE_UNLISTED: z
+    .string()
+    .default('')
+    .transform((v) => ['1', 'true', 'yes', 'on'].includes(v.trim().toLowerCase())),
+  // How far back the daily music digests go, in months. Markus has ~51k scrobbles
+  // since 2016 — as daily digests that is more entries than every post he has ever
+  // written, and it would make the deep archive a listening log. Older listening
+  // lives on its own page instead. 0 keeps every day.
+  STREAM_SCROBBLE_CUTOFF_MONTHS: z.coerce.number().int().min(0).default(12),
+  // How long a rendered page may be served from cache. The box is small and the
+  // page is public, so every request must not run the lane merge.
+  STREAM_CACHE_TTL_SECONDS: z.coerce.number().int().min(0).default(180),
   PORT: z.coerce.number().default(3000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.string().default('info'),
