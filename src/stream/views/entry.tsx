@@ -4,7 +4,7 @@ import { raw } from 'hono/html'
 import { platformInfo } from '../sources.js'
 import type {
   Attachment, Entry, PostEntry, BookEntry, MarkEntry,
-  ScrobbleDayEntry, TripEntry, GardenEntry,
+  ScrobbleDayEntry, TripEntry, GardenEntry, UndatedGardenNote,
 } from '../entries.js'
 
 /**
@@ -232,10 +232,42 @@ const Garden: FC<{ entry: GardenEntry }> = ({ entry }) => (
         <a href={entry.originUrl ?? '#'} rel="noopener" target="_blank">{entry.title}</a>
       </h3>
       {entry.excerpt ? <p>{entry.excerpt}</p> : null}
+      {/* The note carries no date of its own; this one comes from the reading. Say
+          so, rather than let a worked-out date read as something the note claims. */}
+      {entry.dateSource === 'bookwyrm' ? (
+        <p class="derived">Notatet har ingen eigen dato — denne er henta frå lesinga av boka.</p>
+      ) : null}
     </div>
     <Tags tags={entry.tags} />
   </article>
 )
+
+/**
+ * The notes with no date anywhere, listed rather than placed.
+ *
+ * Shown only at the foot of /kjelde/hage. They cannot be in the stream — the
+ * keyset needs every entry dated — but leaving them off the site entirely would
+ * hide a third of the garden, so they get their names and their links.
+ */
+export const UndatedGarden: FC<{ notes: UndatedGardenNote[] }> = ({ notes }) => {
+  if (notes.length === 0) return null
+  return (
+    <section class="undated">
+      <h2>Utan dato</h2>
+      <p>
+        {notes.length} notat har ingen dato — korkje sin eigen, eller ein å hente frå
+        lesinga. Dei har difor ingen plass i straumen, men dei står her.
+      </p>
+      <ul>
+        {notes.map((n) => (
+          <li>
+            <a href={n.url} rel="noopener" target="_blank">{n.title}</a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
 
 export const EntryView: FC<{ entry: Entry }> = ({ entry }) => {
   switch (entry.kind) {

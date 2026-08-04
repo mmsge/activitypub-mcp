@@ -360,6 +360,14 @@ export const gardenNotes = pgTable('garden_notes', {
   // can and skips what it cannot — an unparseable value must never block the sync.
   noteDate: text('note_date'),
   noteTags: jsonb('note_tags'), // string[] — frontmatter tags, '#' stripped
+  // The `bookwyrm` frontmatter field on a book review: the BookWyrm Edition URL,
+  // i.e. book_metadata.book_url. Stored so the date derivation is a column join.
+  bookUrl: text('book_url'),
+  // A date recovered from that book's reading events for a note that carries none
+  // of its own (jobs/derive-garden-dates.ts). Kept apart from note_date on purpose:
+  // one is what the note says, the other is what we worked out, and the page says
+  // which. Merging them would make the provenance unrecoverable.
+  derivedDate: timestamp('derived_date', { withTimezone: true }),
   etag: text('etag'), // verbatim ETag header from the last 200
   lastModified: text('last_modified'), // verbatim Last-Modified header from the last 200
   fetchedAt: timestamp('fetched_at', { withTimezone: true }), // last successful content fetch (200)
@@ -372,6 +380,8 @@ export const gardenNotes = pgTable('garden_notes', {
 }, (t) => [
   index('garden_notes_path_idx').on(t.path),
   index('garden_notes_note_date_idx').on(t.noteDate),
+  index('garden_notes_book_url_idx').on(t.bookUrl),
+  index('garden_notes_derived_date_idx').on(t.derivedDate),
 ])
 
 export const deliveryQueue = pgTable('delivery_queue', {

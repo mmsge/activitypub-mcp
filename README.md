@@ -333,6 +333,15 @@ Ordered by **when things happened**, not when they were posted: a film marked to
 but watched in 2016 sits in 2016. Content warnings are honoured — the body and its
 media collapse behind the warning, with no JavaScript.
 
+**Garden notes and their dates.** Most markus.plus notes carry no date — 102 of 384
+have a `dato`/`modified`/`anskaffet` frontmatter field and 282 do not, and there is
+none to be found anywhere else in the Obsidian Publish cache. A note that reviews a
+book carries `bookwyrm` (the Edition URL) instead, so its date is recovered from the
+public BookWyrm reading events for that edition, stored in `derived_date` rather than
+in `note_date`, and labelled as recovered on the page. Notes with neither are listed
+by name under **"Utan dato"** at the foot of `/kjelde/hage` — outside the stream,
+because a stream ordered by real dates must not contain invented ones. See ADR 0020.
+
 Routes: `/`, `/kjelde/<platform>`, `/type/<kind>`, `/emne/<tag>`, `/arkiv/YYYY/MM`,
 `/feed.atom`, `/robots.txt`, `/sitemap.xml`.
 

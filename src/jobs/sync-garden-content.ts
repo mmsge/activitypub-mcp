@@ -1,6 +1,7 @@
 import { getDb } from '../db/client.js'
 import { gardenNotes } from '../db/schema.js'
 import { fetchGardenNoteRefs, noteAccessUrl, type GardenNoteRef } from '../lib/fetch-garden.js'
+import { deriveGardenDates } from './derive-garden-dates.js'
 import { logger } from '../lib/logger.js'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 
@@ -18,6 +19,7 @@ export interface GardenNoteRow {
   title: string
   noteDate: string | null
   noteTags: string[] | null
+  bookUrl: string | null
   hasContent: boolean
   lastCheckedAt: Date | null
   deletedAt: Date | null
@@ -56,6 +58,7 @@ export function planGardenSync(refs: GardenNoteRef[], rows: GardenNoteRow[], now
       // Also on a date/tag change, so an edited note re-dates itself — and so the
       // first run after this column landed backfills every existing row.
       row.noteDate !== ref.date ||
+      row.bookUrl !== ref.bookUrl ||
       !sameTags(row.noteTags, ref.tags)
     )
   })
@@ -97,6 +100,7 @@ export async function syncGardenContent(): Promise<void> {
         title: gardenNotes.title,
         noteDate: gardenNotes.noteDate,
         noteTags: sql<string[] | null>`${gardenNotes.noteTags}`,
+        bookUrl: gardenNotes.bookUrl,
         hasContent: sql<boolean>`${gardenNotes.content} is not null`,
         lastCheckedAt: gardenNotes.lastCheckedAt,
         deletedAt: gardenNotes.deletedAt,
@@ -114,6 +118,7 @@ export async function syncGardenContent(): Promise<void> {
         title: ref.title,
         noteDate: ref.date,
         noteTags: ref.tags,
+        bookUrl: ref.bookUrl,
       })
       .onConflictDoUpdate({
         target: gardenNotes.sourcePath,
@@ -122,6 +127,7 @@ export async function syncGardenContent(): Promise<void> {
           title: ref.title,
           noteDate: ref.date,
           noteTags: ref.tags,
+          bookUrl: ref.bookUrl,
           deletedAt: null,
           updatedAt: new Date(),
         },
@@ -192,6 +198,10 @@ export async function syncGardenContent(): Promise<void> {
     }
   }
 
+  // Re-derive after the upserts, so a note that just arrived (or just gained a
+  // `bookwyrm` field) gets its date in the same pass rather than a day later.
+  const dates = await deriveGardenDates()
+
   const [{ stillMissing }] = await db
     .select({ stillMissing: sql<number>`count(*)::int` })
     .from(gardenNotes)
@@ -206,6 +216,8 @@ export async function syncGardenContent(): Promise<void> {
       unchanged,
       failed,
       still_missing: stillMissing,
+      dates_recovered: dates.recovered,
+      still_undated: dates.stillUndated,
     },
     'Garden content sync complete'
   )

@@ -103,6 +103,20 @@ export interface GardenEntry extends Base {
   path: string
   excerpt: string | null
   tags: string[]
+  /**
+   * Where the date on this entry came from. `frontmatter` is what the note says
+   * about itself; `bookwyrm` is recovered from the reading events of the book it
+   * reviews, because the note carries no date of its own. The page says which, so
+   * a derived date is never passed off as the note's own.
+   */
+  dateSource: 'frontmatter' | 'bookwyrm'
+}
+
+/** A published note with no date anywhere — listed, not placed in the stream. */
+export interface UndatedGardenNote {
+  title: string
+  path: string
+  url: string
 }
 
 export type Entry = PostEntry | BookEntry | MarkEntry | ScrobbleDayEntry | TripEntry | GardenEntry
