@@ -6,6 +6,7 @@ import {
   readingEventDate,
   gardenEventDate,
   compareEntries,
+  osloMonthStart,
 } from './event-date.js'
 
 describe('osloDay — the day Markus experienced, not the UTC day', () => {
@@ -229,6 +230,43 @@ describe('compareEntries — a strict total order', () => {
           expect(a.eventAt.getTime()).toBe(b.eventAt.getTime())
         }
       }
+    }
+  })
+})
+
+describe('osloMonthStart', () => {
+  it('is midnight on the 1st as the clock in Oslo reads it', () => {
+    expect(osloMonthStart(2026, 1).toISOString()).toBe('2025-12-31T23:00:00.000Z') // CET
+    expect(osloMonthStart(2026, 7).toISOString()).toBe('2026-06-30T22:00:00.000Z') // CEST
+  })
+
+  it('derives the offset per month rather than assuming one', () => {
+    // Every month of a year, checked by formatting the result back into Oslo: it
+    // must read as 00:00:00 on the 1st. A hard-coded +01:00 or +02:00 fails half
+    // of these, and a fixed guess fails the two transition months either way.
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Oslo', hour12: false,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    })
+    for (const year of [1999, 2016, 2026, 2031]) {
+      for (let month = 1; month <= 12; month++) {
+        const parts: Record<string, string> = {}
+        for (const p of fmt.formatToParts(osloMonthStart(year, month))) parts[p.type] = p.value
+        expect([
+          Number(parts.year), Number(parts.month), Number(parts.day),
+          Number(parts.hour) % 24, Number(parts.minute), Number(parts.second),
+        ]).toEqual([year, month, 1, 0, 0, 0])
+      }
+    }
+  })
+
+  it('advances strictly, so months can be chained into ranges', () => {
+    let prev = osloMonthStart(2025, 1)
+    for (let i = 1; i < 36; i++) {
+      const next = osloMonthStart(2025 + Math.floor(i / 12), (i % 12) + 1)
+      expect(next.getTime()).toBeGreaterThan(prev.getTime())
+      prev = next
     }
   })
 })

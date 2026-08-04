@@ -77,20 +77,70 @@ describe('parseArchive', () => {
 })
 
 describe('archiveRange', () => {
-  it('is half-open, so a month never overlaps the next', () => {
+  it('is half-open and bounded on Oslo midnight, not UTC midnight', () => {
+    // August is CEST (UTC+2), so the month starts two hours before midnight UTC.
     const { start, end } = archiveRange(2026, 8)
-    expect(start.toISOString()).toBe('2026-08-01T00:00:00.000Z')
-    expect(end.toISOString()).toBe('2026-09-01T00:00:00.000Z')
+    expect(start.toISOString()).toBe('2026-07-31T22:00:00.000Z')
+    expect(end.toISOString()).toBe('2026-08-31T22:00:00.000Z')
+  })
+
+  it('uses the winter offset in winter', () => {
+    const { start, end } = archiveRange(2026, 1)
+    expect(start.toISOString()).toBe('2025-12-31T23:00:00.000Z')
+    expect(end.toISOString()).toBe('2026-01-31T23:00:00.000Z')
+  })
+
+  it('follows the offset across the March and October transitions', () => {
+    // The switch happens mid-month, so March opens on CET and closes on CEST.
+    expect(archiveRange(2026, 3).start.toISOString()).toBe('2026-02-28T23:00:00.000Z')
+    expect(archiveRange(2026, 3).end.toISOString()).toBe('2026-03-31T22:00:00.000Z')
+    expect(archiveRange(2026, 10).start.toISOString()).toBe('2026-09-30T22:00:00.000Z')
+    expect(archiveRange(2026, 10).end.toISOString()).toBe('2026-10-31T23:00:00.000Z')
   })
 
   it('rolls December into the next year', () => {
     const { start, end } = archiveRange(2026, 12)
-    expect(start.toISOString()).toBe('2026-12-01T00:00:00.000Z')
-    expect(end.toISOString()).toBe('2027-01-01T00:00:00.000Z')
+    expect(start.toISOString()).toBe('2026-11-30T23:00:00.000Z')
+    expect(end.toISOString()).toBe('2026-12-31T23:00:00.000Z')
   })
 
   it('adjacent months meet exactly, leaving no gap and no overlap', () => {
-    expect(archiveRange(2026, 7).end.getTime()).toBe(archiveRange(2026, 8).start.getTime())
+    for (let m = 1; m <= 11; m++) {
+      expect(archiveRange(2026, m).end.getTime()).toBe(archiveRange(2026, m + 1).start.getTime())
+    }
+    expect(archiveRange(2026, 12).end.getTime()).toBe(archiveRange(2027, 1).start.getTime())
+  })
+
+  it('files an entry in the month its own printed date says', () => {
+    // The page renders every date in Oslo. Under UTC bounds this post read
+    // "1. juli" and was served from /arkiv/2026/06.
+    const lateJune = new Date('2026-06-30T23:30:00Z') // 01:30 on 1 July in Oslo
+    const july = archiveRange(2026, 7)
+    expect(lateJune >= july.start && lateJune < july.end).toBe(true)
+    const june = archiveRange(2026, 6)
+    expect(lateJune >= june.start && lateJune < june.end).toBe(false)
+  })
+
+  it('keeps a scrobble digest in the month of its own day', () => {
+    // The music lane's event_at *is* Oslo midnight, so under UTC bounds the digest
+    // for the 1st fell in the previous month — every month, all year.
+    for (const [year, month] of [[2026, 3], [2026, 8], [2026, 11]] as const) {
+      const osloMidnightOnTheFirst = archiveRange(year, month).start
+      const { start, end } = archiveRange(year, month)
+      expect(osloMidnightOnTheFirst >= start && osloMidnightOnTheFirst < end).toBe(true)
+    }
+  })
+
+  it('keeps day-precision garden dates in their own month', () => {
+    // Garden frontmatter parses to UTC midnight. Oslo is east of UTC, so its month
+    // opens before the UTC month does and the whole calendar month fits inside.
+    for (const [month, days] of [[3, 31], [7, 31], [10, 31], [2, 28]] as const) {
+      const { start, end } = archiveRange(2026, month)
+      for (const day of [1, 2, days - 1, days]) {
+        const at = new Date(Date.UTC(2026, month - 1, day))
+        expect([month, day, at >= start && at < end]).toEqual([month, day, true])
+      }
+    }
   })
 })
 

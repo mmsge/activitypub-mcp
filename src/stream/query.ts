@@ -537,21 +537,40 @@ export async function loadStreamPage(facets: Facets): Promise<StreamPage> {
   }
 }
 
-/** Months that have at least one entry, newest first — for the sitemap. */
+/**
+ * Months that have at least one entry, newest first — for the sitemap.
+ *
+ * Truncated on Oslo's calendar, matching `archiveRange`. `date_trunc('month', ts)`
+ * on a `timestamptz` uses the session's TimeZone, which is UTC in the container —
+ * so without the explicit shift this listed a different set of months than the
+ * pages it links to, and pointed at `/arkiv/YYYY/MM` for a month whose only entry
+ * the page files under the next one.
+ *
+ * Future months are excluded for the same reason the lanes exclude future rows: the
+ * viaduct.world import carries planned journeys, and a sitemap entry for a month
+ * whose page is deliberately empty is a link to nothing.
+ *
+ * Known gap: `objects` is bucketed by `published_at`, while the reading lane dates
+ * a book by its `startedDate`/`finishedDate`. A book finished in 2016 and posted in
+ * 2024 therefore appears on `/arkiv/2016/…` without that month being listed here.
+ * That makes the sitemap incomplete, never wrong, and the page is still reachable.
+ */
 export async function loadArchiveMonths(): Promise<string[]> {
   const db = getDb()
   const rows = (await db.execute(sql`
     SELECT to_char(m, 'YYYY-MM') AS month FROM (
-      SELECT date_trunc('month', published_at) AS m FROM objects
+      SELECT date_trunc('month', published_at AT TIME ZONE 'Europe/Oslo') AS m FROM objects
       WHERE published_at IS NOT NULL AND deleted_at IS NULL
         AND ${publicOnlyCondition(config.STREAM_INCLUDE_UNLISTED)}
       UNION
-      SELECT date_trunc('month', coalesce(watched_at, published_at)) FROM neodb_marks
+      SELECT date_trunc('month', coalesce(watched_at, published_at) AT TIME ZONE 'Europe/Oslo')
+      FROM neodb_marks
       WHERE deleted_at IS NULL AND coalesce(watched_at, published_at) IS NOT NULL
       UNION
-      SELECT date_trunc('month', departure_at) FROM train_trips
+      SELECT date_trunc('month', departure_at AT TIME ZONE 'Europe/Oslo') FROM train_trips
     ) AS months
     WHERE m IS NOT NULL
+      AND m AT TIME ZONE 'Europe/Oslo' <= now()
     ORDER BY m DESC
   `)) as unknown as Array<{ month: string }>
   return rows.map((r) => r.month)
