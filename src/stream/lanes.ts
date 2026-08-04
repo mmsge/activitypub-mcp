@@ -3,8 +3,8 @@ import { config } from '../config.js'
 import { decodeCursor } from '../mcp/tools/pagination.js'
 import { archiveRange, type Facets } from './facets.js'
 import { lanesForPlatform, type Lane } from './sources.js'
-import { readingKindCondition, meaningfulReadingCondition } from './reading-events.js'
-import { publicOnlyCondition } from './visibility.js'
+import { readingKindOn, meaningfulReadingOn } from './reading-events.js'
+import { publicOnlyOn } from './visibility.js'
 
 /**
  * The candidate query for each lane of the public stream.
@@ -57,6 +57,20 @@ function archiveBound(facets: Facets, eventAt: SQL): SQL | null {
   return sql`(${eventAt} >= ${start.toISOString()}::timestamptz AND ${eventAt} < ${end.toISOString()}::timestamptz)`
 }
 
+/**
+ * A lane's ORDER BY, written from the expressions rather than the output aliases.
+ *
+ * `ORDER BY ref_id` would be legal — a bare output-column name is allowed — but
+ * `ORDER BY ref_id COLLATE "C"` is not: the moment the alias is wrapped in an
+ * expression, Postgres resolves it against the *input* columns and fails with
+ * `column "ref_id" does not exist`. The collation is not optional here (it is what
+ * makes the tiebreaker byte-stable and match the keyset), so the expressions are
+ * repeated instead.
+ */
+function laneOrder(eventAt: SQL, refId: SQL): SQL {
+  return sql`ORDER BY ${eventAt} DESC, (${refId}) COLLATE "C" DESC`
+}
+
 function allOf(parts: Array<SQL | null | undefined>): SQL {
   const kept = parts.filter((p): p is SQL => p != null)
   if (kept.length === 0) return sql`true`
@@ -104,14 +118,14 @@ export function postsLane(ctx: LaneContext): SQL | null {
       sql`o.actor_ap_id = ANY(${sql`ARRAY[${sql.join(actors.map((x) => sql`${x}`), sql`, `)}]::text[]`})`,
       sql`o.deleted_at IS NULL`,
       sql`o.published_at IS NOT NULL`,
-      publicOnlyCondition(config.STREAM_INCLUDE_UNLISTED),
+      publicOnlyOn('o', config.STREAM_INCLUDE_UNLISTED),
       // Thread roots, plus Markus' own continuations of them.
       sql`(o.in_reply_to IS NULL OR EXISTS (
              SELECT 1 FROM objects p
              WHERE p.ap_id = o.in_reply_to
                AND p.actor_ap_id = o.actor_ap_id
                AND p.deleted_at IS NULL
-               AND ${publicOnlyCondition(config.STREAM_INCLUDE_UNLISTED)}))`,
+               AND ${publicOnlyOn('p', config.STREAM_INCLUDE_UNLISTED)}))`,
       // Only the root is an entry; a continuation is folded into it at hydration.
       sql`o.in_reply_to IS NULL`,
       facets.tag ? tagCondition(facets.tag) : null,
@@ -119,7 +133,7 @@ export function postsLane(ctx: LaneContext): SQL | null {
       archiveBound(facets, eventAt),
       keyset(facets, eventAt, refId),
     ])}
-    ORDER BY event_at DESC, ref_id COLLATE "C" DESC
+    ${laneOrder(eventAt, refId)}
     LIMIT ${ctx.limit}`
 }
 
@@ -154,18 +168,18 @@ export function readingLane(ctx: LaneContext): SQL | null {
     WHERE ${allOf([
       sql`o.actor_ap_id = ANY(${sql`ARRAY[${sql.join(actors.map((x) => sql`${x}`), sql`, `)}]::text[]`})`,
       sql`o.deleted_at IS NULL`,
-      publicOnlyCondition(config.STREAM_INCLUDE_UNLISTED),
+      publicOnlyOn('o', config.STREAM_INCLUDE_UNLISTED),
       // A BookWyrm review carries the book in `inReplyToBook`, not `inReplyTo`, so
       // it is not a reply. A genuine reply to someone else's review is.
       sql`o.in_reply_to IS NULL`,
-      meaningfulReadingCondition(),
+      meaningfulReadingOn('o'),
       sql`${eventAt} IS NOT NULL`,
       facets.tag ? tagCondition(facets.tag) : null,
-      facets.kind ? readingKindCondition(facets.kind) ?? sql`false` : null,
+      facets.kind ? readingKindOn('o', facets.kind) ?? sql`false` : null,
       archiveBound(facets, eventAt),
       keyset(facets, eventAt, refId),
     ])}
-    ORDER BY event_at DESC, ref_id COLLATE "C" DESC
+    ${laneOrder(eventAt, refId)}
     LIMIT ${ctx.limit}`
 }
 
@@ -201,7 +215,7 @@ export function marksLane(ctx: LaneContext): SQL | null {
       sql`m.actor_ap_id = ANY(${sql`ARRAY[${sql.join(actors.map((x) => sql`${x}`), sql`, `)}]::text[]`})`,
       sql`m.deleted_at IS NULL`,
       sql`o.deleted_at IS NULL`,
-      publicOnlyCondition(config.STREAM_INCLUDE_UNLISTED),
+      publicOnlyOn('o', config.STREAM_INCLUDE_UNLISTED),
       sql`cm.hidden_at IS NULL`, // ADR 0013
       sql`m.status IS DISTINCT FROM 'wishlist'`,
       sql`coalesce(m.watched_at, m.published_at) IS NOT NULL`,
@@ -209,7 +223,7 @@ export function marksLane(ctx: LaneContext): SQL | null {
       archiveBound(facets, eventAt),
       keyset(facets, eventAt, refId),
     ])}
-    ORDER BY event_at DESC, ref_id COLLATE "C" DESC
+    ${laneOrder(eventAt, refId)}
     LIMIT ${ctx.limit}`
 }
 
@@ -262,7 +276,7 @@ export function musicLane(ctx: LaneContext): SQL | null {
       archiveBound(facets, sql`${day}`),
       keyset(facets, sql`${day}`, refId),
     ])}
-    ORDER BY event_at DESC, ref_id COLLATE "C" DESC
+    ${laneOrder(day, refId)}
     LIMIT ${ctx.limit}`
 }
 
@@ -278,7 +292,7 @@ export function tripsLane(ctx: LaneContext): SQL | null {
     SELECT ${eventAt} AS event_at, 'trip' AS kind, ${refId} AS ref_id, 'tog' AS source
     FROM train_trips t
     WHERE ${allOf([archiveBound(facets, eventAt), keyset(facets, eventAt, refId)])}
-    ORDER BY event_at DESC, ref_id COLLATE "C" DESC
+    ${laneOrder(eventAt, refId)}
     LIMIT ${ctx.limit}`
 }
 
@@ -308,7 +322,7 @@ export function gardenLane(ctx: LaneContext): SQL | null {
       archiveBound(facets, eventAt),
       keyset(facets, eventAt, refId),
     ])}
-    ORDER BY event_at DESC, ref_id COLLATE "C" DESC
+    ${laneOrder(eventAt, refId)}
     LIMIT ${ctx.limit}`
 }
 
@@ -333,7 +347,11 @@ export function mergedCandidateSql(ctx: LaneContext): SQL | null {
   const parts = lanes.map((lane) => BUILDERS[lane](ctx)).filter((s): s is SQL => s != null)
   if (parts.length === 0) return null
 
-  const union = sql.join(parts, sql` UNION ALL `)
+  // Each branch must be parenthesised. A lane carries its own ORDER BY and LIMIT —
+  // that is the whole point of the k-way merge — and Postgres will not accept those
+  // on a bare UNION arm: it reads the ORDER BY as belonging to the union itself and
+  // fails at the next SELECT.
+  const union = sql.join(parts.map((p) => sql`(${p})`), sql` UNION ALL `)
   return sql`SELECT event_at, kind, ref_id, source FROM (${union}) AS merged
     ORDER BY event_at DESC, ref_id COLLATE "C" DESC
     LIMIT ${ctx.facets.limit}`

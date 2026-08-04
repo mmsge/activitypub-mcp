@@ -1,4 +1,4 @@
-import { and, or, like, not, type SQL } from 'drizzle-orm'
+import { and, or, like, not, sql, type SQL } from 'drizzle-orm'
 import { objects } from '../db/schema.js'
 import type { ReadingEventType } from '../lib/bookwyrm-reading.js'
 import type { Kind } from './sources.js'
@@ -63,6 +63,46 @@ export function meaningfulReadingCondition(): SQL {
       or(like(objects.contentText, PHRASE_STARTED), like(objects.contentText, PHRASE_FINISHED)),
     ),
   ) as SQL
+}
+
+/**
+ * The same selections written against a table alias, for the hand-written lane SQL.
+ *
+ * The drizzle-built versions above emit `"objects"."ap_id"`, which does not resolve
+ * inside `FROM objects o`. See the note on publicOnlyOn.
+ */
+function assertAlias(alias: string): void {
+  if (!/^[a-z][a-z0-9_]*$/.test(alias)) throw new Error(`Unusable SQL alias: ${alias}`)
+}
+
+export function meaningfulReadingOn(alias: string): SQL {
+  assertAlias(alias)
+  const ap = sql.raw(`${alias}.ap_id`)
+  const txt = sql.raw(`${alias}.content_text`)
+  return sql`(${ap} LIKE ${SEG_REVIEW} OR ${ap} LIKE ${SEG_QUOTATION}
+    OR (${ap} LIKE ${SEG_GENERATEDNOTE}
+        AND (${txt} LIKE ${PHRASE_STARTED} OR ${txt} LIKE ${PHRASE_FINISHED})))`
+}
+
+export function readingKindOn(alias: string, kind: Kind): SQL | undefined {
+  assertAlias(alias)
+  const ap = sql.raw(`${alias}.ap_id`)
+  const txt = sql.raw(`${alias}.content_text`)
+  switch (kind) {
+    case 'book_review':
+      return sql`${ap} LIKE ${SEG_REVIEW}`
+    case 'book_quote':
+      return sql`${ap} LIKE ${SEG_QUOTATION}`
+    case 'book_started':
+      return sql`(${ap} LIKE ${SEG_GENERATEDNOTE} AND ${txt} LIKE ${PHRASE_STARTED})`
+    case 'book_finished':
+      // A generatednote can name both verbs when a book is started and finished in
+      // one go; classify it as the start so it is not counted twice.
+      return sql`(${ap} LIKE ${SEG_GENERATEDNOTE} AND ${txt} LIKE ${PHRASE_FINISHED}
+                  AND ${txt} NOT LIKE ${PHRASE_STARTED})`
+    default:
+      return undefined
+  }
 }
 
 /** Narrow the reading lane to a single stream kind, for /type/<kind>. */
