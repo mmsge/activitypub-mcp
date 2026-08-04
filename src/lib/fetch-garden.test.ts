@@ -68,9 +68,32 @@ describe('parseNoteRefs — Obsidian cache → crawlable note refs', () => {
   it('includes the home page and normalizes permalinks to leading-slash paths', () => {
     const refs = parseNoteRefs(cacheDoc)
     expect(refs).toEqual([
-      { sourcePath: '_publish/Hovud.md', path: '/', title: 'Hovud' },
-      { sourcePath: '_publish/Personleg/Om meg.md', path: '/meg', title: 'Om meg' },
+      { sourcePath: '_publish/Hovud.md', path: '/', title: 'Hovud', date: null, tags: [] },
+      { sourcePath: '_publish/Personleg/Om meg.md', path: '/meg', title: 'Om meg', date: null, tags: [] },
     ])
+  })
+
+  // The refs are what sync-garden-content persists, so they must carry the note's
+  // own date — the stream orders a note by when it was written, not by when the
+  // crawler first saw it.
+  it('carries the frontmatter date and tags, preferring dato over modified', () => {
+    const refs = parseNoteRefs({
+      '_publish/Dagbok/Tur.md': {
+        frontmatter: { permalink: 'tur', title: 'Tur', dato: '2024-03-11', modified: '2026-01-02' },
+        tags: ['#reise', { tag: '#foto' }],
+      },
+    })
+    expect(refs).toEqual([
+      { sourcePath: '_publish/Dagbok/Tur.md', path: '/tur', title: 'Tur', date: '2024-03-11', tags: ['reise', 'foto'] },
+    ])
+  })
+
+  it('falls back to modified, then anskaffet, and tolerates neither', () => {
+    const only = (fm: Record<string, unknown>) =>
+      parseNoteRefs({ '_publish/a.md': { frontmatter: { permalink: 'a', ...fm } } })[0].date
+    expect(only({ modified: '2025-05-05' })).toBe('2025-05-05')
+    expect(only({ anskaffet: '2023-01-01' })).toBe('2023-01-01')
+    expect(only({})).toBeNull()
   })
 })
 

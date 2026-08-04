@@ -5,20 +5,82 @@ import type { GardenNoteRef } from '../lib/fetch-garden.js'
 const NOW = new Date('2026-07-02T12:00:00Z')
 const HOURS = 60 * 60 * 1000
 
-function ref(sourcePath: string, path = `/${sourcePath}`, title = sourcePath): GardenNoteRef {
-  return { sourcePath, path, title }
+function ref(
+  sourcePath: string,
+  path = `/${sourcePath}`,
+  title = sourcePath,
+  date: string | null = null,
+  tags: string[] = [],
+): GardenNoteRef {
+  return { sourcePath, path, title, date, tags }
 }
 
 function row(overrides: Partial<GardenNoteRow> & { sourcePath: string }): GardenNoteRow {
   return {
     path: `/${overrides.sourcePath}`,
     title: overrides.sourcePath,
+    noteDate: null,
+    noteTags: [],
     hasContent: false,
     lastCheckedAt: null,
     deletedAt: null,
     ...overrides,
   }
 }
+
+describe('planGardenSync — note dates and tags', () => {
+  // The columns landed after the rows did, so every stored row starts with a null
+  // date. Without this the backfill never happens and the stream can only place a
+  // note by when the crawler first saw it.
+  it('re-upserts a stored note whose date is not yet persisted', () => {
+    const plan = planGardenSync(
+      [ref('a.md', '/a', 'a', '2024-03-11')],
+      [row({ sourcePath: 'a.md', path: '/a', title: 'a', hasContent: true, lastCheckedAt: NOW })],
+      NOW,
+    )
+    expect(plan.toUpsertMeta).toHaveLength(1)
+    expect(plan.toUpsertMeta[0].date).toBe('2024-03-11')
+  })
+
+  it('re-upserts when the date changes, so an edited note re-dates itself', () => {
+    const plan = planGardenSync(
+      [ref('a.md', '/a', 'a', '2024-04-01')],
+      [row({ sourcePath: 'a.md', path: '/a', title: 'a', noteDate: '2024-03-11', hasContent: true, lastCheckedAt: NOW })],
+      NOW,
+    )
+    expect(plan.toUpsertMeta).toHaveLength(1)
+  })
+
+  it('re-upserts when the tags change', () => {
+    const plan = planGardenSync(
+      [ref('a.md', '/a', 'a', null, ['bok', 'lesing'])],
+      [row({ sourcePath: 'a.md', path: '/a', title: 'a', noteTags: ['bok'], hasContent: true, lastCheckedAt: NOW })],
+      NOW,
+    )
+    expect(plan.toUpsertMeta).toHaveLength(1)
+  })
+
+  it('leaves an unchanged note alone — no needless write every cycle', () => {
+    const plan = planGardenSync(
+      [ref('a.md', '/a', 'a', '2024-03-11', ['bok'])],
+      [row({
+        sourcePath: 'a.md', path: '/a', title: 'a',
+        noteDate: '2024-03-11', noteTags: ['bok'], hasContent: true, lastCheckedAt: NOW,
+      })],
+      NOW,
+    )
+    expect(plan.toUpsertMeta).toEqual([])
+  })
+
+  it('treats a null stored tag list and an empty frontmatter list as the same', () => {
+    const plan = planGardenSync(
+      [ref('a.md', '/a', 'a')],
+      [row({ sourcePath: 'a.md', path: '/a', title: 'a', noteTags: null, hasContent: true, lastCheckedAt: NOW })],
+      NOW,
+    )
+    expect(plan.toUpsertMeta).toEqual([])
+  })
+})
 
 describe('planGardenSync', () => {
   it('inserts and fetches a brand-new note', () => {

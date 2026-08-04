@@ -12,6 +12,13 @@ import { type PgColumn } from 'drizzle-orm/pg-core'
 
 export type SortOrder = 'asc' | 'desc'
 
+/**
+ * How the cursor's tiebreaker id is typed. Every tool here keys on a uuid primary
+ * key; the public stream keys on a synthetic "<kind>:<id>" text label because it
+ * merges rows from tables with unrelated ids.
+ */
+export type IdCast = 'uuid' | 'text'
+
 /** A client sent a cursor token we can't decode — a caller error, not a server fault. */
 export class InvalidCursorError extends Error {}
 
@@ -44,10 +51,18 @@ export function decodeCursor(token: string): CursorPayload {
  * subquery over `neodb_marks` for the shelf date). An expression must write any column
  * reference table-qualified by hand — drizzle qualifies a bare column only inside WHERE.
  */
-export function keysetOrderBy(tsCol: PgColumn | SQL, idCol: PgColumn, order: SortOrder): SQL {
+export function keysetOrderBy(
+  tsCol: PgColumn | SQL,
+  idCol: PgColumn | SQL,
+  order: SortOrder,
+  idCast: IdCast = 'uuid',
+): SQL {
+  // Must mirror keysetCondition's comparison exactly, collation included — a keyset
+  // whose ORDER BY and WHERE disagree silently skips or repeats rows.
+  const idExpr = idCast === 'text' ? sql`${idCol} COLLATE "C"` : idCol
   return order === 'asc'
-    ? sql`${tsCol} ASC NULLS LAST, ${idCol} ASC`
-    : sql`${tsCol} DESC NULLS LAST, ${idCol} DESC`
+    ? sql`${tsCol} ASC NULLS LAST, ${idExpr} ASC`
+    : sql`${tsCol} DESC NULLS LAST, ${idExpr} DESC`
 }
 
 /**
@@ -58,19 +73,30 @@ export function keysetOrderBy(tsCol: PgColumn | SQL, idCol: PgColumn, order: Sor
  */
 export function keysetCondition(
   tsCol: PgColumn | SQL,
-  idCol: PgColumn,
+  idCol: PgColumn | SQL,
   cursor: CursorPayload,
   order: SortOrder,
+  idCast: IdCast = 'uuid',
 ): SQL {
+  // The public stream merges lanes whose rows have no common id type, so its
+  // tiebreaker is a synthetic "<kind>:<id>" string rather than a uuid. Text
+  // comparison is collation-dependent, so force the C collation to keep the
+  // ordering byte-stable regardless of the database's lc_collate — the keyset is
+  // only correct if the comparison here matches the ORDER BY exactly.
+  const id = idCast === 'text'
+    ? sql`${cursor.id}::text COLLATE "C"`
+    : sql`${cursor.id}::uuid`
+  const idExpr = idCast === 'text' ? sql`${idCol} COLLATE "C"` : idCol
+
   if (cursor.p === null) {
     return order === 'asc'
-      ? sql`(${tsCol} IS NULL AND ${idCol} > ${cursor.id}::uuid)`
-      : sql`(${tsCol} IS NULL AND ${idCol} < ${cursor.id}::uuid)`
+      ? sql`(${tsCol} IS NULL AND ${idExpr} > ${id})`
+      : sql`(${tsCol} IS NULL AND ${idExpr} < ${id})`
   }
   // Bind the ISO string, not a Date: raw sql`` params have no column to drive
   // drizzle's type mapping, so a Date reaches the driver as its toString() form,
   // which Postgres can't cast to timestamptz. The explicit cast handles the string.
   return order === 'asc'
-    ? sql`(${tsCol} > ${cursor.p}::timestamptz OR (${tsCol} = ${cursor.p}::timestamptz AND ${idCol} > ${cursor.id}::uuid) OR ${tsCol} IS NULL)`
-    : sql`(${tsCol} < ${cursor.p}::timestamptz OR (${tsCol} = ${cursor.p}::timestamptz AND ${idCol} < ${cursor.id}::uuid) OR ${tsCol} IS NULL)`
+    ? sql`(${tsCol} > ${cursor.p}::timestamptz OR (${tsCol} = ${cursor.p}::timestamptz AND ${idExpr} > ${id}) OR ${tsCol} IS NULL)`
+    : sql`(${tsCol} < ${cursor.p}::timestamptz OR (${tsCol} = ${cursor.p}::timestamptz AND ${idExpr} < ${id}) OR ${tsCol} IS NULL)`
 }

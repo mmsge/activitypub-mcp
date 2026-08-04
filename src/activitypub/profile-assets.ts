@@ -32,6 +32,15 @@ export function getAssetUrl(name: AssetName): string {
   return `https://${config.APP_DOMAIN}/assets/${name}.png?v=${assets[name].hash}`
 }
 
+/** The bytes and content hash, for serving the same images from another host.
+ *
+ *  meg.msge.no reuses the avatar and the banner as its icon and its link-preview
+ *  card. It serves them from its own origin rather than linking to bot.skvip.lol,
+ *  so a reader of the public page makes no request to the bot's domain at all. */
+export function getAsset(name: AssetName): { body: Uint8Array<ArrayBuffer>; hash: string } {
+  return assets[name]
+}
+
 const app = new Hono()
 
 for (const name of Object.keys(assets) as AssetName[]) {

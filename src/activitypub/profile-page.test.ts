@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { renderProfilePage } from './profile-page.js'
+import { config } from '../config.js'
 
 describe('renderProfilePage', () => {
   const html = renderProfilePage()
@@ -91,5 +92,52 @@ describe('renderProfilePage with notes', () => {
     expect(renderProfilePage([note])).not.toContain('Endra')
     const edited = { ...note, updatedAt: new Date('2026-06-01T10:00:00.000Z') }
     expect(renderProfilePage([edited])).toContain('Endra')
+  })
+})
+
+/**
+ * The page's privacy claims are meant to be checkable (ADR 0009), so they have to
+ * follow the configuration rather than assert something that may not be true. When
+ * the public stream is on, "nothing is shared onward" is false and must not appear;
+ * when it is off, it must.
+ */
+describe('the sharing claim tracks whether the stream is published', () => {
+  const withStream = async (domain: string) => {
+    const previous = config.STREAM_DOMAIN
+    ;(config as { STREAM_DOMAIN: string }).STREAM_DOMAIN = domain
+    try {
+      return renderProfilePage()
+    } finally {
+      ;(config as { STREAM_DOMAIN: string }).STREAM_DOMAIN = previous
+    }
+  }
+
+  it('claims nothing is shared onward while the stream is off', async () => {
+    const html = await withStream('')
+    expect(html).toContain('Ingenting vert delt vidare')
+    expect(html).toContain('Arkivet er privat, det er ikkje')
+    expect(html).not.toContain('meg.msge.no')
+  })
+
+  it('drops that claim and names the stream once it is published', async () => {
+    const html = await withStream('meg.msge.no')
+    // The now-false claim must be gone, not merely qualified somewhere further down.
+    expect(html).not.toContain('Arkivet er privat, det er ikkje')
+    expect(html).toContain('Ingenting om andre vert delt vidare')
+    expect(html).toContain('https://meg.msge.no')
+  })
+
+  it('keeps the load-bearing claim about other people either way', async () => {
+    for (const domain of ['', 'meg.msge.no']) {
+      expect(await withStream(domain)).toContain('Han arkiverer ingenting om deg')
+    }
+  })
+
+  it('says what is excluded, so the claim can be checked', async () => {
+    // The copy wraps across lines in the template, so compare on collapsed whitespace.
+    const flat = (await withStream('meg.msge.no')).replace(/\s+/g, ' ')
+    expect(flat).toContain('berre innlegg som alt var offentlege der dei vart lagde ut')
+    expect(flat).toContain('aldri svar til andre')
+    expect(flat).toContain('aldri noko frå andre kontoar enn hans eigne')
   })
 })

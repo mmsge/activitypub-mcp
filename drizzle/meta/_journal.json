@@ -141,6 +141,20 @@
       "when": 1785781790314,
       "tag": "0019_scrobble_race",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785868190314,
+      "tag": "0020_objects_visibility",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785871790314,
+      "tag": "0021_garden_note_dates",
+      "breakpoints": true
     }
   ]
 }

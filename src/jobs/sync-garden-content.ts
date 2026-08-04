@@ -16,9 +16,16 @@ export interface GardenNoteRow {
   sourcePath: string
   path: string
   title: string
+  noteDate: string | null
+  noteTags: string[] | null
   hasContent: boolean
   lastCheckedAt: Date | null
   deletedAt: Date | null
+}
+
+/** Frontmatter tag lists compare by value; order is not meaningful. */
+function sameTags(a: string[] | null, b: string[]): boolean {
+  return JSON.stringify(a ?? []) === JSON.stringify(b)
 }
 
 export interface SyncPlan {
@@ -41,7 +48,16 @@ export function planGardenSync(refs: GardenNoteRef[], rows: GardenNoteRow[], now
 
   const toUpsertMeta = refs.filter((ref) => {
     const row = rowByPath.get(ref.sourcePath)
-    return !row || row.deletedAt != null || row.path !== ref.path || row.title !== ref.title
+    if (!row) return true
+    return (
+      row.deletedAt != null ||
+      row.path !== ref.path ||
+      row.title !== ref.title ||
+      // Also on a date/tag change, so an edited note re-dates itself — and so the
+      // first run after this column landed backfills every existing row.
+      row.noteDate !== ref.date ||
+      !sameTags(row.noteTags, ref.tags)
+    )
   })
   const toSoftDelete = rows
     .filter((r) => r.deletedAt == null && !refPaths.has(r.sourcePath))
@@ -79,6 +95,8 @@ export async function syncGardenContent(): Promise<void> {
         sourcePath: gardenNotes.sourcePath,
         path: gardenNotes.path,
         title: gardenNotes.title,
+        noteDate: gardenNotes.noteDate,
+        noteTags: sql<string[] | null>`${gardenNotes.noteTags}`,
         hasContent: sql<boolean>`${gardenNotes.content} is not null`,
         lastCheckedAt: gardenNotes.lastCheckedAt,
         deletedAt: gardenNotes.deletedAt,
@@ -90,10 +108,23 @@ export async function syncGardenContent(): Promise<void> {
   for (const ref of plan.toUpsertMeta) {
     await db
       .insert(gardenNotes)
-      .values({ sourcePath: ref.sourcePath, path: ref.path, title: ref.title })
+      .values({
+        sourcePath: ref.sourcePath,
+        path: ref.path,
+        title: ref.title,
+        noteDate: ref.date,
+        noteTags: ref.tags,
+      })
       .onConflictDoUpdate({
         target: gardenNotes.sourcePath,
-        set: { path: ref.path, title: ref.title, deletedAt: null, updatedAt: new Date() },
+        set: {
+          path: ref.path,
+          title: ref.title,
+          noteDate: ref.date,
+          noteTags: ref.tags,
+          deletedAt: null,
+          updatedAt: new Date(),
+        },
       })
   }
   if (plan.toSoftDelete.length > 0) {

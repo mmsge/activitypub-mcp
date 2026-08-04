@@ -81,6 +81,27 @@ export const objects = pgTable('objects', {
   language: text('language'),
   raw: jsonb('raw').notNull(),
   searchVector: text('search_vector'),
+  // Origin visibility ('public' | 'unlisted' | 'private' | 'unknown'), derived from
+  // the object's ActivityStreams `to`/`cc` addressing. Generated, not written by the
+  // ingest paths: all five of them rewrite `raw` through one upsert, so the column
+  // recomputes on every create, edit and re-ingest and cannot drift out of step with
+  // the data it describes. Only 'public' may be shown on meg.msge.no — 'unknown'
+  // (no addressing we can read) deliberately is not. Mirrored by classifyVisibility()
+  // in src/stream/visibility.ts. See ADR 0017.
+  visibility: text('visibility').generatedAlwaysAs(
+    sql`CASE
+			WHEN "raw"->'to' @> '"https://www.w3.org/ns/activitystreams#Public"'::jsonb
+				OR "raw"->'to' @> '"as:Public"'::jsonb
+				OR "raw"->'to' @> '"Public"'::jsonb
+				THEN 'public'
+			WHEN "raw"->'cc' @> '"https://www.w3.org/ns/activitystreams#Public"'::jsonb
+				OR "raw"->'cc' @> '"as:Public"'::jsonb
+				OR "raw"->'cc' @> '"Public"'::jsonb
+				THEN 'unlisted'
+			WHEN "raw" ? 'to' OR "raw" ? 'cc'
+				THEN 'private'
+			ELSE 'unknown'
+		END`),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -89,6 +110,7 @@ export const objects = pgTable('objects', {
   index('objects_type_idx').on(t.type),
   index('objects_published_idx').on(t.publishedAt),
   index('objects_actor_published_idx').on(t.actorApId, t.publishedAt),
+  index('objects_visibility_idx').on(t.visibility),
 ])
 
 // Notes this actor wrote itself — the only content it ever publishes. Deliberately
@@ -332,6 +354,12 @@ export const gardenNotes = pgTable('garden_notes', {
   path: text('path').notNull(), // permalink path, e.g. "/meg"; "/" for the home note
   title: text('title').notNull(),
   content: text('content'), // raw markdown incl. frontmatter; null until first successful fetch
+  // The note's own date and tags, from its `dato`/`modified`/`anskaffet` frontmatter.
+  // Text, not `date`: these are hand-written and of varying precision ("2024",
+  // "2024-03-11"), and many notes carry none at all. The public stream parses what it
+  // can and skips what it cannot — an unparseable value must never block the sync.
+  noteDate: text('note_date'),
+  noteTags: jsonb('note_tags'), // string[] — frontmatter tags, '#' stripped
   etag: text('etag'), // verbatim ETag header from the last 200
   lastModified: text('last_modified'), // verbatim Last-Modified header from the last 200
   fetchedAt: timestamp('fetched_at', { withTimezone: true }), // last successful content fetch (200)
@@ -343,6 +371,7 @@ export const gardenNotes = pgTable('garden_notes', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index('garden_notes_path_idx').on(t.path),
+  index('garden_notes_note_date_idx').on(t.noteDate),
 ])
 
 export const deliveryQueue = pgTable('delivery_queue', {

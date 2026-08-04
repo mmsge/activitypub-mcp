@@ -27,3 +27,5 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | [0014](0014-make-the-account-visible-over-activitypub.md) | Make the account visible: complete the discovery surface, and publish notes the actor actually wrote (the outbox was serving the inbox archive) |
 | [0015](0015-scrobble-race-notifications.md) | Notify a head-to-head scrobble race: exact artist matching, a one-way milestone ladder, and state that only advances on a delivered push |
 | [0016](0016-arm-the-race-one-play-early.md) | Arm the decisive race alerts one play early (scrobblers don't report now-playing), and never treat a dead heat as the finish |
+| [0017](0017-derive-post-visibility-from-addressing.md) | Derive post visibility from ActivityPub addressing, in a generated column that fails closed |
+| [0018](0018-publish-the-archive-as-a-public-stream.md) | Publish the archive as a public stream on a second host, ordered by when things happened |

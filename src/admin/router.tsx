@@ -5,14 +5,18 @@ import { bodyLimit } from 'hono/body-limit'
 import { requireAuth } from './middleware.js'
 import { verifyAdminPassword, createSession, deleteSession } from './auth.js'
 import { getDb } from '../db/client.js'
-import { activities, objects, follows, activityLog, actors } from '../db/schema.js'
-import { and, desc, eq, gt, count, isNull, like, or } from 'drizzle-orm'
+import { activities, objects, follows, activityLog, actors, neodbMarks } from '../db/schema.js'
+import { and, desc, eq, gt, count, isNull, like, or, sql } from 'drizzle-orm'
 import { LoginPage } from './views/login.js'
 import { DashboardPage } from './views/dashboard.js'
 import { ActivitiesPage } from './views/activities.js'
 import { FollowsPage } from './views/follows.js'
 import { LogsPage, LogRows } from './views/logs.js'
 import { ObjectsPage } from './views/objects.js'
+import { VisibilityPage } from './views/visibility.js'
+import { config } from '../config.js'
+import { streamEnabled } from '../stream/host.js'
+import { parseSources } from '../stream/sources.js'
 import { ImportPage, ImportResultPage } from './views/import.js'
 import { ToolsPage, INFRA_ROUTES } from './views/tools.js'
 import { endpoints } from '../rest/table.js'
@@ -168,6 +172,100 @@ app.get('/objects', async (c) => {
       hasMore={rows.length > limit}
       filters={{ actor, type, q }}
     />
+  )
+})
+
+/**
+ * The pre-launch check for the public stream.
+ *
+ * Publishing the archive is the one irreversible step in this feature — a post
+ * that should not have been public is public the moment a crawler reads it. The
+ * classifier fails closed and is heavily tested, but those tests assert what we
+ * believe the five platforms send. This is where that meets the real rows, while
+ * the site is still switched off.
+ */
+app.get('/visibility', async (c) => {
+  const db = getDb()
+
+  const counts = await db
+    .select({
+      actorApId: objects.actorApId,
+      handle: actors.handle,
+      software: actors.software,
+      visibility: sql<string>`coalesce(${objects.visibility}, 'unknown')`,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(objects)
+    .leftJoin(actors, eq(actors.apId, objects.actorApId))
+    .where(isNull(objects.deletedAt))
+    .groupBy(objects.actorApId, actors.handle, actors.software, objects.visibility)
+    .orderBy(desc(sql`count(*)`))
+
+  const sampleCols = {
+    apId: objects.apId,
+    url: objects.url,
+    visibility: sql<string>`coalesce(${objects.visibility}, 'unknown')`,
+    publishedAt: objects.publishedAt,
+    contentText: objects.contentText,
+    // Shown verbatim so a wrong verdict can be checked against the actual data.
+    to: sql<string | null>`${objects.raw}->>'to'`,
+    cc: sql<string | null>`${objects.raw}->>'cc'`,
+  }
+
+  const withheld = await db
+    .select(sampleCols)
+    .from(objects)
+    .where(and(isNull(objects.deletedAt), sql`coalesce(${objects.visibility}, 'unknown') <> 'public'`))
+    .orderBy(desc(objects.publishedAt))
+    .limit(25)
+
+  const publishable = await db
+    .select(sampleCols)
+    .from(objects)
+    .where(and(isNull(objects.deletedAt), eq(objects.visibility, 'public')))
+    .orderBy(desc(objects.publishedAt))
+    .limit(15)
+
+  // A mark's visibility lives on the Note it federated with; without that Note it
+  // is withheld. Surfaced as a number so it is a known quantity, not a mystery.
+  const [markStats] = await db
+    .select({
+      total: sql<number>`count(*)::int`,
+      withNote: sql<number>`count(*) FILTER (WHERE EXISTS (
+        SELECT 1 FROM objects o WHERE o.ap_id = ${neodbMarks.markApId}))::int`,
+    })
+    .from(neodbMarks)
+    .where(isNull(neodbMarks.deletedAt))
+
+  let configuredHandles: string[] = []
+  try {
+    configuredHandles = parseSources(config.STREAM_SOURCES).map((s) => s.handle)
+  } catch (e) {
+    configuredHandles = [`(STREAM_SOURCES is invalid: ${e instanceof Error ? e.message : String(e)})`]
+  }
+  const knownHandles = new Set(
+    (await db.select({ handle: actors.handle }).from(actors))
+      .map((r) => (r.handle ?? '').toLowerCase()),
+  )
+  const unresolvedHandles = configuredHandles.filter((h) => !knownHandles.has(h.toLowerCase()))
+
+  return c.html(
+    <VisibilityPage
+      counts={counts}
+      withheld={withheld}
+      publishable={publishable}
+      unknownTotal={counts.filter((x) => x.visibility === 'unknown').reduce((s, x) => s + x.count, 0)}
+      streamEnabled={streamEnabled()}
+      streamDomain={config.STREAM_DOMAIN}
+      includeUnlisted={config.STREAM_INCLUDE_UNLISTED}
+      configuredHandles={configuredHandles}
+      unresolvedHandles={unresolvedHandles}
+      markCounts={{
+        total: markStats?.total ?? 0,
+        withNote: markStats?.withNote ?? 0,
+        withoutNote: (markStats?.total ?? 0) - (markStats?.withNote ?? 0),
+      }}
+    />,
   )
 })
 

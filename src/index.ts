@@ -29,6 +29,8 @@ import { runDeliveryWorker } from './jobs/deliver.js'
 import { pruneActivityLog } from './jobs/prune-activity-log.js'
 import { publishStatusNote } from './jobs/publish-status-note.js'
 import { getDb } from './db/client.js'
+import { streamApp } from './stream/router.js'
+import { isStreamHost, streamEnabled } from './stream/host.js'
 
 const app = new Hono()
 
@@ -201,8 +203,24 @@ async function main() {
   // Start background jobs
   startScheduler()
 
+  // Two sites, one port, chosen on the Host header.
+  //
+  // Deliberately a dispatcher rather than middleware on `app`: with two separate
+  // Hono apps the ActivityPub actor, the admin UI and the MCP endpoint are not
+  // merely shadowed on the public host, they are not mounted there — so a router
+  // added to `app` later cannot leak onto meg.msge.no by accident.
+  //
+  // Anything that is not the stream host falls through to the bot app, including a
+  // request with no Host at all. That default is load-bearing: the container
+  // healthcheck calls http://127.0.0.1:3000/healthz, and flipping it would have the
+  // probe answered by the wrong app.
+  const dispatch = (request: Request, env?: unknown, ctx?: unknown) =>
+    isStreamHost(request.headers.get('host'))
+      ? streamApp.fetch(request, env as never, ctx as never)
+      : app.fetch(request, env as never, ctx as never)
+
   serve({
-    fetch: app.fetch,
+    fetch: dispatch,
     port: config.PORT,
   }, (info) => {
     logger.info({ port: info.port }, `Server started on port ${info.port}`)
@@ -210,6 +228,11 @@ async function main() {
     logger.info(`Admin: http://localhost:${info.port}/admin`)
     logger.info(`MCP:   https://${config.APP_DOMAIN}/mcp`)
     logger.info(`REST:  https://${config.APP_DOMAIN}/api/v1`)
+    logger.info(
+      streamEnabled()
+        ? `Straum: https://${config.STREAM_DOMAIN}`
+        : 'Straum: disabled (STREAM_DOMAIN unset)',
+    )
   })
 }
 
