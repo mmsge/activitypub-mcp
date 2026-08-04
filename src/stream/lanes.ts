@@ -111,8 +111,8 @@ const POSTS_PLATFORMS = AP_PLATFORMS.filter((p) => platformInfo(p).lane === 'pos
  * not know would render as undefined and take the page down. STREAM_SOURCES is the
  * source of truth for which account is what, so the badge comes from there.
  */
-function sourceOf(ctx: LaneContext): SQL {
-  const present = POSTS_PLATFORMS.filter((p) => ctx.actorIds[p].length > 0)
+function sourceOf(ctx: LaneContext, selected: readonly ApPlatform[]): SQL {
+  const present = selected.filter((p) => ctx.actorIds[p].length > 0)
   if (present.length === 0) return sql`'mastodon'`
   const whens = present.map(
     (p) => sql`WHEN o.actor_ap_id = ANY(${idArray(ctx.actorIds[p])}) THEN ${p}`,
@@ -139,7 +139,16 @@ function tagCondition(tag: string): SQL {
  */
 export function postsLane(ctx: LaneContext): SQL | null {
   const { facets } = ctx
-  const actors = POSTS_PLATFORMS.flatMap((p) => ctx.actorIds[p])
+  // A platform filter has to narrow the *accounts*, not just pick the lane. Four
+  // platforms share this lane, so selecting the lane alone left /kjelde/pixelfed
+  // and /kjelde/rullen both serving every post from all four — indistinguishable
+  // from /kjelde/mastodon. The reading and marks lanes are one platform each, so
+  // they are already as narrow as they can be.
+  const selected =
+    facets.platform && (POSTS_PLATFORMS as readonly string[]).includes(facets.platform)
+      ? [facets.platform as ApPlatform]
+      : POSTS_PLATFORMS
+  const actors = selected.flatMap((p) => ctx.actorIds[p])
   if (actors.length === 0) return null
 
   const eventAt = sql`o.published_at`
@@ -154,7 +163,7 @@ export function postsLane(ctx: LaneContext): SQL | null {
 
   return sql`
     SELECT ${eventAt} AS event_at, ${kind} AS kind, ${refId} AS ref_id,
-           ${sourceOf(ctx)} AS source
+           ${sourceOf(ctx, selected)} AS source
     FROM objects o
     WHERE ${allOf([
       sql`o.actor_ap_id = ANY(${idArray(actors)})`,
