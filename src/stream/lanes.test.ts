@@ -93,6 +93,29 @@ describe('postsLane', () => {
     expect(params).toContain('https://rullen.no/users/markus')
   })
 
+  // Regression: four platforms share this lane, so selecting the lane is not the
+  // same as selecting the platform. Before this, /kjelde/rullen returned twenty
+  // Mastodon posts — identical to /kjelde/mastodon and /kjelde/pixelfed.
+  it('narrows to the selected platform\'s accounts, not just to the lane', () => {
+    const { params } = dialect.sqlToQuery(postsLane(ctx({ platform: 'rullen' }))!)
+    expect(params).toContain('https://rullen.no/users/markus')
+    expect(params).not.toContain('https://skvip.lol/users/markus')
+    expect(params).not.toContain('https://pixelfed.babb.no/users/markus')
+  })
+
+  it('carries every posts-lane account when unfiltered', () => {
+    const { params } = dialect.sqlToQuery(postsLane(ctx())!)
+    for (const id of Object.values(ACTOR_IDS).flat()) {
+      if (id.includes('bookwyrm') || id.includes('minreol')) continue
+      expect(params, id).toContain(id)
+    }
+  })
+
+  it('yields nothing for a platform whose account is not configured', () => {
+    expect(postsLane({ ...ctx({ platform: 'loops' }), actorIds: { ...ACTOR_IDS, loops: [] } }))
+      .toBeNull()
+  })
+
   it('requires a published date, so event_at is never null', () => {
     expect(render(postsLane(ctx()))).toContain('o.published_at IS NOT NULL')
   })
