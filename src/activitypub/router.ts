@@ -13,6 +13,7 @@ import { getDb } from '../db/client.js'
 import { follows } from '../db/schema.js'
 import { eq } from 'drizzle-orm'
 import { logger } from '../lib/logger.js'
+import { escapeHtml } from '../lib/html.js'
 import {
   AP_HEADERS,
   AP_HEADERS_NEGOTIATED,
@@ -148,5 +149,58 @@ for (const base of ['/actor', `/users/${config.APP_USERNAME}`]) {
   app.get(`${base}/featured`, featured)
   app.route(`${base}/outbox`, outboxRouter)
 }
+
+/**
+ * robots.txt and sitemap.xml for bot.skvip.lol.
+ *
+ * The box convention (naustet-server's NEW-SERVICE.md) asks every service to serve
+ * both, and this one never has. ADR 0009 and 0014 are about making the account
+ * discoverable and its claims checkable, which is the same instinct — so the
+ * public pages are indexable, and the surfaces that are not content are not.
+ *
+ * Kept away from `/admin` and `/api/` explicitly: neither is reachable without
+ * credentials, but a crawler wasting requests on 401s helps nobody.
+ */
+app.get('/robots.txt', (c) =>
+  c.text(
+    [
+      'User-agent: *',
+      'Allow: /',
+      'Disallow: /admin',
+      'Disallow: /api/',
+      'Disallow: /mcp',
+      'Disallow: /oauth',
+      '',
+      `Sitemap: https://${config.APP_DOMAIN}/sitemap.xml`,
+      '',
+    ].join('\n'),
+    200,
+    { 'Cache-Control': 'public, max-age=3600' },
+  ))
+
+app.get('/sitemap.xml', async (c) => {
+  const origin = `https://${config.APP_DOMAIN}`
+  const notes = await listNotesForProfile(50).catch(() => [])
+  const urls = [
+    { loc: `${origin}/@${config.APP_USERNAME}` },
+    { loc: `${origin}/actor` },
+    ...notes.map((n) => ({
+      loc: `${origin}/notes/${n.id}`,
+      lastmod: (n.updatedAt ?? n.publishedAt)?.toISOString(),
+    })),
+  ]
+  const body = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map((u) => `  <url>
+    <loc>${escapeHtml(u.loc)}</loc>${'lastmod' in u && u.lastmod ? `
+    <lastmod>${escapeHtml(u.lastmod)}</lastmod>` : ''}
+  </url>`).join('\n')}
+</urlset>
+`
+  return c.body(body, 200, {
+    'Content-Type': 'application/xml; charset=utf-8',
+    'Cache-Control': 'public, max-age=3600',
+  })
+})
 
 export { app as activityPubRouter }

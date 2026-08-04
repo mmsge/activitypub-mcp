@@ -238,3 +238,47 @@ describe('GET /assets/:image.png', () => {
     expect((await get('/assets/nope.png')).status).toBe(404)
   })
 })
+
+describe('robots.txt and sitemap.xml', () => {
+  // The box convention asks every service to serve both; this one never has.
+  it('allows crawling the public pages', async () => {
+    const res = await get('/robots.txt')
+    expect(res.status).toBe(200)
+    const body = await res.text()
+    expect(body).toContain('Allow: /')
+    expect(body).toContain('Sitemap: https://')
+  })
+
+  it('keeps crawlers off the surfaces that are not content', async () => {
+    const body = await (await get('/robots.txt')).text()
+    for (const path of ['/admin', '/api/', '/mcp', '/oauth']) {
+      expect(body, path).toContain(`Disallow: ${path}`)
+    }
+  })
+
+  it('lists the profile and the actor in the sitemap', async () => {
+    listNotesForProfile.mockResolvedValueOnce([])
+    const res = await get('/sitemap.xml')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('application/xml')
+    const body = await res.text()
+    expect(body).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
+    expect(body).toContain('/@bot')
+    expect(body).toContain('/actor')
+  })
+
+  it('lists each published note with its own lastmod', async () => {
+    listNotesForProfile.mockResolvedValueOnce([NOTE])
+    const body = await (await get('/sitemap.xml')).text()
+    expect(body).toContain(`/notes/${NOTE.id}`)
+    expect(body).toContain('<lastmod>2026-05-02T10:00:00.000Z</lastmod>')
+  })
+
+  it('still serves a sitemap when the notes query fails', async () => {
+    // A database hiccup must not turn a crawler hint into a 500.
+    listNotesForProfile.mockRejectedValueOnce(new Error('no database'))
+    const res = await get('/sitemap.xml')
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('/actor')
+  })
+})
