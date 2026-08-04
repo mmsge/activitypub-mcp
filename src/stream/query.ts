@@ -12,10 +12,11 @@ import { mergedCandidateSql, type LaneContext } from './lanes.js'
 import { sanitizeHtml } from './sanitize-html.js'
 import { publicOnlyCondition } from './visibility.js'
 import { parseSources, AP_PLATFORMS, type ApPlatform, type Platform } from './sources.js'
-import { osloDay } from './event-date.js'
+import { osloDay, parsePartialDate } from './event-date.js'
 import type { Facets } from './facets.js'
+import { gardenEventAtOn } from './garden-date-sql.js'
 import type {
-  Attachment, Candidate, Entry, StreamPage,
+  Attachment, Candidate, Entry, StreamPage, UndatedGardenNote,
   PostEntry, BookEntry, MarkEntry, ScrobbleDayEntry, TripEntry, GardenEntry,
 } from './entries.js'
 
@@ -456,6 +457,9 @@ async function hydrateGarden(cands: Candidate[]): Promise<Map<string, Entry>> {
       originUrl: `https://markus.plus${row.path}`, kind: 'garden',
       title: row.title, path: row.path, excerpt,
       tags: Array.isArray(row.noteTags) ? (row.noteTags as string[]) : [],
+      // Read back through the same parser the lane's SQL mirrors, so the label
+      // cannot disagree with the date the row was actually ordered by.
+      dateSource: parsePartialDate(row.noteDate) ? 'frontmatter' : 'bookwyrm',
     }
     out.set(c.refId, entry)
   }
@@ -535,6 +539,35 @@ export async function loadStreamPage(facets: Facets): Promise<StreamPage> {
     entries,
     nextCursor: hasMore && last ? encodeCursor(last.eventAt, last.refId) : null,
   }
+}
+
+/**
+ * Published garden notes with no date anywhere — not their own, and none
+ * recoverable from a book they review.
+ *
+ * These cannot be in the stream: the ordering `(event_at DESC, ref_id DESC)` is
+ * only a strict total order, and the keyset pagination over it only correct, if
+ * every entry has a date. Rather than invent one — `fetched_at` would date a 2019
+ * travel note to whenever the crawler first saw it — they are listed by name at the
+ * foot of /kjelde/hage, so the whole garden stays reachable and linkable.
+ *
+ * Ordered by title so the list is stable between requests; it is rendered whole,
+ * with no paging, and the garden is ~380 notes.
+ */
+export async function loadUndatedGardenNotes(): Promise<UndatedGardenNote[]> {
+  const db = getDb()
+  const rows = (await db.execute(sql`
+    SELECT g.title, g.path
+    FROM garden_notes g
+    WHERE g.deleted_at IS NULL
+      AND ${gardenEventAtOn('g')} IS NULL
+      AND g.path <> '/'
+    ORDER BY lower(g.title)`)) as unknown as Array<{ title: string; path: string }>
+  return rows.map((r) => ({
+    title: r.title,
+    path: r.path,
+    url: `https://markus.plus${r.path}`,
+  }))
 }
 
 /**

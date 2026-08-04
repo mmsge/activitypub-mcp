@@ -42,6 +42,10 @@ export interface GardenNoteRef {
   // Absent on plenty of notes, and on the RSS fallback.
   date: string | null
   tags: string[]
+  // The `bookwyrm` Edition URL on a book review, the same join key ReviewMeta uses.
+  // Present on 158 of the 282 notes that carry no date, which is what makes their
+  // dates recoverable from the reading events already in the archive.
+  bookUrl: string | null
 }
 
 // Book-review frontmatter, keyed by the `bookwyrm` field (== a BookWyrm Edition
@@ -160,6 +164,7 @@ export function parseNoteRefs(data: AnyObject): GardenNoteRef[] {
       title: str(fm.title) || titleFromKey(key),
       date: str(fm.dato) || str(fm.modified) || str(fm.anskaffet),
       tags: tagsFrom(value as AnyObject),
+      bookUrl: str(fm.bookwyrm),
     })
   }
   return refs

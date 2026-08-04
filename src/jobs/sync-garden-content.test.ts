@@ -11,8 +11,9 @@ function ref(
   title = sourcePath,
   date: string | null = null,
   tags: string[] = [],
+  bookUrl: string | null = null,
 ): GardenNoteRef {
-  return { sourcePath, path, title, date, tags }
+  return { sourcePath, path, title, date, tags, bookUrl }
 }
 
 function row(overrides: Partial<GardenNoteRow> & { sourcePath: string }): GardenNoteRow {
@@ -21,6 +22,7 @@ function row(overrides: Partial<GardenNoteRow> & { sourcePath: string }): Garden
     title: overrides.sourcePath,
     noteDate: null,
     noteTags: [],
+    bookUrl: null,
     hasContent: false,
     lastCheckedAt: null,
     deletedAt: null,
@@ -40,6 +42,30 @@ describe('planGardenSync — note dates and tags', () => {
     )
     expect(plan.toUpsertMeta).toHaveLength(1)
     expect(plan.toUpsertMeta[0].date).toBe('2024-03-11')
+  })
+
+  it('re-upserts a stored note whose bookwyrm URL is not yet persisted', () => {
+    // Same reason as the date above: the column landed after the rows did, so the
+    // first pass with it must backfill or no undated review ever gets a date.
+    const plan = planGardenSync(
+      [ref('b.md', '/b', 'b', null, [], 'https://bookwyrm.social/book/1')],
+      [row({ sourcePath: 'b.md', path: '/b', title: 'b', hasContent: true, lastCheckedAt: NOW })],
+      NOW,
+    )
+    expect(plan.toUpsertMeta).toHaveLength(1)
+    expect(plan.toUpsertMeta[0].bookUrl).toBe('https://bookwyrm.social/book/1')
+  })
+
+  it('leaves a note alone when its bookwyrm URL is unchanged', () => {
+    const plan = planGardenSync(
+      [ref('b.md', '/b', 'b', null, [], 'https://bookwyrm.social/book/1')],
+      [row({
+        sourcePath: 'b.md', path: '/b', title: 'b', hasContent: true, lastCheckedAt: NOW,
+        bookUrl: 'https://bookwyrm.social/book/1',
+      })],
+      NOW,
+    )
+    expect(plan.toUpsertMeta).toHaveLength(0)
   })
 
   it('re-upserts when the date changes, so an edited note re-dates itself', () => {

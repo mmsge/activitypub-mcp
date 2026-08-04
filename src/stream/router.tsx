@@ -7,7 +7,7 @@ import { ttlMemo } from '../lib/memo.js'
 import { InvalidCursorError } from '../mcp/tools/pagination.js'
 import { getAsset } from '../activitypub/profile-assets.js'
 import { streamOrigin } from './host.js'
-import { loadStreamPage, loadArchiveMonths } from './query.js'
+import { loadStreamPage, loadArchiveMonths, loadUndatedGardenNotes } from './query.js'
 import { renderAtom } from './feed.js'
 import { renderHead, renderRobots, renderSitemap } from './meta.js'
 import { platformInfo, AP_PLATFORMS, LOCAL_PLATFORMS, type Platform } from './sources.js'
@@ -16,8 +16,8 @@ import {
   parseTag, parseArchive, parseCursor, UnknownFacetError, type Facets,
 } from './facets.js'
 import { Layout } from './views/layout.js'
-import { StreamList } from './views/entry.js'
-import type { StreamPage } from './entries.js'
+import { StreamList, UndatedGarden } from './views/entry.js'
+import type { StreamPage, UndatedGardenNote } from './entries.js'
 
 /**
  * meg.msge.no.
@@ -41,6 +41,9 @@ const pageCache = ttlMemo<StreamPage>({ ttlMs: TTL, max: 200 })
 const htmlCache = ttlMemo<{ body: string; etag: string }>({ ttlMs: TTL, max: 200 })
 const feedCache = ttlMemo<string>({ ttlMs: Math.max(TTL, 300_000), max: 4 })
 const monthsCache = ttlMemo<string[]>({ ttlMs: 3_600_000, max: 1 })
+// The dateless garden notes change only when Markus publishes or dates one, so an
+// hour is plenty — and it is one query for one page, not per request.
+const undatedCache = ttlMemo<UndatedGardenNote[]>({ ttlMs: 3_600_000, max: 1 })
 
 function etagOf(body: string): string {
   return `"${createHash('sha256').update(body).digest('hex').slice(0, 16)}"`
@@ -76,6 +79,12 @@ async function servePage(c: Context, facets: Facets): Promise<Response> {
   const cached = await htmlCache.get(key, async () => {
     const page = await pageCache.get(key, () => loadStreamPage(facets))
     const canonical = `${streamOrigin()}${pathFor(facets)}`
+    // Only on the garden's own first page: these notes have no date, so they have
+    // no place in the stream, but hiding them entirely would drop a third of the
+    // garden off the site. See loadUndatedGardenNotes.
+    const undated = facets.platform === 'hage' && facets.cursor == null
+      ? await undatedCache.get('all', loadUndatedGardenNotes)
+      : []
     const body = (
       <Layout
         title={titleFor(facets)}
@@ -95,6 +104,7 @@ async function servePage(c: Context, facets: Facets): Promise<Response> {
           entries={page.entries}
           nextHref={page.nextCursor ? pathFor(facets, page.nextCursor) : null}
         />
+        <UndatedGarden notes={undated} />
       </Layout>
     ).toString()
     const full = `<!doctype html>${body}`
@@ -226,4 +236,5 @@ export function clearStreamCaches(): void {
   htmlCache.clear()
   feedCache.clear()
   monthsCache.clear()
+  undatedCache.clear()
 }

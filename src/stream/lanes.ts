@@ -5,6 +5,7 @@ import { archiveRange, type Facets } from './facets.js'
 import { lanesForPlatform, platformInfo, AP_PLATFORMS, type ApPlatform, type Lane } from './sources.js'
 import { readingKindOn, meaningfulReadingOn } from './reading-events.js'
 import { publicOnlyOn } from './visibility.js'
+import { gardenEventAtOn } from './garden-date-sql.js'
 
 /**
  * The candidate query for each lane of the public stream.
@@ -358,20 +359,21 @@ export function tripsLane(ctx: LaneContext): SQL | null {
 }
 
 /**
- * Garden notes, dated by their own frontmatter. Undated notes are excluded — see
- * event-date.ts on why an entry with no derivable date cannot be in the stream.
- * The cast is guarded by the regex so a malformed hand-written date cannot error
- * the whole query.
+ * Garden notes, dated by their own frontmatter where they have one and by the
+ * reading events of the book they review where they do not (see
+ * jobs/derive-garden-dates.ts). A note with neither is still excluded — see
+ * event-date.ts on why an entry with no derivable date cannot be in the stream —
+ * and is listed instead, dateless, at the foot of /kjelde/hage.
+ *
+ * `gardenEventAtOn` is shared with the derivation's counters so the two cannot
+ * drift apart about which notes have a date.
  */
 export function gardenLane(ctx: LaneContext): SQL | null {
   const { facets } = ctx
   if (facets.tag) return null
   if (facets.kind && facets.kind !== 'garden') return null
 
-  const eventAt = sql`(g.note_date || CASE
-      WHEN g.note_date ~ '^\\d{4}$' THEN '-01-01'
-      WHEN g.note_date ~ '^\\d{4}-\\d{2}$' THEN '-01'
-      ELSE '' END)::timestamptz`
+  const eventAt = gardenEventAtOn('g')
   const refId = sql`('garden:' || g.id::text)`
 
   return sql`
@@ -379,7 +381,7 @@ export function gardenLane(ctx: LaneContext): SQL | null {
     FROM garden_notes g
     WHERE ${allOf([
       sql`g.deleted_at IS NULL`,
-      sql`g.note_date ~ '^\\d{4}(-\\d{2}(-\\d{2})?)?$'`,
+      sql`${eventAt} IS NOT NULL`,
       notFuture(eventAt),
       archiveBound(facets, eventAt),
       keyset(facets, eventAt, refId),

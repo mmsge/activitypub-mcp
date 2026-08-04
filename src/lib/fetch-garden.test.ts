@@ -68,8 +68,8 @@ describe('parseNoteRefs — Obsidian cache → crawlable note refs', () => {
   it('includes the home page and normalizes permalinks to leading-slash paths', () => {
     const refs = parseNoteRefs(cacheDoc)
     expect(refs).toEqual([
-      { sourcePath: '_publish/Hovud.md', path: '/', title: 'Hovud', date: null, tags: [] },
-      { sourcePath: '_publish/Personleg/Om meg.md', path: '/meg', title: 'Om meg', date: null, tags: [] },
+      { sourcePath: '_publish/Hovud.md', path: '/', title: 'Hovud', date: null, tags: [], bookUrl: null },
+      { sourcePath: '_publish/Personleg/Om meg.md', path: '/meg', title: 'Om meg', date: null, tags: [], bookUrl: null },
     ])
   })
 
@@ -84,8 +84,29 @@ describe('parseNoteRefs — Obsidian cache → crawlable note refs', () => {
       },
     })
     expect(refs).toEqual([
-      { sourcePath: '_publish/Dagbok/Tur.md', path: '/tur', title: 'Tur', date: '2024-03-11', tags: ['reise', 'foto'] },
+      { sourcePath: '_publish/Dagbok/Tur.md', path: '/tur', title: 'Tur', date: '2024-03-11', tags: ['reise', 'foto'], bookUrl: null },
     ])
+  })
+
+  it('carries the bookwyrm Edition URL, which is how an undated review gets a date', () => {
+    // 158 of the 282 dateless notes have this field and nothing else to go on.
+    // Losing it here would silently leave them all out of the stream again.
+    const refs = parseNoteRefs({
+      '_publish/Meldingar/Boka.md': {
+        frontmatter: {
+          permalink: 'melding/boka',
+          bookwyrm: 'https://bookwyrm.social/book/1763392',
+          forfattar: 'Ein Forfattar',
+        },
+      },
+    })
+    expect(refs[0].bookUrl).toBe('https://bookwyrm.social/book/1763392')
+    expect(refs[0].date).toBeNull()
+  })
+
+  it('leaves bookUrl null on a note that is not a book review', () => {
+    const refs = parseNoteRefs({ '_publish/a.md': { frontmatter: { permalink: 'a' } } })
+    expect(refs[0].bookUrl).toBeNull()
   })
 
   it('falls back to modified, then anskaffet, and tolerates neither', () => {

@@ -296,6 +296,22 @@ a:hover { color: var(--ink); }
 
 .empty { text-align: center; color: var(--muted); padding: 3rem 0; }
 
+/* A date we worked out rather than one the note claims — see the garden lane. */
+.derived { font-size: .85rem; color: var(--muted); font-style: italic; margin-top: .4rem; }
+
+/* The garden notes with no date anywhere: listed at the foot of /kjelde/hage. */
+.undated {
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line);
+}
+.undated h2 { font-size: 1.1rem; margin: 0 0 .4rem; }
+.undated > p { color: var(--muted); font-size: .9rem; margin: 0 0 1rem; }
+.undated ul {
+  list-style: none; padding: 0; margin: 0;
+  columns: 2; column-gap: 2rem;
+}
+.undated li { break-inside: avoid; margin: 0 0 .35rem; font-size: .92rem; }
+@media (max-width: 34rem) { .undated ul { columns: 1; } }
+
 footer {
   margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line);
   font-family: ui-sans-serif, system-ui, sans-serif; font-size: .85rem; color: var(--muted);
