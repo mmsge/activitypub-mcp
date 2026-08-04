@@ -17,6 +17,7 @@ const ACTOR_IDS = {
   loops: ['https://loops.video/ap/users/79185548970954752'],
   bookwyrm: ['https://bookwyrm.social/user/mvrkws'],
   neodb: ['https://minreol.dk/@markus@minreol.dk/'],
+  rullen: ['https://rullen.no/users/markus'],
 }
 
 const ctx = (facets: Partial<Facets> = {}): LaneContext => ({
@@ -55,7 +56,7 @@ describe('postsLane', () => {
   })
 
   it('yields nothing at all when no account is configured', () => {
-    expect(postsLane({ ...ctx(), actorIds: { ...ACTOR_IDS, mastodon: [], pixelfed: [], loops: [] } }))
+    expect(postsLane({ ...ctx(), actorIds: { ...ACTOR_IDS, mastodon: [], pixelfed: [], loops: [], rullen: [] } }))
       .toBeNull()
   })
 
@@ -70,6 +71,26 @@ describe('postsLane', () => {
     expect(sql).toContain('p.actor_ap_id = o.actor_ap_id')
     // Two checks: the row itself, and the parent it continues.
     expect(sql.match(/\bvisibility = 'public'/g)?.length).toBe(2)
+  })
+
+  // Regression guard: the badge used to come from `coalesce(actors.software, …)`,
+  // the value a remote server reports about itself. Markus' own server reports
+  // "rullen"; anything the view's registry does not know renders as undefined and
+  // takes the page down. STREAM_SOURCES is the source of truth for what an account
+  // is, so the badge is built from the configured platform instead.
+  it('labels each post from its configured platform, not from actors.software', () => {
+    const sql = render(postsLane(ctx()))
+    expect(sql).not.toContain('a.software')
+    expect(sql).not.toContain('LEFT JOIN actors')
+    expect(sql).toContain('CASE WHEN o.actor_ap_id = ANY(')
+  })
+
+  it('carries every posts-lane platform, including rullen', () => {
+    const { params } = dialect.sqlToQuery(postsLane(ctx())!)
+    for (const p of ['mastodon', 'pixelfed', 'loops', 'rullen']) {
+      expect(params, p).toContain(p)
+    }
+    expect(params).toContain('https://rullen.no/users/markus')
   })
 
   it('requires a published date, so event_at is never null', () => {
@@ -283,7 +304,7 @@ describe('mergedCandidateSql', () => {
   it('is null when nothing can match, rather than an empty union', () => {
     expect(mergedCandidateSql({
       ...ctx({ platform: 'mastodon' }),
-      actorIds: { mastodon: [], pixelfed: [], loops: [], bookwyrm: [], neodb: [] },
+      actorIds: { mastodon: [], pixelfed: [], loops: [], bookwyrm: [], neodb: [], rullen: [] },
     })).toBeNull()
   })
 

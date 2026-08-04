@@ -2,7 +2,7 @@ import { sql, type SQL } from 'drizzle-orm'
 import { config } from '../config.js'
 import { decodeCursor } from '../mcp/tools/pagination.js'
 import { archiveRange, type Facets } from './facets.js'
-import { lanesForPlatform, type Lane } from './sources.js'
+import { lanesForPlatform, platformInfo, AP_PLATFORMS, type ApPlatform, type Lane } from './sources.js'
 import { readingKindOn, meaningfulReadingOn } from './reading-events.js'
 import { publicOnlyOn } from './visibility.js'
 
@@ -34,7 +34,7 @@ import { publicOnlyOn } from './visibility.js'
 export interface LaneContext {
   facets: Facets
   /** Resolved AP ids of the allowlisted accounts, by platform. */
-  actorIds: { mastodon: string[]; pixelfed: string[]; loops: string[]; bookwyrm: string[]; neodb: string[] }
+  actorIds: Record<ApPlatform, string[]>
   /** How many candidates each lane may return. */
   limit: number
 }
@@ -94,6 +94,32 @@ function allOf(parts: Array<SQL | null | undefined>): SQL {
   return sql.join(kept, sql` AND `)
 }
 
+/** `ARRAY[…]::text[]`, for `= ANY(…)` against a list of actor ids. */
+function idArray(ids: string[]): SQL {
+  return sql`ARRAY[${sql.join(ids.map((x) => sql`${x}`), sql`, `)}]::text[]`
+}
+
+/** Every platform whose posts land in the `posts` lane. */
+const POSTS_PLATFORMS = AP_PLATFORMS.filter((p) => platformInfo(p).lane === 'posts')
+
+/**
+ * The badge each post carries, taken from the *configured* platform rather than
+ * from `actors.software`.
+ *
+ * The probed NodeInfo name is not ours to rely on: a server can report anything
+ * (Markus' own reports "rullen"), and any value the view's platform registry does
+ * not know would render as undefined and take the page down. STREAM_SOURCES is the
+ * source of truth for which account is what, so the badge comes from there.
+ */
+function sourceOf(ctx: LaneContext): SQL {
+  const present = POSTS_PLATFORMS.filter((p) => ctx.actorIds[p].length > 0)
+  if (present.length === 0) return sql`'mastodon'`
+  const whens = present.map(
+    (p) => sql`WHEN o.actor_ap_id = ANY(${idArray(ctx.actorIds[p])}) THEN ${p}`,
+  )
+  return sql`CASE ${sql.join(whens, sql` `)} ELSE 'mastodon' END`
+}
+
 /** A hashtag predicate over the raw AP `tag` array. Only the lanes that have one. */
 function tagCondition(tag: string): SQL {
   return sql`jsonb_typeof(o.tags) = 'array' AND EXISTS (
@@ -113,7 +139,7 @@ function tagCondition(tag: string): SQL {
  */
 export function postsLane(ctx: LaneContext): SQL | null {
   const { facets } = ctx
-  const actors = [...ctx.actorIds.mastodon, ...ctx.actorIds.pixelfed, ...ctx.actorIds.loops]
+  const actors = POSTS_PLATFORMS.flatMap((p) => ctx.actorIds[p])
   if (actors.length === 0) return null
 
   const eventAt = sql`o.published_at`
@@ -128,11 +154,10 @@ export function postsLane(ctx: LaneContext): SQL | null {
 
   return sql`
     SELECT ${eventAt} AS event_at, ${kind} AS kind, ${refId} AS ref_id,
-           coalesce(a.software, 'mastodon') AS source
+           ${sourceOf(ctx)} AS source
     FROM objects o
-    LEFT JOIN actors a ON a.ap_id = o.actor_ap_id
     WHERE ${allOf([
-      sql`o.actor_ap_id = ANY(${sql`ARRAY[${sql.join(actors.map((x) => sql`${x}`), sql`, `)}]::text[]`})`,
+      sql`o.actor_ap_id = ANY(${idArray(actors)})`,
       sql`o.deleted_at IS NULL`,
       sql`o.published_at IS NOT NULL`,
       publicOnlyOn('o', config.STREAM_INCLUDE_UNLISTED),
@@ -184,7 +209,7 @@ export function readingLane(ctx: LaneContext): SQL | null {
     SELECT ${eventAt} AS event_at, ${kind} AS kind, ${refId} AS ref_id, 'bookwyrm' AS source
     FROM objects o
     WHERE ${allOf([
-      sql`o.actor_ap_id = ANY(${sql`ARRAY[${sql.join(actors.map((x) => sql`${x}`), sql`, `)}]::text[]`})`,
+      sql`o.actor_ap_id = ANY(${idArray(actors)})`,
       sql`o.deleted_at IS NULL`,
       publicOnlyOn('o', config.STREAM_INCLUDE_UNLISTED),
       // A BookWyrm review carries the book in `inReplyToBook`, not `inReplyTo`, so
@@ -231,7 +256,7 @@ export function marksLane(ctx: LaneContext): SQL | null {
     JOIN objects o ON o.ap_id = m.mark_ap_id
     LEFT JOIN catalog_metadata cm ON cm.item_url = m.item_url
     WHERE ${allOf([
-      sql`m.actor_ap_id = ANY(${sql`ARRAY[${sql.join(actors.map((x) => sql`${x}`), sql`, `)}]::text[]`})`,
+      sql`m.actor_ap_id = ANY(${idArray(actors)})`,
       sql`m.deleted_at IS NULL`,
       sql`o.deleted_at IS NULL`,
       publicOnlyOn('o', config.STREAM_INCLUDE_UNLISTED),

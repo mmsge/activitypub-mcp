@@ -11,7 +11,7 @@ import { stripHtml } from '../lib/strip-html.js'
 import { mergedCandidateSql, type LaneContext } from './lanes.js'
 import { sanitizeHtml } from './sanitize-html.js'
 import { publicOnlyCondition } from './visibility.js'
-import { parseSources, type ApPlatform, type Platform } from './sources.js'
+import { parseSources, AP_PLATFORMS, type ApPlatform, type Platform } from './sources.js'
 import { osloDay } from './event-date.js'
 import type { Facets } from './facets.js'
 import type {
@@ -31,7 +31,7 @@ import type {
 
 type ActorIds = LaneContext['actorIds']
 
-const EMPTY_ACTOR_IDS: ActorIds = { mastodon: [], pixelfed: [], loops: [], bookwyrm: [], neodb: [] }
+const EMPTY_ACTOR_IDS: ActorIds = Object.fromEntries(AP_PLATFORMS.map((p) => [p, [] as string[]])) as ActorIds
 
 let actorIdCache: { at: number; ids: ActorIds } | null = null
 const ACTOR_CACHE_MS = 10 * 60 * 1000
@@ -48,7 +48,7 @@ export async function resolveActorIds(): Promise<ActorIds> {
   if (actorIdCache && Date.now() - actorIdCache.at < ACTOR_CACHE_MS) return actorIdCache.ids
 
   const sources = parseSources(config.STREAM_SOURCES)
-  const ids: ActorIds = { mastodon: [], pixelfed: [], loops: [], bookwyrm: [], neodb: [] }
+  const ids: ActorIds = Object.fromEntries(AP_PLATFORMS.map((p) => [p, [] as string[]])) as ActorIds
   if (sources.length === 0) {
     actorIdCache = { at: Date.now(), ids }
     return ids
