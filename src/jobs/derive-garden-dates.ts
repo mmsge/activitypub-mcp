@@ -4,6 +4,7 @@ import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
 import { publicOnlyOn } from '../stream/visibility.js'
 import { ownGardenDateOn } from '../stream/garden-date-sql.js'
+import { bookUrlOn, normalizeBookUrl } from '../stream/book-url-sql.js'
 
 /**
  * Give the undated garden notes a date, from the reading events they are about.
@@ -55,16 +56,20 @@ export async function deriveGardenDates(): Promise<DeriveGardenDatesResult> {
   // One statement: for every edition, the best-dated public reading event, joined
   // onto the notes that name it. DISTINCT ON picks the winner per book_url under
   // the ORDER BY — rank first (review beats finish), then newest.
+  //
+  // The edition comes from the AP object via bookUrlOn, not from
+  // bookwyrm_objects.book_url, and both sides of the join are normalised. Getting
+  // either of those wrong recovers exactly nothing while every test still passes —
+  // which is what happened the first time. See book-url-sql.ts.
   const updated = await db.execute(sql`
     WITH candidate AS (
       SELECT
-        bo.book_url,
+        ${bookUrlOn('o', 'bo')} AS book_url,
         CASE WHEN o.ap_id LIKE ${SEG_REVIEW} THEN 1 ELSE 2 END AS rank,
         coalesce(bo.finish_date::timestamptz, o.published_at) AS at
-      FROM bookwyrm_objects bo
-      JOIN objects o ON o.ap_id = bo.object_ap_id
-      WHERE bo.book_url IS NOT NULL
-        AND o.deleted_at IS NULL
+      FROM objects o
+      LEFT JOIN bookwyrm_objects bo ON bo.object_ap_id = o.ap_id
+      WHERE o.deleted_at IS NULL
         AND o.published_at IS NOT NULL
         AND (o.ap_id LIKE ${SEG_REVIEW}
              OR (o.ap_id LIKE ${SEG_GENERATEDNOTE} AND o.content_text LIKE ${PHRASE_FINISHED}))
@@ -73,13 +78,13 @@ export async function deriveGardenDates(): Promise<DeriveGardenDatesResult> {
     best AS (
       SELECT DISTINCT ON (book_url) book_url, at
       FROM candidate
-      WHERE at IS NOT NULL AND at <= now()
+      WHERE book_url IS NOT NULL AND at IS NOT NULL AND at <= now()
       ORDER BY book_url, rank, at DESC
     )
     UPDATE garden_notes g
     SET derived_date = best.at, updated_at = now()
     FROM best
-    WHERE g.book_url = best.book_url
+    WHERE ${normalizeBookUrl(sql`g.book_url`)} = best.book_url
       AND g.deleted_at IS NULL
       AND g.derived_date IS DISTINCT FROM best.at
     RETURNING g.id`)
