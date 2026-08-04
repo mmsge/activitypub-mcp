@@ -87,3 +87,23 @@ export function publicOnlyCondition(includeUnlisted = false): SQL {
     ? sql`${objects.visibility} IN ('public', 'unlisted')`
     : sql`${objects.visibility} = 'public'`
 }
+
+/**
+ * The same rule, written against a table alias.
+ *
+ * `publicOnlyCondition` emits drizzle's fully-qualified `"objects"."visibility"`,
+ * which is right inside a query-builder call but wrong inside the hand-written lane
+ * SQL, where the table is aliased (`FROM objects o`) and `objects` is not in scope
+ * at all. Postgres rejects it outright — and in a correlated subquery that aliases
+ * the same table twice, a stray qualified reference silently resolves to the *outer*
+ * row instead, which is worse than an error.
+ */
+export function publicOnlyOn(alias: string, includeUnlisted = false): SQL {
+  if (!/^[a-z][a-z0-9_]*$/.test(alias)) {
+    throw new Error(`Unusable SQL alias: ${alias}`)
+  }
+  const col = sql.raw(`${alias}.visibility`)
+  return includeUnlisted
+    ? sql`${col} IN ('public', 'unlisted')`
+    : sql`${col} = 'public'`
+}

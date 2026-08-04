@@ -36,9 +36,9 @@ describe('every lane that touches objects filters on visibility', () => {
   // The single assertion this whole feature rests on. A lane that forgets it
   // publishes followers-only posts.
   for (const [name, build] of VISIBILITY_LANES) {
-    it(`${name} restricts to public`, () => {
+    it(`${name} restricts to public, qualified by its own alias`, () => {
       const sql = render(build(ctx()))
-      expect(sql).toContain('"visibility" = \'public\'')
+      expect(sql).toContain("o.visibility = 'public'")
     })
 
     it(`${name} excludes soft-deleted rows`, () => {
@@ -68,7 +68,8 @@ describe('postsLane', () => {
     // be visibility-filtered, or a public root could pull in a private reply.
     const sql = render(postsLane(ctx()))
     expect(sql).toContain('p.actor_ap_id = o.actor_ap_id')
-    expect(sql.match(/"visibility" = 'public'/g)?.length).toBeGreaterThanOrEqual(2)
+    // Two checks: the row itself, and the parent it continues.
+    expect(sql.match(/\bvisibility = 'public'/g)?.length).toBe(2)
   })
 
   it('requires a published date, so event_at is never null', () => {
@@ -171,8 +172,38 @@ describe('every lane', () => {
     // agree exactly, or a page boundary lands where the cursor does not expect it.
     for (const [name, build] of ALL) {
       const sql = render(build(ctx()))
-      expect(sql, name).toContain('ORDER BY event_at DESC, ref_id COLLATE "C" DESC')
+      expect(sql, name).toMatch(/ORDER BY .+ DESC, \(.+\) COLLATE "C" DESC/s)
     }
+  })
+
+  // Regression: `ORDER BY ref_id` is legal (a bare output-column name), but
+  // `ORDER BY ref_id COLLATE "C"` is not — wrapping the alias in an expression
+  // makes Postgres resolve it against the input columns, and every request 500'd
+  // with `column "ref_id" does not exist`.
+  it('orders on the expressions, never on the output aliases', () => {
+    for (const [name, build] of ALL) {
+      const sql = render(build(ctx()))
+      const orderBy = sql.slice(sql.lastIndexOf('ORDER BY'))
+      expect(orderBy, name).not.toMatch(/\bref_id\b/)
+      expect(orderBy, name).not.toMatch(/\bevent_at\b/)
+    }
+  })
+
+  // Regression: the shared conditions are built with drizzle and render
+  // `"objects"."visibility"`, which does not resolve inside `FROM objects o` —
+  // and in the self-thread subquery would have silently checked the wrong row.
+  it('refers to its own aliases, never to the bare table name', () => {
+    for (const [name, build] of ALL) {
+      expect(render(build(ctx({ kind: 'book_review' }))), name).not.toContain('"objects".')
+      expect(render(build(ctx())), name).not.toContain('"objects".')
+    }
+  })
+
+  it('checks the parent post\'s own visibility when keeping a self-thread', () => {
+    // `publicOnlyOn('o', …)` here would have resolved to the outer row, letting a
+    // public root pull in a private reply.
+    const sql = render(postsLane(ctx()))
+    expect(sql).toContain("p.visibility = 'public'")
   })
 
   it('limits itself, so the merge never materialises a whole table', () => {
@@ -210,6 +241,22 @@ describe('mergedCandidateSql', () => {
   it('unions every lane when unfiltered', () => {
     const sql = render(mergedCandidateSql(ctx()))
     expect(sql.match(/UNION ALL/g)?.length).toBe(5) // six lanes, five joins
+  })
+
+  // Regression: a lane carries its own ORDER BY and LIMIT — that is the whole point
+  // of the k-way merge — and Postgres will not accept those on a bare UNION arm. It
+  // reads the ORDER BY as belonging to the union and fails at the next SELECT.
+  it('parenthesises every union branch', () => {
+    const sql = render(mergedCandidateSql(ctx()))
+    expect(sql.match(/\) UNION ALL \(/g)?.length).toBe(5)
+    expect(sql).not.toMatch(/LIMIT \$\d+\s+UNION ALL/)
+  })
+
+  it('orders the merged set on real columns of the subquery', () => {
+    // Here `event_at`/`ref_id` ARE columns of `merged`, so naming them is correct —
+    // the opposite of the rule inside a lane.
+    expect(render(mergedCandidateSql(ctx())))
+      .toContain('ORDER BY event_at DESC, ref_id COLLATE "C" DESC')
   })
 
   it('runs only the selected lane when a platform is chosen', () => {
