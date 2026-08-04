@@ -65,6 +65,42 @@ describe('keysetCondition', () => {
   })
 })
 
+// The public stream merges lanes from tables with unrelated ids, so it pages on a
+// synthetic "<kind>:<id>" text tiebreaker instead of a uuid.
+describe('a text tiebreaker (idCast: "text")', () => {
+  const ref = 'post:19a2c7d2-2229-4b7a-9abd-dd9de3e9d847'
+
+  it('casts to text, not uuid — a "post:<uuid>" label is not a uuid', () => {
+    const { sql } = dialect.sqlToQuery(
+      keysetCondition(scrobbles.playedAt, scrobbles.id, { p: ts.toISOString(), id: ref }, 'desc', 'text'),
+    )
+    expect(sql).toContain('::text')
+    expect(sql).not.toContain('::uuid')
+  })
+
+  it('forces the C collation on both sides, so ordering is byte-stable', () => {
+    const cond = dialect.sqlToQuery(
+      keysetCondition(scrobbles.playedAt, scrobbles.id, { p: ts.toISOString(), id: ref }, 'desc', 'text'),
+    ).sql
+    const order = dialect.sqlToQuery(
+      keysetOrderBy(scrobbles.playedAt, scrobbles.id, 'desc', 'text'),
+    ).sql
+    // Both the compared column and the bound value, or the keyset skips/repeats rows.
+    expect(cond.match(/COLLATE "C"/g)?.length).toBe(2)
+    expect(order).toContain('COLLATE "C"')
+  })
+
+  it('leaves the uuid default untouched for every existing caller', () => {
+    const { sql } = dialect.sqlToQuery(
+      keysetCondition(scrobbles.playedAt, scrobbles.id, { p: ts.toISOString(), id }, 'desc'),
+    )
+    expect(sql).toContain('::uuid')
+    expect(sql).not.toContain('COLLATE')
+    expect(dialect.sqlToQuery(keysetOrderBy(scrobbles.playedAt, scrobbles.id, 'desc')).sql)
+      .not.toContain('COLLATE')
+  })
+})
+
 describe('keysetOrderBy', () => {
   it('sorts null timestamps last in both directions', () => {
     for (const order of ['asc', 'desc'] as const) {

@@ -81,6 +81,27 @@ export const objects = pgTable('objects', {
   language: text('language'),
   raw: jsonb('raw').notNull(),
   searchVector: text('search_vector'),
+  // Origin visibility ('public' | 'unlisted' | 'private' | 'unknown'), derived from
+  // the object's ActivityStreams `to`/`cc` addressing. Generated, not written by the
+  // ingest paths: all five of them rewrite `raw` through one upsert, so the column
+  // recomputes on every create, edit and re-ingest and cannot drift out of step with
+  // the data it describes. Only 'public' may be shown on meg.msge.no — 'unknown'
+  // (no addressing we can read) deliberately is not. Mirrored by classifyVisibility()
+  // in src/stream/visibility.ts. See ADR 0017.
+  visibility: text('visibility').generatedAlwaysAs(
+    sql`CASE
+			WHEN "raw"->'to' @> '"https://www.w3.org/ns/activitystreams#Public"'::jsonb
+				OR "raw"->'to' @> '"as:Public"'::jsonb
+				OR "raw"->'to' @> '"Public"'::jsonb
+				THEN 'public'
+			WHEN "raw"->'cc' @> '"https://www.w3.org/ns/activitystreams#Public"'::jsonb
+				OR "raw"->'cc' @> '"as:Public"'::jsonb
+				OR "raw"->'cc' @> '"Public"'::jsonb
+				THEN 'unlisted'
+			WHEN "raw" ? 'to' OR "raw" ? 'cc'
+				THEN 'private'
+			ELSE 'unknown'
+		END`),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
@@ -89,6 +110,7 @@ export const objects = pgTable('objects', {
   index('objects_type_idx').on(t.type),
   index('objects_published_idx').on(t.publishedAt),
   index('objects_actor_published_idx').on(t.actorApId, t.publishedAt),
+  index('objects_visibility_idx').on(t.visibility),
 ])
 
 // Notes this actor wrote itself — the only content it ever publishes. Deliberately
