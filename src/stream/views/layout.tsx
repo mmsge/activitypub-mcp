@@ -125,6 +125,9 @@ const FilterBar: FC<{ active: Platform | null }> = ({ active }) => (
         {platformInfo(p).label}
       </a>
     ))}
+    {/* Not a source, so never `on` — the journeys are a grouping of the trips
+        rather than another place things come from. */}
+    <a class="chip" href="/reise">Reiser</a>
   </nav>
 )
 
@@ -309,6 +312,35 @@ a:hover { color: var(--ink); }
 
 /* A date we worked out rather than one the note claims — see the garden lane. */
 .derived { font-size: .85rem; color: var(--muted); font-style: italic; margin-top: .4rem; }
+
+/* The train a post was written on. Derived, not part of what the post said, so it
+   reads as a quiet aside rather than as body text — see ADR 0023. */
+.aboard {
+  margin: .7rem 0 0; font-size: .82rem; color: var(--muted);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+.aboard-label {
+  background: var(--accent-soft); border-radius: 999px; padding: .15rem .55rem;
+  color: var(--fg);
+}
+.aboard-leg { white-space: nowrap; }
+
+/* The journey pages: /reise and /reise/<slug>. */
+.journeys .lede, .journey .when { color: var(--muted); }
+.journey-list { list-style: none; padding: 0; margin: 2rem 0 0; }
+.journey-list > li {
+  padding: 1rem 0; border-top: 1px solid var(--line);
+}
+.journey-list h2 { margin: 0 0 .2rem; font-size: 1.15rem; }
+.journey-list h2 a { text-decoration: none; }
+.journey .when { margin: .2rem 0; }
+.journey .operators { color: var(--muted); font-size: .85rem; }
+.legs { margin: 0 0 2rem; padding-left: 1.2rem; }
+.legs li { margin: .35rem 0; font-size: .9rem; }
+.leg-when { color: var(--muted); font-variant-numeric: tabular-nums; }
+.leg-route { font-weight: 600; }
+.leg-fact { color: var(--muted); }
+.journey .back { margin-top: 2.5rem; }
 
 /* The garden notes with no date anywhere: listed at the foot of /kjelde/hage. */
 .undated {

@@ -8,16 +8,17 @@ import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
 import { encodeCursor } from '../mcp/tools/pagination.js'
 import { stripHtml } from '../lib/strip-html.js'
-import { mergedCandidateSql, type LaneContext } from './lanes.js'
+import { mergedCandidateSql, idArray, type LaneContext } from './lanes.js'
 import { sanitizeHtml } from './sanitize-html.js'
 import { publicOnlyCondition } from './visibility.js'
 import { parseSources, AP_PLATFORMS, type ApPlatform, type Platform } from './sources.js'
 import { osloDay, parsePartialDate } from './event-date.js'
 import type { Facets } from './facets.js'
 import { gardenEventAtOn } from './garden-date-sql.js'
+import { journeySlug } from './journeys.js'
 import type {
   Attachment, Candidate, Entry, StreamPage, UndatedGardenNote,
-  PostEntry, BookEntry, MarkEntry, ScrobbleDayEntry, TripEntry, GardenEntry,
+  PostEntry, BookEntry, MarkEntry, ScrobbleDayEntry, TripEntry, GardenEntry, PostTrip,
 } from './entries.js'
 
 /**
@@ -201,6 +202,34 @@ async function hydratePosts(cands: Candidate[]): Promise<Map<string, Entry>> {
     frontier = next
   }
 
+  // The train each post was written on, from the derived join (ADR 0023). One
+  // query for the whole page; the vast majority of posts have no row and stay
+  // null. Keyed on the root's ap_id — a thread is one entry, so a continuation
+  // written two stations later does not get its own line.
+  const tripByApId = new Map<string, PostTrip>()
+  if (rows.length > 0) {
+    const tripRows = (await db.execute(sql`
+      SELECT tp.object_ap_id, tp.relation,
+             t.from_station, t.to_station, t.journey, t.operator, t.distance_km, t.night
+      FROM trip_posts tp
+      JOIN train_trips t ON t.id = tp.trip_id
+      WHERE tp.object_ap_id = ANY(${idArray(rows.map((r) => r.apId))})`)) as unknown as
+        Array<Record<string, unknown>>
+    for (const t of tripRows) {
+      const journey = t.journey == null ? null : String(t.journey)
+      tripByApId.set(String(t.object_ap_id), {
+        relation: String(t.relation) as PostTrip['relation'],
+        fromStation: String(t.from_station),
+        toStation: String(t.to_station),
+        journey,
+        journeySlug: journey ? journeySlug(journey) : null,
+        operator: t.operator == null ? null : String(t.operator),
+        distanceKm: t.distance_km == null ? null : Number(t.distance_km),
+        night: Boolean(t.night),
+      })
+    }
+  }
+
   /** Flatten a root's thread into reading order. */
   const threadOf = (rootApId: string): ThreadRow[] => {
     const out: ThreadRow[] = []
@@ -236,6 +265,7 @@ async function hydratePosts(cands: Candidate[]): Promise<Map<string, Entry>> {
         attachments: toAttachments(r.attachments),
         originUrl: r.url,
       })),
+      trip: tripByApId.get(row.apId) ?? null,
     }
     out.set(c.refId, entry)
   }
@@ -607,4 +637,68 @@ export async function loadArchiveMonths(): Promise<string[]> {
     ORDER BY m DESC
   `)) as unknown as Array<{ month: string }>
   return rows.map((r) => r.month)
+}
+
+/**
+ * Hydrate a set of post ref ids into entries, newest first.
+ *
+ * For the journey pages, which select their posts by journey rather than by date
+ * and so cannot go through the lane merge. Everything after the selection is
+ * shared: the same hydrator, and therefore the same sanitising, thread folding and
+ * content-warning handling the timeline gets.
+ *
+ * The candidate's `kind` and `source` are derived here exactly as postsLane
+ * derives them — attachments decide photo/video, and the badge comes from
+ * STREAM_SOURCES rather than from `actors.software`, which a server can set to
+ * anything.
+ */
+export async function loadEntriesByRefIds(refIds: string[]): Promise<Entry[]> {
+  if (refIds.length === 0) return []
+  const ids = refIds
+    .map((r) => refParts(r))
+    .filter((p) => p.prefix === 'post')
+    .map((p) => p.id)
+  if (ids.length === 0) return []
+
+  const actorIds = await resolveActorIds().catch((e) => {
+    logger.error(e, 'Could not resolve stream sources; serving no journey entries')
+    return EMPTY_ACTOR_IDS
+  })
+  const platformOf = new Map<string, ApPlatform>()
+  for (const p of AP_PLATFORMS) for (const id of actorIds[p]) platformOf.set(id, p)
+
+  const db = getDb()
+  const rows = await db
+    .select({
+      id: objects.id, publishedAt: objects.publishedAt,
+      attachments: objects.attachments, actorApId: objects.actorApId,
+    })
+    .from(objects)
+    .where(and(inArray(objects.id, ids), isNull(objects.deletedAt)))
+
+  const candidates: Candidate[] = []
+  for (const r of rows) {
+    if (!r.publishedAt) continue
+    // Only accounts on the allowlist. A post can only have got here through the
+    // journey query, which is already scoped — but a lane that re-derives the
+    // scope is one that cannot be broken by a change to the other.
+    const platform = platformOf.get(r.actorApId)
+    if (!platform) continue
+    const atts = toAttachments(r.attachments)
+    const kind: Candidate['kind'] = atts.some((a) => a.mediaType?.startsWith('video/'))
+      ? 'video'
+      : atts.length > 0 ? 'photo' : 'post'
+    candidates.push({
+      eventAt: r.publishedAt,
+      kind,
+      refId: `post:${r.id}`,
+      source: platform,
+    })
+  }
+
+  const hydrated = await hydratePosts(candidates)
+  return candidates
+    .sort((a, b) => b.eventAt.getTime() - a.eventAt.getTime())
+    .map((c) => hydrated.get(c.refId))
+    .filter((e): e is Entry => e != null)
 }

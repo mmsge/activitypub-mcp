@@ -30,6 +30,26 @@ interface Base {
   originUrl: string | null
 }
 
+/**
+ * The train a post was written on, from the derived `trip_posts` join (ADR 0023).
+ *
+ * Never part of what the post said — the post carries no station, operator or
+ * distance, and neither does the account it came from. This is worked out from
+ * when it was published, so the view labels it as travel context rather than
+ * folding it into the body.
+ */
+export interface PostTrip {
+  relation: 'boarding' | 'aboard' | 'alighting'
+  fromStation: string
+  toStation: string
+  journey: string | null
+  /** URL segment for the journey page, or null when the trip carries no journey. */
+  journeySlug: string | null
+  operator: string | null
+  distanceKm: number | null
+  night: boolean
+}
+
 export interface PostEntry extends Base {
   kind: 'post' | 'photo' | 'video'
   /** Sanitised HTML. */
@@ -42,6 +62,8 @@ export interface PostEntry extends Base {
   hashtags: string[]
   /** Later parts of one of Markus' own threads, in order. Empty for a lone post. */
   thread: Array<{ html: string; attachments: Attachment[]; originUrl: string | null }>
+  /** The trip this was posted on, when it was. Null for the vast majority. */
+  trip: PostTrip | null
 }
 
 export interface BookEntry extends Base {

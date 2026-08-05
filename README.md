@@ -674,6 +674,18 @@ docker compose exec app npm run link-trip-posts
 See [ADR 0023](docs/decision-records/0023-bind-posts-to-the-trips-they-were-posted-on.md) for
 the matching rules and why the link lives in its own table rather than on either side.
 
+The join has three surfaces. A post written aboard carries one line of travel context on
+the public stream (*"Om bord · Göteborgs central → Oslo S · Vy · 346 km"*) — kept visibly
+separate from the post's own text, because the post said none of it. `/reise` lists the
+journeys and `/reise/<slug>` gives each one its route, distance, operators and everything
+published along it. And `/api/v1/trip-posts` exposes the same data to non-MCP clients.
+
+A journey's public name is *derived*, never mapped: `train_trips.journey` holds the private
+CSV name ("NDC Copenhagen 2026") while the posts carry the public one (`#kodetoget`), and
+the two share no characters. The page shows whichever hashtag the journey's posts carry
+most, so it updates itself and reports `null` rather than guessing when there is none.
+See [ADR 0024](docs/decision-records/0024-give-the-trip-post-join-a-surface.md).
+
 ---
 
 ## REST API

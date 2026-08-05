@@ -5,7 +5,7 @@ import { platformInfo } from '../sources.js'
 import { proxyPath } from '../image-proxy.js'
 import type {
   Attachment, Entry, PostEntry, BookEntry, MarkEntry,
-  ScrobbleDayEntry, TripEntry, GardenEntry, UndatedGardenNote,
+  ScrobbleDayEntry, TripEntry, GardenEntry, UndatedGardenNote, PostTrip,
 } from '../entries.js'
 
 /**
@@ -125,6 +125,40 @@ const Tags: FC<{ tags: string[] }> = ({ tags }) => {
   )
 }
 
+/** How a post relates to the train it was written on, in Markus' own language. */
+const ABOARD_LABEL: Record<PostTrip['relation'], string> = {
+  boarding: 'På perrongen før',
+  aboard: 'Om bord',
+  alighting: 'Nett komen fram',
+}
+
+/**
+ * The train a post was written on.
+ *
+ * Never presented as part of what the post said — the post carries no station or
+ * operator; this was worked out from when it was published (ADR 0023). Hence its
+ * own line, its own class, and a label that says what the relation was.
+ */
+const Aboard: FC<{ trip: PostTrip | null }> = ({ trip }) => {
+  if (!trip) return null
+  const facts = [
+    trip.operator,
+    trip.distanceKm ? `${trip.distanceKm} km` : null,
+    trip.night ? 'nattog' : null,
+  ].filter(Boolean)
+  return (
+    <p class="aboard">
+      <span class="aboard-label">{ABOARD_LABEL[trip.relation]}</span>
+      {' '}
+      <span class="aboard-leg">{trip.fromStation} → {trip.toStation}</span>
+      {facts.length > 0 ? <span class="aboard-facts"> · {facts.join(' · ')}</span> : null}
+      {trip.journey && trip.journeySlug
+        ? <> · <a href={`/reise/${trip.journeySlug}`}>{trip.journey}</a></>
+        : null}
+    </p>
+  )
+}
+
 const Post: FC<{ entry: PostEntry }> = ({ entry }) => (
   <article class="entry" id={`e-${entry.refId}`}>
     <Meta entry={entry} verb={entry.kind === 'video' ? 'la ut ein video' : entry.kind === 'photo' ? 'la ut eit bilete' : 'skreiv'} />
@@ -136,6 +170,7 @@ const Post: FC<{ entry: PostEntry }> = ({ entry }) => (
         <Media attachments={part.attachments} />
       </div>
     ))}
+    <Aboard trip={entry.trip} />
     <Tags tags={entry.hashtags} />
   </article>
 )
