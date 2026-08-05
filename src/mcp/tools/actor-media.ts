@@ -3,6 +3,7 @@ import { getDb } from '../../db/client.js'
 import { objects } from '../../db/schema.js'
 import { and, eq, isNull, desc } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
+import { scopeCondition, type QueryScope } from './scope.js'
 
 export const getActorMediaSchema = z.object({
   actor_handle: z.string().describe('Actor handle (@user@domain) or full actor URL'),
@@ -11,7 +12,10 @@ export const getActorMediaSchema = z.object({
   since: z.string().optional(),
 })
 
-export async function getActorMedia(input: z.infer<typeof getActorMediaSchema>) {
+export async function getActorMedia(
+  input: z.infer<typeof getActorMediaSchema>,
+  scope?: QueryScope,
+) {
   const actor = input.actor_handle.startsWith('http')
     ? { apId: input.actor_handle }
     : await resolveActorByHandle(input.actor_handle)
@@ -19,10 +23,13 @@ export async function getActorMedia(input: z.infer<typeof getActorMediaSchema>) 
   if (!actor) return { error: `Could not resolve actor: ${input.actor_handle}` }
 
   const db = getDb()
+  const visible = scopeCondition(scope)
   const rows = await db.select().from(objects)
     .where(and(
       eq(objects.actorApId, actor.apId),
       isNull(objects.deletedAt),
+      // Public-only for REST callers — see ADR 0026.
+      ...(visible ? [visible] : []),
     ))
     .orderBy(desc(objects.publishedAt))
     .limit(input.limit * 5) // over-fetch to filter

@@ -3,6 +3,7 @@ import { getDb } from '../../db/client.js'
 import { objects } from '../../db/schema.js'
 import { and, eq, isNull, desc, ilike, inArray, or } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
+import { scopeCondition, type QueryScope } from './scope.js'
 
 export const searchActorContentSchema = z.object({
   query: z.string().min(1).describe('Search terms'),
@@ -12,9 +13,16 @@ export const searchActorContentSchema = z.object({
     .describe('Filter by AP object type, e.g. ["Note", "Article"]. Omit to search every type — BookWyrm reading statuses federate as plain Notes, so they are included by default.'),
 })
 
-export async function searchActorContent(input: z.infer<typeof searchActorContentSchema>) {
+export async function searchActorContent(
+  input: z.infer<typeof searchActorContentSchema>,
+  scope?: QueryScope,
+) {
   const db = getDb()
   const conditions = [isNull(objects.deletedAt)]
+  // Public-only for REST callers — see ADR 0026. Full-text search over an archive
+  // that holds followers-only posts is the sharpest way to surface one.
+  const visible = scopeCondition(scope)
+  if (visible) conditions.push(visible)
 
   if (input.actor_handle) {
     const actor = input.actor_handle.startsWith('http')

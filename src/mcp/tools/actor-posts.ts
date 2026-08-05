@@ -5,6 +5,7 @@ import { and, eq, gt, lt, isNull, inArray, sql, type SQL } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 import { normalizeHashtag } from './hashtag-stats.js'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
+import { scopeCondition, type QueryScope } from './scope.js'
 
 export const getActorPostsSchema = z.object({
   actor_handle: z.string().describe('Actor handle (@user@domain) or full actor URL'),
@@ -37,7 +38,10 @@ export function hashtagCondition(tag: string): SQL {
   )`
 }
 
-export async function getActorPosts(input: z.infer<typeof getActorPostsSchema>) {
+export async function getActorPosts(
+  input: z.infer<typeof getActorPostsSchema>,
+  scope?: QueryScope,
+) {
   const actor = input.actor_handle.startsWith('http')
     ? { apId: input.actor_handle }
     : await resolveActorByHandle(input.actor_handle)
@@ -58,6 +62,11 @@ export async function getActorPosts(input: z.infer<typeof getActorPostsSchema>) 
   if (input.cursor) {
     conditions.push(keysetCondition(objects.publishedAt, objects.id, decodeCursor(input.cursor), input.sort_order))
   }
+  // Public-only when the caller is the outside world (ADR 0026). Added to the
+  // conditions rather than filtered afterwards, so `limit` counts rows the caller
+  // may actually see and pagination does not return short pages.
+  const visible = scopeCondition(scope)
+  if (visible) conditions.push(visible)
 
   const rows = await db.select().from(objects)
     .where(and(...conditions))
