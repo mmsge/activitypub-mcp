@@ -11,7 +11,7 @@ const post = {
   refId: 'post:1', eventAt: at('2026-08-03T10:00:00Z'), archivedAt: at('2026-08-03T10:01:00Z'),
   source: 'mastodon' as const, originUrl: 'https://skvip.lol/@markus/1', kind: 'post' as const,
   html: '<p>Hei</p>', contentWarning: null, sensitive: false, language: 'nn',
-  attachments: [], hashtags: [], thread: [],
+  attachments: [], hashtags: [], thread: [], trip: null,
 }
 
 // A film watched in 2016 but marked today: the case that motivates the whole
