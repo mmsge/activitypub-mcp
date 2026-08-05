@@ -455,6 +455,10 @@ export const scrobbleRaceState = pgTable('scrobble_race_state', {
   lastMilestone: integer('last_milestone'),
   // Gap at the last per-play (endgame) alert, so a sync with nothing new stays quiet.
   lastAnnouncedGap: integer('last_announced_gap'),
+  // When the gap was first observed inside the countdown band (RACE_COUNTDOWN_GAP).
+  // Latches: once set it never clears, so the leader pulling back out of the band does
+  // not report the race as no longer in its endgame. Surfaced as endgame_armed.
+  endgameArmedAt: timestamp('endgame_armed_at', { withTimezone: true }),
   // Set once, when the challenger draws level or goes ahead. Its presence makes the
   // watcher inert: the race is run, and later plays are just plays.
   overtakenAt: timestamp('overtaken_at', { withTimezone: true }),
