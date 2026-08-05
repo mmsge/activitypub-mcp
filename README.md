@@ -16,7 +16,7 @@ Works with **Mastodon**, **BookWyrm**, **Pixelfed**, and **Loops**.
 - It posts about **itself and nothing else**: a pinned intro and a periodic status note giving the size of its own archive. The archive it collects stays private (see [What the bot posts](#what-the-bot-posts)).
 - An admin UI at `/admin` lets you review stored data and inspect every HTTP request the server has handled, including signature validity.
 - An MCP server at `/mcp` lets AI agents answer questions like "What did this user post today?" or "What book is this user currently reading?"
-- A read-only **REST API** at `/api/v1` exposes the same data to non-MCP clients (scripts, cron jobs, dashboards), gated by an API key.
+- A read-only **REST API** at `/api/v1` exposes the archive to non-MCP clients (scripts, cron jobs, dashboards), gated by an API key. It serves **public posts only** — the MCP tools see followers-only posts too, because that is you reading your own archive; REST is what other sites republish (see [REST API](#rest-api)).
 
 ---
 
@@ -537,6 +537,9 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_catalogue_details` | "Give me the full record for this NeoDB item — who developed it, its ISBN/publisher, the podcast feed URL — and where each field came from." |
 | `get_trip_posts` | "What did I post on Sjælland rundt? Show every togselfie with the train it was taken on. Which train was I on when I posted this?" |
 
+Unlike the REST API, these MCP tools return **every** stored post, including followers-only
+ones — this is your own archive. See [ADR 0026](docs/decision-records/0026-rest-serves-public-posts-only.md).
+
 All tools are read-only queries against the local database — no requests go out to remote servers when you query the MCP server.
 
 ### Last.fm scrobbles
@@ -692,7 +695,25 @@ See [ADR 0024](docs/decision-records/0024-give-the-trip-post-join-a-surface.md).
 
 For collectors that don't speak MCP (cron jobs, scripts, dashboards), the same data the MCP server
 exposes is available as a **read-only REST API** under `https://yourdomain.com/api/v1`. Each MCP
-tool has a matching REST endpoint that returns **identical** data.
+tool has a matching REST endpoint returning the same data, with one deliberate exception.
+
+**REST serves public posts only.** The four endpoints that return post rows —
+`/actor-posts`, `/actor-media`, `/search-actor-content` and `/trip-posts` — are pinned to
+posts the origin server marked public; `unlisted` and unreadable addressing are withheld
+too. The MCP tools are not: they see the whole archive, followers-only posts included.
+
+That split is on purpose. MCP is you reading your own archive, where the private posts are
+the point of keeping it. REST is what other sites consume and republish — msge.no builds
+its `/togselfie` gallery this way — so it has to be safe for a consumer that does no
+filtering of its own. The restriction is bound in `src/rest/table.ts`, not settable by a
+query parameter, so holding the API key does not buy access to private posts. See
+[ADR 0026](docs/decision-records/0026-rest-serves-public-posts-only.md).
+
+To see exactly what that withholds from your own archive:
+
+```bash
+docker compose exec app npm run visibility-audit
+```
 
 ### Authentication
 

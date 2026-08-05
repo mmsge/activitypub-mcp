@@ -21,6 +21,7 @@ import {
   getTrainStatsSchema, getTrainStats,
 } from '../mcp/tools/train-trips.js'
 import { getTripPostsSchema, getTripPosts } from '../mcp/tools/trip-posts.js'
+import { publicOnly } from '../mcp/tools/scope.js'
 import { getGardenPagesSchema, getGardenPages } from '../mcp/tools/garden-pages.js'
 import { getGardenPageSchema, getGardenPage } from '../mcp/tools/garden-page.js'
 import { getBookDetailsSchema, getBookDetails } from '../mcp/tools/book-details.js'
@@ -37,12 +38,21 @@ import {
 } from '../mcp/tools/engagement.js'
 
 /**
- * One row per MCP tool. Each REST endpoint reuses the exact same (schema, handler)
- * pair the MCP server wraps in `src/mcp/server.ts`, so REST and MCP return identical
- * data. `numbers`/`booleans`/`arrays` tell the GET coercion layer which query-string
- * params need converting from strings (the QUERY/POST JSON body needs none).
+ * One row per MCP tool. Each REST endpoint reuses the same (schema, handler) pair
+ * the MCP server wraps in `src/mcp/server.ts`. `numbers`/`booleans`/`arrays` tell
+ * the GET coercion layer which query-string params need converting from strings
+ * (the QUERY/POST JSON body needs none).
  *
  * REST path rule: the MCP tool name with `_`→`-`, dropping a leading `get_`.
+ *
+ * **REST and MCP return identical data except for visibility.** Every endpoint that
+ * serves post rows is wrapped in `publicOnly(...)`, which pins it to posts the
+ * origin marked public; the MCP tool is unwrapped and sees the whole archive. That
+ * is deliberate and is the one place the two surfaces diverge — MCP is Markus
+ * reading his own archive, REST is what other sites republish. See ADR 0026.
+ *
+ * A new endpoint that returns post rows must be wrapped too. The choice is meant to
+ * be visible here rather than remembered inside each handler.
  */
 export type RestEndpoint = {
   path: string
@@ -61,7 +71,7 @@ export const endpoints: RestEndpoint[] = [
     name: 'get_actor_posts',
     description: "Get posts from a specific ActivityPub actor. Defaults to newest-first; set sort_order=asc with limit=1 for the earliest post, and follow next_cursor for deep traversal.",
     schema: getActorPostsSchema,
-    handler: getActorPosts,
+    handler: publicOnly(getActorPosts),
     numbers: ['limit'],
     booleans: [],
     arrays: ['object_types'],
@@ -81,7 +91,7 @@ export const endpoints: RestEndpoint[] = [
     name: 'get_actor_media',
     description: 'Get posts with image or video attachments from an actor',
     schema: getActorMediaSchema,
-    handler: getActorMedia,
+    handler: publicOnly(getActorMedia),
     numbers: ['limit'],
     booleans: [],
     arrays: [],
@@ -91,7 +101,7 @@ export const endpoints: RestEndpoint[] = [
     name: 'search_actor_content',
     description: 'Full-text search across all stored posts from an actor or all followed actors',
     schema: searchActorContentSchema,
-    handler: searchActorContent,
+    handler: publicOnly(searchActorContent),
     numbers: ['limit'],
     booleans: [],
     arrays: ['object_types'],
@@ -221,7 +231,7 @@ export const endpoints: RestEndpoint[] = [
     name: 'get_trip_posts',
     description: 'The posts made on a given train trip, and the trip a given post was made on — a derived join between the viaduct.world trips and the archived posts, matched on time. Each row carries the post plus its trip\'s stations, operator, rolling stock, distance and delay, and how the post relates to the trip: boarding (the 30 min before departure), aboard, or alighting (the 30 min after arrival). Filter by journey, station, operator, relation, hashtag (e.g. tag=togselfie), year or time window; with_media_only=true narrows to posts carrying an image or video.',
     schema: getTripPostsSchema,
-    handler: getTripPosts,
+    handler: publicOnly(getTripPosts),
     numbers: ['limit', 'page', 'year'],
     booleans: ['with_media_only'],
     arrays: [],

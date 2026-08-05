@@ -36,3 +36,4 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | [0023](0023-bind-posts-to-the-trips-they-were-posted-on.md) | Bind posts to the trips they were posted on, in a derived link table |
 | [0024](0024-give-the-trip-post-join-a-surface.md) | Give the trip↔post join a surface: travel context on posts, and journey pages |
 | [0025](0025-render-remote-video-as-a-poster-and-an-on-demand-embed.md) | Render remote video as a poster, and load the origin's player only on request |
+| [0026](0026-rest-serves-public-posts-only.md) | The REST API serves public posts only; MCP still sees the whole archive |

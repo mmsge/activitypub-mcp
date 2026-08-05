@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { sql, type SQL } from 'drizzle-orm'
 import { getDb } from '../../db/client.js'
+import { scopeConditionOn, type QueryScope } from './scope.js'
 
 /**
  * The trip↔post join (ADR 0023), readable from both ends: the posts made on a
@@ -37,9 +38,17 @@ export const getTripPostsSchema = z.object({
   page: z.number().int().min(1).default(1),
 })
 
-export async function getTripPosts(input: z.infer<typeof getTripPostsSchema>) {
+export async function getTripPosts(
+  input: z.infer<typeof getTripPostsSchema>,
+  scope?: QueryScope,
+) {
   const db = getDb()
   const conds: SQL[] = [sql`o.deleted_at IS NULL`]
+  // Public-only for REST callers (ADR 0026). `trip_posts` deliberately holds links
+  // for private posts — a link row publishes nothing on its own (ADR 0023) — so the
+  // filtering has to happen here, on the way out.
+  const visible = scopeConditionOn('o', scope)
+  if (visible) conds.push(visible)
 
   if (input.journey) conds.push(sql`t.journey ILIKE ${`%${input.journey}%`}`)
   if (input.station) {
