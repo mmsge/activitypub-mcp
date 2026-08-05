@@ -5,6 +5,7 @@ import { processActivity } from '../activitypub/inbox.js'
 import { fetchActor } from '../lib/fetch-actor.js'
 import { logger } from '../lib/logger.js'
 import type { TripRow } from '../lib/parse-trips-csv.js'
+import { linkTripPosts } from '../jobs/link-trip-posts.js'
 
 type AnyObject = Record<string, unknown>
 
@@ -244,6 +245,17 @@ export async function importTrainTrips(rows: TripRow[]): Promise<TripImportResul
     .values(values as any)
     .onConflictDoNothing({ target: trainTrips.dedupeKey })
     .returning({ id: trainTrips.id })
+
+  // New trips can claim posts already in the archive, so re-derive now rather than
+  // leaving the join an hour stale after an import. Non-fatal: the import
+  // succeeded either way, and the hourly tick will pick it up.
+  if (inserted.length > 0) {
+    try {
+      await linkTripPosts()
+    } catch (e) {
+      logger.error(e, 'Trip/post linking after import failed; the hourly job will retry')
+    }
+  }
 
   return { total, inserted: inserted.length, skipped: total - inserted.length }
 }

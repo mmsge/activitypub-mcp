@@ -12,6 +12,7 @@ import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleSt
 import { getScrobbleRaceSchema, getScrobbleRace } from './tools/scrobble-race.js'
 import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
 import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats } from './tools/train-trips.js'
+import { getTripPostsSchema, getTripPosts } from './tools/trip-posts.js'
 import { getGardenPagesSchema, getGardenPages } from './tools/garden-pages.js'
 import { getGardenPageSchema, getGardenPage } from './tools/garden-page.js'
 import { getBookDetailsSchema, getBookDetails } from './tools/book-details.js'
@@ -183,6 +184,16 @@ export function createMcpServer(): McpServer {
     getTrainStatsSchema.shape,
     async (input) => {
       const result = await getTrainStats(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_trip_posts',
+    "The posts Markus made on a given train trip, and the trip a given post was made on — a derived join between the viaduct.world trips and the archived posts, matched on time (see ADR 0022). Each row carries the post plus its trip's stations, operator, rolling stock, distance and delay, and how the post relates to the trip: boarding (the 30 min before departure), aboard, or alighting (the 30 min after arrival). Filter by journey, station, operator, relation, hashtag (e.g. tag=\"togselfie\"), year or time window; with_media_only=true narrows to photos. Answers \"what did I post on Sjælland rundt?\" and \"which train was I on when I posted this?\"",
+    getTripPostsSchema.shape,
+    async (input) => {
+      const result = await getTripPosts(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )
