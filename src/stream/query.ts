@@ -16,6 +16,7 @@ import { osloDay, parsePartialDate } from './event-date.js'
 import type { Facets } from './facets.js'
 import { gardenEventAtOn } from './garden-date-sql.js'
 import { journeySlug } from './journeys.js'
+import { weatherSummary } from '../lib/weather-code.js'
 import type {
   Attachment, Candidate, Entry, StreamPage, UndatedGardenNote,
   PostEntry, BookEntry, MarkEntry, ScrobbleDayEntry, TripEntry, GardenEntry, PostTrip,
@@ -526,6 +527,27 @@ async function hydrateTrips(cands: Candidate[]): Promise<Map<string, Entry>> {
     .from(trainTrips)
     .where(inArray(trainTrips.id, cands.map((c) => refParts(c.refId).id)))
 
+  // The weather at each origin on its departure day, in one query for the page.
+  // Keyed by trip id; a trip whose station is not geocoded, or whose date the ERA5
+  // archive does not reach, simply has no row.
+  const weatherByTrip = new Map<string, string>()
+  if (rows.length > 0) {
+    const wx = (await db.execute(sql`
+      SELECT t.id::text AS id, sw.weather_code, sw.temp_max_c
+      FROM train_trips t
+      JOIN stations s ON s.name = t.from_station
+      JOIN station_weather sw ON sw.station_id = s.id AND sw.date = t.departure_local::date
+      WHERE t.id = ANY(${idArray(rows.map((r) => r.id))}::uuid[])`)) as unknown as
+        Array<{ id: string; weather_code: number | null; temp_max_c: string | null }>
+    for (const w of wx) {
+      const summary = weatherSummary(
+        w.weather_code == null ? null : Number(w.weather_code),
+        w.temp_max_c == null ? null : Number(w.temp_max_c),
+      )
+      if (summary) weatherByTrip.set(w.id, summary)
+    }
+  }
+
   for (const c of cands) {
     const row = rows.find((r) => r.id === refParts(c.refId).id)
     if (!row) continue
@@ -534,6 +556,7 @@ async function hydrateTrips(cands: Candidate[]): Promise<Map<string, Entry>> {
       originUrl: null, kind: 'trip',
       fromStation: row.fromStation, toStation: row.toStation, journey: row.journey,
       operator: row.operator, distanceKm: row.distanceKm, mode: row.mode, night: row.night,
+      weather: weatherByTrip.get(row.id) ?? null,
     }
     out.set(c.refId, entry)
   }

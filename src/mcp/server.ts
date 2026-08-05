@@ -13,6 +13,7 @@ import { getScrobbleRaceSchema, getScrobbleRace } from './tools/scrobble-race.js
 import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
 import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats } from './tools/train-trips.js'
 import { getTripPostsSchema, getTripPosts } from './tools/trip-posts.js'
+import { getTripWeatherSchema, getTripWeather } from './tools/trip-weather.js'
 import { getGardenPagesSchema, getGardenPages } from './tools/garden-pages.js'
 import { getGardenPageSchema, getGardenPage } from './tools/garden-page.js'
 import { getBookDetailsSchema, getBookDetails } from './tools/book-details.js'
@@ -194,6 +195,16 @@ export function createMcpServer(): McpServer {
     getTripPostsSchema.shape,
     async (input) => {
       const result = await getTripPosts(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_trip_weather',
+    "The weather Markus travelled through: each train trip joined to the conditions at its origin on the departure date and its destination on the arrival date (local calendar days, from Open-Meteo's ERA5 archive). Answers \"what was the weather on the Bergensbanen that day\", \"how many trips did I take in snow\", \"the coldest journey\". Filter by journey, station, operator, year, time window, condition (Nynorsk: snø/regn/klårvêr…), or a temperature range; with_weather_only drops trips with nothing on record. Every response states coverage, so a thin result reads as not-yet-fetched rather than never-happened.",
+    getTripWeatherSchema.shape,
+    async (input) => {
+      const result = await getTripWeather(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

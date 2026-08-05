@@ -583,6 +583,52 @@ export const tripPosts = pgTable('trip_posts', {
   index('trip_posts_relation_idx').on(t.relation),
 ])
 
+// The stations the trips pass through, geocoded once, and the weather there on
+// the days Markus was travelling. Two tables because they fail separately: a
+// station that will not geocode should not keep asking for weather, and a weather
+// outage should not cost us the coordinates. See ADR 0028.
+export const stations = pgTable('stations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /** Exactly as it appears in `train_trips.from_station`/`to_station`. */
+  name: text('name').notNull(),
+  latitude: numeric('latitude'),
+  longitude: numeric('longitude'),
+  /** What the geocoder actually matched — so a wrong hit is visible, not silent. */
+  displayName: text('display_name'),
+  countryCode: text('country_code'),
+  /** 'nominatim' | 'manual'. A manual row is never re-geocoded. */
+  source: text('source').notNull().default('nominatim'),
+  geocodedAt: timestamp('geocoded_at', { withTimezone: true }),
+  lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+  attempts: integer('attempts').notNull().default(0),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('stations_name_idx').on(t.name),
+  index('stations_geocoded_idx').on(t.geocodedAt),
+])
+
+// Daily weather at one station on one date, from Open-Meteo's ERA5 archive.
+// Aggregates only: the question is "what was it like that day", not an hourly trace.
+export const stationWeather = pgTable('station_weather', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  stationId: uuid('station_id').notNull().references(() => stations.id, { onDelete: 'cascade' }),
+  date: date('date').notNull(),
+  tempMaxC: numeric('temp_max_c'),
+  tempMinC: numeric('temp_min_c'),
+  tempMeanC: numeric('temp_mean_c'),
+  precipitationMm: numeric('precipitation_mm'),
+  snowfallCm: numeric('snowfall_cm'),
+  windMaxKmh: numeric('wind_max_kmh'),
+  /** WMO code (0 clear … 75 heavy snow); rendered by lib/weather-code.ts. */
+  weatherCode: integer('weather_code'),
+  source: text('source').notNull().default('open-meteo'),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('station_weather_station_date_idx').on(t.stationId, t.date),
+  index('station_weather_date_idx').on(t.date),
+])
+
 // ---------------------------------------------------------------------------
 // OAuth 2.1 (MCP authorization). These back the OAuth flow that lets browser /
 // mobile MCP clients (e.g. claude.ai connectors, which only speak OAuth, not a

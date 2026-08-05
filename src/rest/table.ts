@@ -21,6 +21,7 @@ import {
   getTrainStatsSchema, getTrainStats,
 } from '../mcp/tools/train-trips.js'
 import { getTripPostsSchema, getTripPosts } from '../mcp/tools/trip-posts.js'
+import { getTripWeatherSchema, getTripWeather } from '../mcp/tools/trip-weather.js'
 import { publicOnly } from '../mcp/tools/scope.js'
 import { getGardenPagesSchema, getGardenPages } from '../mcp/tools/garden-pages.js'
 import { getGardenPageSchema, getGardenPage } from '../mcp/tools/garden-page.js'
@@ -234,6 +235,16 @@ export const endpoints: RestEndpoint[] = [
     handler: publicOnly(getTripPosts),
     numbers: ['limit', 'page', 'year'],
     booleans: ['with_media_only'],
+    arrays: [],
+  },
+  {
+    path: '/trip-weather',
+    name: 'get_trip_weather',
+    description: "The weather Markus travelled through: each train trip joined to the conditions at its origin on the departure date and its destination on the arrival date, from Open-Meteo's ERA5 archive. Filter by journey, station, operator, year, time window, condition (Nynorsk: snø/regn/klårvêr…), or a temperature range; with_weather_only drops trips with nothing on record. Every response states coverage.",
+    schema: getTripWeatherSchema,
+    handler: getTripWeather,
+    numbers: ['limit', 'page', 'year', 'min_temp', 'max_temp'],
+    booleans: ['with_weather_only'],
     arrays: [],
   },
   {
