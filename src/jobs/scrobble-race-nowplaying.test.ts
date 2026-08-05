@@ -18,7 +18,7 @@ function arm(over: Partial<typeof config> = {}) {
   Object.assign(config, {
     RACE_LEADER_ARTIST: 'Taylor Swift',
     RACE_CHALLENGER_ARTIST: 'Maisie Peters',
-    RACE_ENDGAME_GAP: 3,
+    RACE_NOWPLAYING_GAP: 3,
     NTFY_PASSWORD: 'hunter2',
     LASTFM_API_KEY: 'k',
     LASTFM_USERNAME: 'mvrkws',

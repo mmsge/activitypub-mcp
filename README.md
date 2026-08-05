@@ -566,15 +566,23 @@ Two artists can be watched head-to-head: `get_scrobble_race` reports their exact
 counts, the gap, the recent closing rate and a projected crossover date. Set
 `RACE_LEADER_ARTIST` and `RACE_CHALLENGER_ARTIST` (plus `NTFY_PASSWORD`) and a background
 watcher also pushes to ntfy as the gap closes: one alert per milestone in
-`RACE_MILESTONES`, then an alert on every play once inside the smallest of them, then the
-two decisive rungs — at a gap of 1 ("one more levels it") and at a dead heat ("whatever
-you play next takes the all-time #1") — and finally the overtake itself. The first run
-after enabling it seeds state silently, so switching it on mid-race never replays the
-ladder.
+`RACE_MILESTONES`, then — once the gap is inside `RACE_COUNTDOWN_GAP` — an alert on every
+play that moves the number, then the two decisive rungs at a gap of 1 ("one more levels
+it") and at a dead heat ("whatever you play next takes the all-time #1"), and finally the
+overtake itself. The first run after enabling it seeds state silently, so switching it on
+mid-race never replays the ladder.
+
+The countdown is driven by newly ingested scrobbles, not by the polling loop: a poll that
+finds no new plays sends nothing, each gap value inside the band notifies at most once,
+and an ingest that brings in several plays at once sends one alert for the resulting gap
+rather than one per value skipped. `get_scrobble_race` reports the band as `endgame_gap`,
+and `endgame_armed` latches the first time the race is seen inside it. Setting
+`RACE_COUNTDOWN_GAP=0` leaves you the ladder; the two decisive rungs and the overtake fire
+regardless. See decision record 0022.
 
 The decisive alerts fire **one play early** on purpose. A scrobbler reports what finished
 playing, never what is about to start, so the only honest way to say "this one wins it" is
-to say it before you press play. There is an optional live variant (`RACE_ENDGAME_GAP`,
+to say it before you press play. There is an optional live variant (`RACE_NOWPLAYING_GAP`,
 off by default) that names the currently-playing track instead — but it only works if your
 scrobbler sends Last.fm the separate `track.updateNowPlaying` call, which many players
 never do. Verify with `get_now_playing` before enabling it. See decision record 0016.

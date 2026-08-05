@@ -40,7 +40,7 @@ export function startScheduler(): void {
 
   // Live now-playing watch for the endgame of the scrobble race. Outside the endgame
   // this is one indexed row read and no API call, so a short interval is cheap.
-  if (config.RACE_ENDGAME_GAP > 0) {
+  if (config.RACE_NOWPLAYING_GAP > 0) {
     setInterval(async () => {
       try { await checkRaceNowPlaying() } catch (e) { logger.error(e, 'Scrobble race now-playing error') }
     }, config.RACE_NOWPLAYING_INTERVAL_SECONDS * 1_000)

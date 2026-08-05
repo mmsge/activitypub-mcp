@@ -140,6 +140,7 @@ export async function loadRaceState(
       challengerPlays: scrobbleRaceState.challengerPlays,
       lastMilestone: scrobbleRaceState.lastMilestone,
       lastAnnouncedGap: scrobbleRaceState.lastAnnouncedGap,
+      endgameArmedAt: scrobbleRaceState.endgameArmedAt,
       overtakenAt: scrobbleRaceState.overtakenAt,
       lastNowPlayingKey: scrobbleRaceState.lastNowPlayingKey,
       lastNowPlayingAt: scrobbleRaceState.lastNowPlayingAt,
@@ -163,6 +164,7 @@ export async function saveRaceState(
     challengerPlays: number
     lastMilestone: number | null
     lastAnnouncedGap: number | null
+    endgameArmedAt: Date | null
     overtakenAt: Date | null
     lastNowPlayingKey: string | null
     lastNowPlayingAt: Date | null
@@ -178,6 +180,7 @@ export async function saveRaceState(
       challengerPlays: values.challengerPlays ?? 0,
       lastMilestone: values.lastMilestone ?? null,
       lastAnnouncedGap: values.lastAnnouncedGap ?? null,
+      endgameArmedAt: values.endgameArmedAt ?? null,
       overtakenAt: values.overtakenAt ?? null,
       lastNowPlayingKey: values.lastNowPlayingKey ?? null,
       lastNowPlayingAt: values.lastNowPlayingAt ?? null,

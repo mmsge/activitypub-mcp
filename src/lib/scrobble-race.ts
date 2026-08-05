@@ -35,6 +35,9 @@ export interface RaceState {
   lastMilestone: number | null
   /** Gap at the last endgame alert, so an unchanged gap stays quiet. */
   lastAnnouncedGap: number | null
+  /** When the gap was first seen inside the countdown band. Latches: once set it never
+   *  clears, so the leader pulling away doesn't un-arm a race that reached the endgame. */
+  endgameArmedAt: Date | null
   overtakenAt: Date | null
 }
 
@@ -88,17 +91,26 @@ export function tightestCrossed(gap: number, milestones: number[]): number | nul
  *
  * `prev` is null on the very first observation of a pairing: that run seeds state
  * silently, so switching the feature on mid-race never replays the whole ladder.
+ *
+ * `countdownGap` is the endgame band — at or below it, every play that moves the number
+ * gets its own alert. It defaults to the smallest milestone, which is how the band was
+ * derived before it became configurable, so callers that don't pass it keep the old
+ * behaviour exactly. Note it does NOT gate the decisive rungs at gap 1 and 0: those are
+ * the finish rather than the countdown, and must fire at any band including 0.
  */
 export function decideRaceAlert(
   snap: RaceSnapshot,
   prev: RaceState | null,
   milestones: number[],
   now: Date = new Date(),
+  countdownGap: number = milestones.length ? Math.min(...milestones) : 0,
 ): RaceDecision {
   const gap = snap.leaderPlays - snap.challengerPlays
-  const fineZone = milestones.length ? Math.min(...milestones) : 0
   const crossed = tightestCrossed(gap, milestones)
   const counts = { leaderPlays: snap.leaderPlays, challengerPlays: snap.challengerPlays }
+  // Latches on the first observation inside the band and never clears afterwards, so
+  // the leader pulling away cannot un-arm a race that has already reached its endgame.
+  const endgameArmedAt = prev?.endgameArmedAt ?? (gap <= countdownGap ? now : null)
 
   // First sighting: record where the race already is, say nothing. Pre-marking the
   // tightest passed milestone is what stops a deploy at gap 120 from firing 300, 250,
@@ -110,9 +122,10 @@ export function decideRaceAlert(
       state: {
         ...counts,
         lastMilestone: crossed,
-        lastAnnouncedGap: gap <= fineZone ? gap : null,
+        lastAnnouncedGap: gap <= countdownGap ? gap : null,
+        endgameArmedAt,
         // Level is not won: seeding at a dead heat must leave the watcher live.
-        overtakenAt: gap < 0 ? now : null,
+        overtakenAt: gap < 0 ? (snap.latestChallengerPlay?.playedAt ?? now) : null,
       },
     }
   }
@@ -122,9 +135,11 @@ export function decideRaceAlert(
     return { kind: 'none', message: null, state: prev }
   }
 
-  // Nothing scrobbled since the last look — no alert can be owed.
+  // Nothing scrobbled since the last look — no alert can be owed. The arming latch is
+  // still carried through: widening the band should show as armed on the next tick,
+  // not wait for a play that may be hours away.
   if (prev.leaderPlays === snap.leaderPlays && prev.challengerPlays === snap.challengerPlays) {
-    return { kind: 'none', message: null, state: prev }
+    return { kind: 'none', message: null, state: { ...prev, endgameArmedAt } }
   }
 
   // Milestones only ever tighten. If the leader pulls back ahead, re-crossing 100 on
@@ -156,23 +171,39 @@ export function decideRaceAlert(
         priority: 'max',
         click: play?.url ?? undefined,
       },
-      state: { ...counts, lastMilestone: nextMilestone, lastAnnouncedGap: gap, overtakenAt: now },
+      // The play that pushed the gap negative IS the latest challenger play — this
+      // branch is only reached on changed counts. Stamping its playedAt rather than
+      // `now` keeps the record honest: the lead changed when the track was played, not
+      // when the sync happened to notice a minute or two later.
+      state: {
+        ...counts,
+        lastMilestone: nextMilestone,
+        lastAnnouncedGap: gap,
+        endgameArmedAt,
+        overtakenAt: play?.playedAt ?? now,
+      },
     }
   }
 
-  // Endgame: every play that moves the number gets its own alert.
-  if (gap <= fineZone) {
+  // Endgame: every play that moves the number gets its own alert. The band gates only
+  // the generic countdown — gap 1 and gap 0 are the finish and always speak, whatever
+  // countdownGap is set to (record 0016, reaffirmed in 0022).
+  if (gap <= 1 || gap <= countdownGap) {
     if (prev.lastAnnouncedGap === gap) {
       return {
         kind: 'none',
         message: null,
-        state: { ...prev, ...counts, lastMilestone: nextMilestone },
+        state: { ...prev, ...counts, lastMilestone: nextMilestone, endgameArmedAt },
       }
     }
 
     const play = snap.latestChallengerPlay
     const nextState = {
-      ...counts, lastMilestone: nextMilestone, lastAnnouncedGap: gap, overtakenAt: null,
+      ...counts,
+      lastMilestone: nextMilestone,
+      lastAnnouncedGap: gap,
+      endgameArmedAt,
+      overtakenAt: null,
     }
 
     // The two decisive rungs arm you BEFORE you press play, which is the whole point:
@@ -234,16 +265,28 @@ export function decideRaceAlert(
         priority: 'default',
         click: play?.url ?? undefined,
       },
-      // Outside the fine zone we don't track per-play gaps; clearing this means
-      // re-entering the endgame always announces its first play.
-      state: { ...counts, lastMilestone: nextMilestone, lastAnnouncedGap: null, overtakenAt: null },
+      // Outside the band we don't track per-play gaps; clearing this means re-entering
+      // the endgame always announces its first play.
+      state: {
+        ...counts,
+        lastMilestone: nextMilestone,
+        lastAnnouncedGap: null,
+        endgameArmedAt,
+        overtakenAt: null,
+      },
     }
   }
 
   return {
     kind: 'none',
     message: null,
-    state: { ...counts, lastMilestone: nextMilestone, lastAnnouncedGap: null, overtakenAt: null },
+    state: {
+      ...counts,
+      lastMilestone: nextMilestone,
+      lastAnnouncedGap: null,
+      endgameArmedAt,
+      overtakenAt: null,
+    },
   }
 }
 
