@@ -32,4 +32,7 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | [0019](0019-one-timezone-for-the-whole-stream.md) | One timezone for the whole stream: a bucket is computed in the timezone its label is rendered in |
 | [0020](0020-recover-garden-dates-from-reading-events.md) | Recover garden note dates from reading events, and list what stays undated |
 | [0021](0021-serve-images-through-a-signed-proxy.md) | Serve the stream's images through a signed proxy, and never resize them |
-| [0022](0022-render-remote-video-as-a-poster-and-an-on-demand-embed.md) | Render remote video as a poster, and load the origin's player only on request |
+| [0022](0022-configurable-endgame-countdown-band.md) | Make the endgame countdown band explicit (`RACE_COUNTDOWN_GAP`), let `endgame_*` report it, and latch the arming |
+| [0023](0023-bind-posts-to-the-trips-they-were-posted-on.md) | Bind posts to the trips they were posted on, in a derived link table |
+| [0024](0024-give-the-trip-post-join-a-surface.md) | Give the trip↔post join a surface: travel context on posts, and journey pages |
+| [0025](0025-render-remote-video-as-a-poster-and-an-on-demand-embed.md) | Render remote video as a poster, and load the origin's player only on request |

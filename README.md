@@ -535,6 +535,7 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_book_details` | "What's the page count and publisher for The Radleys?" |
 | `get_watched` | "What have I marked on NeoDB? What did I watch in 2016 — watched_year=2016? Show my games from 2024, or every album by category=music. What's the IMDb link for Conflict? Everything tagged thriller. Which films did I see at the cinema — mark_comment=kino?" |
 | `get_catalogue_details` | "Give me the full record for this NeoDB item — who developed it, its ISBN/publisher, the podcast feed URL — and where each field came from." |
+| `get_trip_posts` | "What did I post on Sjælland rundt? Show every togselfie with the train it was taken on. Which train was I on when I posted this?" |
 
 All tools are read-only queries against the local database — no requests go out to remote servers when you query the MCP server.
 
@@ -566,15 +567,23 @@ Two artists can be watched head-to-head: `get_scrobble_race` reports their exact
 counts, the gap, the recent closing rate and a projected crossover date. Set
 `RACE_LEADER_ARTIST` and `RACE_CHALLENGER_ARTIST` (plus `NTFY_PASSWORD`) and a background
 watcher also pushes to ntfy as the gap closes: one alert per milestone in
-`RACE_MILESTONES`, then an alert on every play once inside the smallest of them, then the
-two decisive rungs — at a gap of 1 ("one more levels it") and at a dead heat ("whatever
-you play next takes the all-time #1") — and finally the overtake itself. The first run
-after enabling it seeds state silently, so switching it on mid-race never replays the
-ladder.
+`RACE_MILESTONES`, then — once the gap is inside `RACE_COUNTDOWN_GAP` — an alert on every
+play that moves the number, then the two decisive rungs at a gap of 1 ("one more levels
+it") and at a dead heat ("whatever you play next takes the all-time #1"), and finally the
+overtake itself. The first run after enabling it seeds state silently, so switching it on
+mid-race never replays the ladder.
+
+The countdown is driven by newly ingested scrobbles, not by the polling loop: a poll that
+finds no new plays sends nothing, each gap value inside the band notifies at most once,
+and an ingest that brings in several plays at once sends one alert for the resulting gap
+rather than one per value skipped. `get_scrobble_race` reports the band as `endgame_gap`,
+and `endgame_armed` latches the first time the race is seen inside it. Setting
+`RACE_COUNTDOWN_GAP=0` leaves you the ladder; the two decisive rungs and the overtake fire
+regardless. See decision record 0022.
 
 The decisive alerts fire **one play early** on purpose. A scrobbler reports what finished
 playing, never what is about to start, so the only honest way to say "this one wins it" is
-to say it before you press play. There is an optional live variant (`RACE_ENDGAME_GAP`,
+to say it before you press play. There is an optional live variant (`RACE_NOWPLAYING_GAP`,
 off by default) that names the currently-playing track instead — but it only works if your
 scrobbler sends Last.fm the separate `track.updateNowPlaying` call, which many players
 never do. Verify with `get_now_playing` before enabling it. See decision record 0016.
@@ -637,6 +646,45 @@ with a known page count (`pages_coverage`, e.g. "22/25 books with known page cou
 than silently dropping the rest, and `avg_pages_prose` excludes comics, graphic novels, and
 audiobooks so a comics-heavy span doesn't skew the prose figure. Filter by `year`/`from`/`to`
 (on finish date), `format`, `author`, or `rating`.
+
+### Posts on trips
+
+The train trips (imported from viaduct.world CSV exports) and the archived posts share
+nothing but a timeline — and that turns out to be enough. A `#togselfie` is taken on the
+platform at the moment of departure, so the two line up tightly: measured against the live
+archive, four of four togselfies landed within six minutes of their trip's departure, one of
+them within 14 seconds.
+
+`link-trip-posts` walks that join and writes a `trip_posts` row per post: which trip, and
+whether the post was made **boarding** (the 30 minutes before departure), **aboard**, or
+**alighting** (the 30 minutes after arrival), plus the signed offset in seconds from
+departure. `get_trip_posts` reads it from either end — the posts made on a journey, or the
+trip a given post was made on — and each row carries the trip's stations, operator, rolling
+stock, distance and delay, so a photo inherits all of it without anything being typed twice.
+
+Only the accounts listed in `STREAM_SOURCES` are considered: `objects` holds strangers' posts
+too (the Announce handler files a boost under its original author), and an unscoped join
+would put someone else's post on Markus' train. The derivation is idempotent and diff-based —
+it runs hourly, after a trip import, and on demand:
+
+```bash
+docker compose exec app npm run link-trip-posts
+```
+
+See [ADR 0023](docs/decision-records/0023-bind-posts-to-the-trips-they-were-posted-on.md) for
+the matching rules and why the link lives in its own table rather than on either side.
+
+The join has three surfaces. A post written aboard carries one line of travel context on
+the public stream (*"Om bord · Göteborgs central → Oslo S · Vy · 346 km"*) — kept visibly
+separate from the post's own text, because the post said none of it. `/reise` lists the
+journeys and `/reise/<slug>` gives each one its route, distance, operators and everything
+published along it. And `/api/v1/trip-posts` exposes the same data to non-MCP clients.
+
+A journey's public name is *derived*, never mapped: `train_trips.journey` holds the private
+CSV name ("NDC Copenhagen 2026") while the posts carry the public one (`#kodetoget`), and
+the two share no characters. The page shows whichever hashtag the journey's posts carry
+most, so it updates itself and reports `null` rather than guessing when there is none.
+See [ADR 0024](docs/decision-records/0024-give-the-trip-post-join-a-surface.md).
 
 ---
 

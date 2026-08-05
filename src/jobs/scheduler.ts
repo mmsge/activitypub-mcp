@@ -10,6 +10,7 @@ import { syncGardenContent } from './sync-garden-content.js'
 import { sampleEngagement } from './sample-engagement.js'
 import { pruneActivityLog } from './prune-activity-log.js'
 import { publishStatusNote } from './publish-status-note.js'
+import { linkTripPosts } from './link-trip-posts.js'
 import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
 
@@ -40,7 +41,7 @@ export function startScheduler(): void {
 
   // Live now-playing watch for the endgame of the scrobble race. Outside the endgame
   // this is one indexed row read and no API call, so a short interval is cheap.
-  if (config.RACE_ENDGAME_GAP > 0) {
+  if (config.RACE_NOWPLAYING_GAP > 0) {
     setInterval(async () => {
       try { await checkRaceNowPlaying() } catch (e) { logger.error(e, 'Scrobble race now-playing error') }
     }, config.RACE_NOWPLAYING_INTERVAL_SECONDS * 1_000)
@@ -86,6 +87,14 @@ export function startScheduler(): void {
   // a config change without waiting out a whole week.
   setInterval(async () => {
     try { await publishStatusNote() } catch (e) { logger.error(e, 'Status-note publish error') }
+  }, 60 * 60_000)
+
+  // Bind posts to the trips they were posted on — hourly. Both sides move: a post
+  // arrives from Mastodon, or a re-imported CSV corrects an arrival time and
+  // re-classifies the posts around it. The job is diff-based, so a tick with
+  // nothing to do writes nothing (ADR 0023).
+  setInterval(async () => {
+    try { await linkTripPosts() } catch (e) { logger.error(e, 'Trip/post linking error') }
   }, 60 * 60_000)
 
   logger.info({ scrobbleIntervalSeconds: config.LASTFM_SYNC_INTERVAL_SECONDS }, 'Scheduler started')

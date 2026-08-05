@@ -162,6 +162,20 @@
       "when": 1785875390314,
       "tag": "0022_garden_note_derived_dates",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1785878990314,
+      "tag": "0023_scrobble_race_endgame_armed",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1785882590314,
+      "tag": "0024_trip_posts",
+      "breakpoints": true
     }
   ]
 }

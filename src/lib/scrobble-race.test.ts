@@ -28,6 +28,7 @@ function state(over: Partial<RaceState> = {}): RaceState {
     challengerPlays: 10_065,
     lastMilestone: null,
     lastAnnouncedGap: null,
+    endgameArmedAt: null,
     overtakenAt: null,
     ...over,
   }
@@ -200,6 +201,41 @@ describe('decideRaceAlert — the finish', () => {
     expect(d.message?.click).toBe('https://last.fm/t')
   })
 
+  // The lead changed when the track was played, not when a sync happened to notice.
+  // With a 60s poll those differ by up to a minute, and the ingest clock is the one
+  // detail about the moment that isn't worth keeping.
+  it('stamps overtaken_at with the causing play, not the time of the sync', () => {
+    const PLAYED = new Date('2026-09-14T18:59:12Z')
+    const INGESTED = new Date('2026-09-14T19:04:00Z')
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_439, lastMilestone: 10, lastAnnouncedGap: 0 })
+    const d = decideRaceAlert(
+      snap(10_439, 10_440, {
+        latestChallengerPlay: { track: 'Body Better', url: null, playedAt: PLAYED },
+      }),
+      prev, MILESTONES, INGESTED,
+    )
+    expect(d.kind).toBe('overtake')
+    expect(d.state.overtakenAt).toEqual(PLAYED)
+    expect(d.state.overtakenAt).not.toEqual(INGESTED)
+  })
+
+  it('falls back to the sync time when the causing play cannot be identified', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_439, lastMilestone: 10, lastAnnouncedGap: 0 })
+    const d = decideRaceAlert(
+      snap(10_439, 10_440, { latestChallengerPlay: null }), prev, MILESTONES, NOW,
+    )
+    expect(d.kind).toBe('overtake')
+    expect(d.state.overtakenAt).toEqual(NOW)
+  })
+
+  it('never overwrites overtaken_at once the race is run', () => {
+    const FINISHED = new Date('2026-09-14T18:59:12Z')
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_440, overtakenAt: FINISHED })
+    const d = decideRaceAlert(snap(10_439, 10_480), prev, MILESTONES, NOW)
+    expect(d.kind).toBe('none')
+    expect(d.state.overtakenAt).toEqual(FINISHED)
+  })
+
   it('goes inert once the race is run, however the numbers move afterwards', () => {
     const prev = state({ leaderPlays: 10_439, challengerPlays: 10_440, overtakenAt: NOW })
     expect(decideRaceAlert(snap(10_439, 10_460), prev, MILESTONES, NOW).kind).toBe('none')
@@ -213,12 +249,125 @@ describe('decideRaceAlert — the finish', () => {
   })
 })
 
+describe('decideRaceAlert — the configurable countdown band', () => {
+  it('counts down from a band wider than the smallest milestone', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_399, lastMilestone: 50 })
+    // gap 40 is far outside the default fine zone of 10, but inside a band of 50.
+    const d = decideRaceAlert(snap(10_439, 10_400), prev, MILESTONES, NOW, 50) // gap 39
+    expect(d.kind).toBe('per-play')
+    expect(d.message?.title).toBe('39 to go')
+  })
+
+  // Narrowing the band hands the range back to the ladder rather than silencing it:
+  // gap 8 is outside a band of 3, so the unspent "under 10" rung gets to speak.
+  it('hands a narrowed band back to the ladder', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_428, lastMilestone: 15 })
+    const d = decideRaceAlert(snap(10_439, 10_431), prev, MILESTONES, NOW, 3) // gap 8
+    expect(d.kind).toBe('milestone')
+    expect(d.message?.body).toContain('Under 10 for the first time')
+  })
+
+  it('says nothing outside the band once the ladder is spent', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_429, lastMilestone: 10 })
+    const d = decideRaceAlert(snap(10_439, 10_431), prev, MILESTONES, NOW, 3) // gap 8
+    expect(d.kind).toBe('none')
+    expect(d.message).toBeNull()
+  })
+
+  it('defaults to the smallest milestone, so callers that omit it are unchanged', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_428, lastMilestone: 15 })
+    const withDefault = decideRaceAlert(snap(10_439, 10_431), prev, MILESTONES, NOW)
+    const explicit = decideRaceAlert(snap(10_439, 10_431), prev, MILESTONES, NOW, 10)
+    expect(withDefault.kind).toBe('per-play')
+    expect(withDefault).toStrictEqual(explicit)
+  })
+
+  // The band is the countdown, not the finish. Record 0016's decisive rungs work off
+  // scrobbles alone and must survive any band, including one that switches the generic
+  // countdown off entirely.
+  it('still fires gap 1, gap 0 and the overtake with the band set to 0', () => {
+    const atTwo = state({ leaderPlays: 10_439, challengerPlays: 10_437, lastMilestone: 10 })
+    expect(decideRaceAlert(snap(10_439, 10_437), atTwo, MILESTONES, NOW, 0).kind).toBe('none')
+
+    const armed = decideRaceAlert(snap(10_439, 10_438), atTwo, MILESTONES, NOW, 0)
+    expect(armed.kind).toBe('armed')
+
+    const level = decideRaceAlert(snap(10_439, 10_439), armed.state, MILESTONES, NOW, 0)
+    expect(level.kind).toBe('level')
+
+    const over = decideRaceAlert(snap(10_439, 10_440), level.state, MILESTONES, NOW, 0)
+    expect(over.kind).toBe('overtake')
+  })
+
+  it('lets the ladder keep speaking above the band', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_339, lastMilestone: 150 })
+    const d = decideRaceAlert(snap(10_439, 10_364), prev, MILESTONES, NOW, 10) // gap 75
+    expect(d.kind).toBe('milestone')
+    expect(d.message?.body).toContain('Under 75 for the first time')
+  })
+})
+
+describe('decideRaceAlert — the arming latch', () => {
+  it('latches on the first observation inside the band', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_420, lastMilestone: 20 })
+    expect(prev.endgameArmedAt).toBeNull()
+    const d = decideRaceAlert(snap(10_439, 10_429), prev, MILESTONES, NOW, 10) // gap 10
+    expect(d.state.endgameArmedAt).toEqual(NOW)
+  })
+
+  it('does not arm while the gap is still above the band', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_400, lastMilestone: 50 })
+    const d = decideRaceAlert(snap(10_439, 10_410), prev, MILESTONES, NOW, 10) // gap 29
+    expect(d.state.endgameArmedAt).toBeNull()
+  })
+
+  // A level would flicker off here; a latch does not. The race got to its endgame, and
+  // the leader answering back does not undo that.
+  it('stays armed after the leader pushes the gap back out of the band', () => {
+    const LATER = new Date('2026-09-15T08:00:00Z')
+    const armed = state({
+      leaderPlays: 10_439, challengerPlays: 10_431, lastMilestone: 10,
+      lastAnnouncedGap: 8, endgameArmedAt: NOW,
+    })
+    const widened = decideRaceAlert(snap(10_479, 10_431), armed, MILESTONES, LATER, 10) // gap 48
+    expect(widened.state.endgameArmedAt).toEqual(NOW)
+  })
+
+  it('survives the overtake rather than clearing at the finish', () => {
+    const armed = state({
+      leaderPlays: 10_439, challengerPlays: 10_439, lastMilestone: 10,
+      lastAnnouncedGap: 0, endgameArmedAt: NOW,
+    })
+    const d = decideRaceAlert(snap(10_439, 10_440), armed, MILESTONES, NOW, 10)
+    expect(d.kind).toBe('overtake')
+    expect(d.state.endgameArmedAt).toEqual(NOW)
+  })
+
+  it('arms on seeding when the feature is switched on already inside the band', () => {
+    const d = decideRaceAlert(snap(10_439, 10_435), null, MILESTONES, NOW, 10) // gap 4
+    expect(d.kind).toBe('seeded')
+    expect(d.state.endgameArmedAt).toEqual(NOW)
+  })
+})
+
 describe('decideRaceAlert — quiet ticks', () => {
-  it('returns immediately when neither count moved', () => {
+  it('returns immediately when neither count moved, changing nothing', () => {
     const prev = state({ leaderPlays: 10_439, challengerPlays: 10_065, lastMilestone: 300 })
     const d = decideRaceAlert(snap(10_439, 10_065), prev, MILESTONES, NOW)
     expect(d.kind).toBe('none')
-    expect(d.state).toBe(prev)
+    expect(d.message).toBeNull()
+    expect(d.state).toStrictEqual(prev)
+  })
+
+  // The one thing a quiet tick DOES update. Widening the band should show up as armed
+  // on the next tick rather than waiting for a play that may be hours away — the job
+  // already persists state on every silent tick, so this costs no extra write.
+  it('arms on a quiet tick when the band was widened to include the current gap', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_065, lastMilestone: 300 })
+    const d = decideRaceAlert(snap(10_439, 10_065), prev, MILESTONES, NOW, 400) // gap 374
+    expect(d.kind).toBe('none')
+    expect(d.message).toBeNull()
+    expect(d.state.endgameArmedAt).toEqual(NOW)
   })
 })
 

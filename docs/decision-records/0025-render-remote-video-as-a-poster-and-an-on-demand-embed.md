@@ -1,4 +1,4 @@
-# 0022 — Render remote video as a poster, and load the origin's player only on request
+# 0025 — Render remote video as a poster, and load the origin's player only on request
 
 **Status:** Accepted
 **Date:** 2026-08-05
@@ -113,6 +113,12 @@ is a thing someone has to remember to edit for the next server that does it.
 
 - Posters only exist for posts Rullen has re-federated. `handleUpdate` is an upsert
   (0011), so the backfill over there refreshes them in place.
+- **The journey pages get all of this for free.** 0024 added `loadEntriesByRefIds`
+  for `/reise/<slug>`, and it is a second way of *selecting* posts, not a second way
+  of building them — it funnels into the same `hydratePosts`. So the poster, the
+  embed and the thread folding reach the journey pages without anything being
+  written twice. Worth knowing before adding a third selection path: put it through
+  `hydratePosts` too, or it will render video the old way.
 - `rullen.no` joins `IMAGE_HOSTS` and the Caddy `img-src`. Both remain load-bearing
   until the CSP is tightened to `'self'`.
 - Rullen's clips are 720×1280, so posters are capped at 24rem with `object-fit:

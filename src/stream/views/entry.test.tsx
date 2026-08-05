@@ -19,7 +19,7 @@ const post = {
   refId: 'post:1', eventAt: at('2026-08-03T10:00:00Z'), archivedAt: at('2026-08-03T10:01:00Z'),
   source: 'mastodon' as const, originUrl: 'https://skvip.lol/@markus/1', kind: 'post' as const,
   html: '<p>Hei alle saman</p>', contentWarning: null, sensitive: false, language: 'nn',
-  attachments: [], hashtags: ['togselfie'], embedUrl: null, thread: [],
+  attachments: [], hashtags: ['togselfie'], embedUrl: null, thread: [], trip: null,
 }
 
 const book = {
@@ -298,5 +298,60 @@ describe('what must never appear', () => {
     const nasty = { ...post, originUrl: 'https://x.example/"><script>alert(1)</script>' }
     const html = render(<EntryView entry={nasty as never} />)
     expect(html).not.toContain('<script')
+  })
+})
+
+describe('the train a post was written on', () => {
+  const aboard = {
+    ...post,
+    trip: {
+      relation: 'aboard' as const,
+      fromStation: 'Göteborgs central', toStation: 'Oslo S',
+      journey: 'NDC Copenhagen 2026', journeySlug: 'ndc-copenhagen-2026',
+      operator: 'Vygruppen AS', distanceKm: 346, night: false,
+    },
+  }
+
+  it('renders the leg, the operator and the distance', () => {
+    const html = render(<EntryView entry={aboard} />)
+    expect(html).toContain('Göteborgs central → Oslo S')
+    expect(html).toContain('Vygruppen AS')
+    expect(html).toContain('346 km')
+  })
+
+  it('says which end of the trip the post came from', () => {
+    expect(render(<EntryView entry={aboard} />)).toContain('Om bord')
+    expect(render(<EntryView entry={{ ...aboard, trip: { ...aboard.trip, relation: 'boarding' as const } }} />))
+      .toContain('På perrongen før')
+    expect(render(<EntryView entry={{ ...aboard, trip: { ...aboard.trip, relation: 'alighting' as const } }} />))
+      .toContain('Nett komen fram')
+  })
+
+  it('links the journey to its page', () => {
+    expect(render(<EntryView entry={aboard} />)).toContain('href="/reise/ndc-copenhagen-2026"')
+  })
+
+  it('renders nothing at all for a post that was not on a train', () => {
+    // Which is almost every post: 415 of ~5,000 carry a link.
+    expect(render(<EntryView entry={post} />)).not.toContain('aboard')
+  })
+
+  it('omits the journey link when the trip has no journey name', () => {
+    const noJourney = { ...aboard, trip: { ...aboard.trip, journey: null, journeySlug: null } }
+    const html = render(<EntryView entry={noJourney} />)
+    expect(html).toContain('Göteborgs central → Oslo S')
+    expect(html).not.toContain('/reise/')
+  })
+
+  it('still hides the images of a sensitive post that was on a train', () => {
+    // The trip line is metadata, not body — but it must not become a way for a
+    // content-warned post to render its attachments anyway.
+    const sensitive = {
+      ...aboard, sensitive: true, contentWarning: 'Ikkje for alle',
+      attachments: [{ url: 'https://cdn/x.jpg', mediaType: 'image/jpeg', alt: null, width: null, height: null, blurhash: null, posterUrl: null, durationSeconds: null }],
+    }
+    const html = render(<EntryView entry={sensitive} />)
+    expect(html).toContain('Ikkje for alle')
+    expect(html).not.toContain('cdn/x.jpg')
   })
 })

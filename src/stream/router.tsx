@@ -7,7 +7,8 @@ import { ttlMemo } from '../lib/memo.js'
 import { InvalidCursorError } from '../mcp/tools/pagination.js'
 import { getAsset } from '../activitypub/profile-assets.js'
 import { streamOrigin } from './host.js'
-import { loadStreamPage, loadArchiveMonths, loadUndatedGardenNotes } from './query.js'
+import { loadStreamPage, loadArchiveMonths, loadUndatedGardenNotes, loadEntriesByRefIds } from './query.js'
+import { loadJourneys, loadJourney } from './journeys.js'
 import { renderAtom } from './feed.js'
 import { renderHead, renderRobots, renderSitemap } from './meta.js'
 import { verifyProxyPath } from './image-proxy.js'
@@ -19,6 +20,7 @@ import {
 } from './facets.js'
 import { Layout } from './views/layout.js'
 import { StreamList, UndatedGarden } from './views/entry.js'
+import { JourneyList, JourneyPage } from './views/journey.js'
 import type { StreamPage, UndatedGardenNote } from './entries.js'
 
 /**
@@ -46,6 +48,11 @@ const monthsCache = ttlMemo<string[]>({ ttlMs: 3_600_000, max: 1 })
 // The dateless garden notes change only when Markus publishes or dates one, so an
 // hour is plenty — and it is one query for one page, not per request.
 const undatedCache = ttlMemo<UndatedGardenNote[]>({ ttlMs: 3_600_000, max: 1 })
+// Rendered journey pages, index and detail in one map. `null` is cached too, so a
+// crawler walking made-up slugs cannot turn every 404 into two queries. Capped
+// well above the 13 real journeys, and the key space is bounded by the router's
+// single :slug segment.
+const journeyCache = ttlMemo<{ body: string; etag: string } | null>({ ttlMs: TTL, max: 64 })
 
 function etagOf(body: string): string {
   return `"${createHash('sha256').update(body).digest('hex').slice(0, 16)}"`
@@ -113,12 +120,16 @@ async function servePage(c: Context, facets: Facets): Promise<Response> {
     return { body: full, etag: etagOf(full) }
   })
 
-  // Cheap reloads, and cheap crawls.
-  if (c.req.header('if-none-match') === cached.etag) {
-    return c.body(null, 304, { ETag: cached.etag })
+  return conditional(c, cached.body, cached.etag)
+}
+
+/** Serve a cached HTML body with its ETag. Cheap reloads, and cheap crawls. */
+function conditional(c: Context, body: string, etag: string): Response {
+  if (c.req.header('if-none-match') === etag) {
+    return c.body(null, 304, { ETag: etag })
   }
-  return c.html(cached.body, 200, {
-    ETag: cached.etag,
+  return c.html(body, 200, {
+    ETag: etag,
     'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
   })
 }
@@ -152,6 +163,70 @@ streamApp.get('/arkiv/:year/:month', (c) => {
   return servePage(c, facetsFrom(c, { year, month }))
 })
 
+/**
+ * The journey pages.
+ *
+ * Outside the facet system on purpose. Every other view is the same timeline
+ * under a filter, ordered by `(event_at DESC, ref_id DESC)` and paged by keyset;
+ * a journey is a named set of trips with its posts gathered under it, which is a
+ * different shape entirely. Bending facets to carry it would have put a
+ * non-chronological grouping through machinery whose whole correctness argument
+ * is that the ordering is a strict total order over dates.
+ *
+ * Journeys are few (13) and change only when Markus imports a CSV, so both pages
+ * are cached for the ordinary stream TTL and neither pages.
+ */
+streamApp.get('/reise', async (c) => {
+  const cached = await journeyCache.get('index', async () => {
+    const journeys = await loadJourneys()
+    const canonical = `${streamOrigin()}/reise`
+    const title = 'Meg — reiser'
+    const description = 'Togreisene til Markus, med alt han la ut undervegs.'
+    const html = (
+      <Layout
+        title={title}
+        description={description}
+        canonical={canonical}
+        headExtra={renderHead({ title, description, canonical, entries: [] })}
+      >
+        <JourneyList journeys={journeys} />
+      </Layout>
+    ).toString()
+    const full = `<!doctype html>${html}`
+    return { body: full, etag: etagOf(full) }
+  })
+  if (!cached) return c.notFound()
+  return conditional(c, cached.body, cached.etag)
+})
+
+streamApp.get('/reise/:slug', async (c) => {
+  const slug = c.req.param('slug')
+  const cached = await journeyCache.get(`j:${slug}`, async () => {
+    const journey = await loadJourney(slug)
+    if (!journey) return null
+    const entries = await loadEntriesByRefIds(journey.postRefIds)
+    const canonical = `${streamOrigin()}/reise/${journey.slug}`
+    const title = `Meg — ${journey.name}`
+    const description = `${journey.name}: ${journey.trips} etappar`
+      + (journey.km > 0 ? `, ${journey.km} km` : '')
+      + (journey.posts > 0 ? `, ${journey.posts} innlegg` : '')
+    const html = (
+      <Layout
+        title={title}
+        description={description}
+        canonical={canonical}
+        headExtra={renderHead({ title, description, canonical, entries })}
+      >
+        <JourneyPage journey={journey} entries={entries} />
+      </Layout>
+    ).toString()
+    const full = `<!doctype html>${html}`
+    return { body: full, etag: etagOf(full) }
+  })
+  if (!cached) return c.notFound()
+  return conditional(c, cached.body, cached.etag)
+})
+
 streamApp.get('/feed.atom', async (c) => {
   const body = await feedCache.get('main', async () => {
     const page = await loadStreamPage({ ...EMPTY_FACETS, limit: 50 })
@@ -176,9 +251,18 @@ streamApp.get('/robots.txt', (c) =>
 streamApp.get('/sitemap.xml', async (c) => {
   const origin = streamOrigin()
   const months = await monthsCache.get('all', loadArchiveMonths)
+  // Journeys are listed with a lastmod: unlike the month pages, a journey gains
+  // content when a post is bound to one of its trips, and its last departure is
+  // the closest honest stand-in for when that stopped happening.
+  const journeys = await loadJourneys().catch((e) => {
+    logger.error(e, 'Could not load journeys for the sitemap; omitting them')
+    return []
+  })
   const body = renderSitemap([
     { loc: `${origin}/` },
     ...[...AP_PLATFORMS, ...LOCAL_PLATFORMS].map((p) => ({ loc: `${origin}/kjelde/${p}` })),
+    { loc: `${origin}/reise` },
+    ...journeys.map((j) => ({ loc: `${origin}/reise/${j.slug}`, lastmod: j.lastAt.toISOString() })),
     ...months.map((m) => ({ loc: `${origin}/arkiv/${m.replace('-', '/')}` })),
   ])
   return c.body(body, 200, {

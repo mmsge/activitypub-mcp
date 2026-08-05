@@ -95,8 +95,15 @@ function allOf(parts: Array<SQL | null | undefined>): SQL {
   return sql.join(kept, sql` AND `)
 }
 
-/** `ARRAY[…]::text[]`, for `= ANY(…)` against a list of actor ids. */
-function idArray(ids: string[]): SQL {
+/**
+ * `ARRAY[…]::text[]`, for `= ANY(…)` against a list of ids.
+ *
+ * Each id becomes its own bound parameter. Interpolating the JS array directly
+ * (`= ANY(${ids})`) does not: drizzle flattens it into positional parameters, so
+ * `ANY($3)` binds only the first element — which looks right for a one-element
+ * list and is silently wrong for every longer one.
+ */
+export function idArray(ids: string[]): SQL {
   return sql`ARRAY[${sql.join(ids.map((x) => sql`${x}`), sql`, `)}]::text[]`
 }
 

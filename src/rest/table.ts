@@ -20,6 +20,7 @@ import {
   getTrainTripsSchema, getTrainTrips,
   getTrainStatsSchema, getTrainStats,
 } from '../mcp/tools/train-trips.js'
+import { getTripPostsSchema, getTripPosts } from '../mcp/tools/trip-posts.js'
 import { getGardenPagesSchema, getGardenPages } from '../mcp/tools/garden-pages.js'
 import { getGardenPageSchema, getGardenPage } from '../mcp/tools/garden-page.js'
 import { getBookDetailsSchema, getBookDetails } from '../mcp/tools/book-details.js'
@@ -213,6 +214,16 @@ export const endpoints: RestEndpoint[] = [
     handler: getTrainStats,
     numbers: ['limit', 'year'],
     booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/trip-posts',
+    name: 'get_trip_posts',
+    description: 'The posts made on a given train trip, and the trip a given post was made on — a derived join between the viaduct.world trips and the archived posts, matched on time. Each row carries the post plus its trip\'s stations, operator, rolling stock, distance and delay, and how the post relates to the trip: boarding (the 30 min before departure), aboard, or alighting (the 30 min after arrival). Filter by journey, station, operator, relation, hashtag (e.g. tag=togselfie), year or time window; with_media_only=true narrows to posts carrying an image or video.',
+    schema: getTripPostsSchema,
+    handler: getTripPosts,
+    numbers: ['limit', 'page', 'year'],
+    booleans: ['with_media_only'],
     arrays: [],
   },
   {

@@ -455,6 +455,10 @@ export const scrobbleRaceState = pgTable('scrobble_race_state', {
   lastMilestone: integer('last_milestone'),
   // Gap at the last per-play (endgame) alert, so a sync with nothing new stays quiet.
   lastAnnouncedGap: integer('last_announced_gap'),
+  // When the gap was first observed inside the countdown band (RACE_COUNTDOWN_GAP).
+  // Latches: once set it never clears, so the leader pulling back out of the band does
+  // not report the race as no longer in its endgame. Surfaced as endgame_armed.
+  endgameArmedAt: timestamp('endgame_armed_at', { withTimezone: true }),
   // Set once, when the challenger draws level or goes ahead. Its presence makes the
   // watcher inert: the race is run, and later plays are just plays.
   overtakenAt: timestamp('overtaken_at', { withTimezone: true }),
@@ -552,6 +556,31 @@ export const trainTrips = pgTable('train_trips', {
   index('train_trips_operator_idx').on(t.operator),
   // Viaduct CSV rows carry no stable id; this hash is the re-import dedupe key.
   uniqueIndex('train_trips_dedupe_idx').on(t.dedupeKey),
+])
+
+// Which trip a post was made on — derived, never ingested. Nothing in either side
+// links them: the only key is time, and it is a sound one because `published_at`
+// and `departure_at`/`arrival_at` are all timestamptz. Measured against the live
+// archive, togselfies land within seconds of their trip's departure, so the join
+// is tight enough to be worth storing. Kept off both tables for the reason ADR
+// 0020 kept `derived_date` off `note_date`: re-tuning the match must not become
+// indistinguishable from ingested fact. See ADR 0023 and src/lib/trip-window.ts.
+export const tripPosts = pgTable('trip_posts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tripId: uuid('trip_id').notNull().references(() => trainTrips.id, { onDelete: 'cascade' }),
+  objectApId: text('object_ap_id').notNull().references(() => objects.apId, { onDelete: 'cascade' }),
+  // 'boarding' | 'aboard' | 'alighting' — see TripRelation.
+  relation: text('relation').notNull(),
+  // Signed seconds from departure; negative while still boarding. Stored so a
+  // consumer can judge the match instead of trusting the label alone.
+  offsetSeconds: integer('offset_seconds').notNull(),
+  derivedAt: timestamp('derived_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  // One trip per post: consecutive legs overlap at the edges, but "which train was
+  // I on" has one answer. The matcher's ranking is total, so it is a stable one.
+  uniqueIndex('trip_posts_object_idx').on(t.objectApId),
+  index('trip_posts_trip_idx').on(t.tripId),
+  index('trip_posts_relation_idx').on(t.relation),
 ])
 
 // ---------------------------------------------------------------------------

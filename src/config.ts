@@ -50,9 +50,19 @@ const schema = z.object({
   // ("Taylor Swift", "Maisie Peters"). Either one empty disables both race jobs.
   RACE_LEADER_ARTIST: z.string().default(''),
   RACE_CHALLENGER_ARTIST: z.string().default(''),
-  // Gap values that each fire a one-off milestone alert. Below the smallest of them,
-  // every play that moves the gap gets its own alert.
+  // Gap values that each fire a one-off milestone alert. Above the countdown band
+  // below, this ladder is the only thing that speaks.
   RACE_MILESTONES: z.string().default('300,250,200,150,100,75,50,25,20,15,10'),
+  // The endgame countdown band: at or below this gap, every challenger play that moves
+  // the number gets its own alert instead of the ladder's one-off milestones. Was
+  // previously derived from the smallest milestone, which made it impossible to widen
+  // the countdown without also inventing a milestone. 0 disables the countdown.
+  //
+  // The three decisive alerts — gap 1 ("one more levels it"), gap 0 ("the next track
+  // takes it") and the overtake — are deliberately NOT governed by this and fire at
+  // any value including 0. They are the finish, not the countdown; decision record
+  // 0016 exists to guarantee they work off scrobbles alone. See record 0022.
+  RACE_COUNTDOWN_GAP: z.coerce.number().int().min(0).default(10),
   // Gap at or below which the live now-playing watcher arms itself, naming the track
   // playing right now as the one about to tie or win. 0 (the default) disables it.
   //
@@ -62,7 +72,10 @@ const schema = z.object({
   // check that get_now_playing returns nowPlaying:true. If it doesn't, this job
   // polls Last.fm forever for a signal that never arrives; the armed alerts at gap
   // 1 and 0 cover the same ground off scrobbles alone. See decision record 0016.
-  RACE_ENDGAME_GAP: z.coerce.number().int().min(0).default(0),
+  //
+  // Named RACE_ENDGAME_GAP until record 0022; "endgame" now means the countdown band
+  // above, which is what the get_scrobble_race endgame_* fields report.
+  RACE_NOWPLAYING_GAP: z.coerce.number().int().min(0).default(0),
   RACE_NOWPLAYING_INTERVAL_SECONDS: z.coerce.number().int().min(20).default(30),
   // BookWyrm actors (comma-separated @user@domain or actor URLs) whose outbox the
   // reading-history backfill walks for finished/started/review/rating posts. These
