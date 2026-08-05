@@ -535,6 +535,7 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_book_details` | "What's the page count and publisher for The Radleys?" |
 | `get_watched` | "What have I marked on NeoDB? What did I watch in 2016 — watched_year=2016? Show my games from 2024, or every album by category=music. What's the IMDb link for Conflict? Everything tagged thriller. Which films did I see at the cinema — mark_comment=kino?" |
 | `get_catalogue_details` | "Give me the full record for this NeoDB item — who developed it, its ISBN/publisher, the podcast feed URL — and where each field came from." |
+| `get_trip_posts` | "What did I post on Sjælland rundt? Show every togselfie with the train it was taken on. Which train was I on when I posted this?" |
 
 All tools are read-only queries against the local database — no requests go out to remote servers when you query the MCP server.
 
@@ -645,6 +646,33 @@ with a known page count (`pages_coverage`, e.g. "22/25 books with known page cou
 than silently dropping the rest, and `avg_pages_prose` excludes comics, graphic novels, and
 audiobooks so a comics-heavy span doesn't skew the prose figure. Filter by `year`/`from`/`to`
 (on finish date), `format`, `author`, or `rating`.
+
+### Posts on trips
+
+The train trips (imported from viaduct.world CSV exports) and the archived posts share
+nothing but a timeline — and that turns out to be enough. A `#togselfie` is taken on the
+platform at the moment of departure, so the two line up tightly: measured against the live
+archive, four of four togselfies landed within six minutes of their trip's departure, one of
+them within 14 seconds.
+
+`link-trip-posts` walks that join and writes a `trip_posts` row per post: which trip, and
+whether the post was made **boarding** (the 30 minutes before departure), **aboard**, or
+**alighting** (the 30 minutes after arrival), plus the signed offset in seconds from
+departure. `get_trip_posts` reads it from either end — the posts made on a journey, or the
+trip a given post was made on — and each row carries the trip's stations, operator, rolling
+stock, distance and delay, so a photo inherits all of it without anything being typed twice.
+
+Only the accounts listed in `STREAM_SOURCES` are considered: `objects` holds strangers' posts
+too (the Announce handler files a boost under its original author), and an unscoped join
+would put someone else's post on Markus' train. The derivation is idempotent and diff-based —
+it runs hourly, after a trip import, and on demand:
+
+```bash
+docker compose exec app npm run link-trip-posts
+```
+
+See [ADR 0023](docs/decision-records/0023-bind-posts-to-the-trips-they-were-posted-on.md) for
+the matching rules and why the link lives in its own table rather than on either side.
 
 ---
 

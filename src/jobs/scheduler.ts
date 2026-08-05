@@ -10,6 +10,7 @@ import { syncGardenContent } from './sync-garden-content.js'
 import { sampleEngagement } from './sample-engagement.js'
 import { pruneActivityLog } from './prune-activity-log.js'
 import { publishStatusNote } from './publish-status-note.js'
+import { linkTripPosts } from './link-trip-posts.js'
 import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
 
@@ -86,6 +87,14 @@ export function startScheduler(): void {
   // a config change without waiting out a whole week.
   setInterval(async () => {
     try { await publishStatusNote() } catch (e) { logger.error(e, 'Status-note publish error') }
+  }, 60 * 60_000)
+
+  // Bind posts to the trips they were posted on — hourly. Both sides move: a post
+  // arrives from Mastodon, or a re-imported CSV corrects an arrival time and
+  // re-classifies the posts around it. The job is diff-based, so a tick with
+  // nothing to do writes nothing (ADR 0023).
+  setInterval(async () => {
+    try { await linkTripPosts() } catch (e) { logger.error(e, 'Trip/post linking error') }
   }, 60 * 60_000)
 
   logger.info({ scrobbleIntervalSeconds: config.LASTFM_SYNC_INTERVAL_SECONDS }, 'Scheduler started')

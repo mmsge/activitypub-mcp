@@ -33,3 +33,4 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | [0020](0020-recover-garden-dates-from-reading-events.md) | Recover garden note dates from reading events, and list what stays undated |
 | [0021](0021-serve-images-through-a-signed-proxy.md) | Serve the stream's images through a signed proxy, and never resize them |
 | [0022](0022-configurable-endgame-countdown-band.md) | Make the endgame countdown band explicit (`RACE_COUNTDOWN_GAP`), let `endgame_*` report it, and latch the arming |
+| [0023](0023-bind-posts-to-the-trips-they-were-posted-on.md) | Bind posts to the trips they were posted on, in a derived link table |
