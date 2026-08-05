@@ -16,7 +16,7 @@ import {
  * Bind each of Markus' posts to the train trip it was posted on.
  *
  * The two sides share nothing but a timeline, and that turns out to be enough:
- * togselfies land within seconds of their trip's departure (see ADR 0022). This
+ * togselfies land within seconds of their trip's departure (see ADR 0023). This
  * job walks the join and writes `trip_posts`.
  *
  * Deliberately computed in JS rather than as one SQL statement, unlike

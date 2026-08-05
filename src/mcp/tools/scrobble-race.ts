@@ -98,8 +98,13 @@ export async function getScrobbleRace(input: z.infer<typeof getScrobbleRaceSchem
           topic: config.NTFY_TOPIC,
           last_milestone: state.lastMilestone,
           next_milestone: nextMilestone,
-          endgame_gap: config.RACE_ENDGAME_GAP,
-          endgame_armed: gap >= 0 && gap <= config.RACE_ENDGAME_GAP && !state.overtakenAt,
+          // The countdown band, and whether the race has ever been inside it. Armed is
+          // read from the persisted latch rather than compared live against the gap:
+          // the leader scrobbling twice must not report a race that reached its
+          // endgame as no longer in one. See decision record 0022.
+          endgame_gap: config.RACE_COUNTDOWN_GAP,
+          endgame_armed: Boolean(state.endgameArmedAt),
+          nowplaying_gap: config.RACE_NOWPLAYING_GAP,
           overtaken_at: state.overtakenAt,
         }
       : {
@@ -107,8 +112,10 @@ export async function getScrobbleRace(input: z.infer<typeof getScrobbleRaceSchem
           topic: null,
           last_milestone: tightestCrossed(gap, milestones),
           next_milestone: nextMilestone,
-          endgame_gap: config.RACE_ENDGAME_GAP,
+          endgame_gap: config.RACE_COUNTDOWN_GAP,
+          // No stored state for this pairing, so nothing has ever observed it armed.
           endgame_armed: false,
+          nowplaying_gap: config.RACE_NOWPLAYING_GAP,
           overtaken_at: null,
         },
   }

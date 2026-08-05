@@ -1,9 +1,9 @@
-# 0022 — Bind posts to the trips they were posted on, in a derived link table
+# 0023 — Bind posts to the trips they were posted on, in a derived link table
 
 - **Status:** Accepted
 - **Date:** 2026-08-05
 - **Contributors:** Markus (asked what cross-joins the stored data already supports, and chose to build the trip↔post join first) + Claude (measured the alignment against the live archive, proposed the link table, implemented the derivation)
-- **Affects:** `drizzle/0023_trip_posts.sql`, `src/db/schema.ts`, `src/lib/trip-window.ts`, `src/jobs/link-trip-posts.ts`, `src/mcp/tools/trip-posts.ts`, `src/jobs/scheduler.ts`
+- **Affects:** `drizzle/0024_trip_posts.sql`, `src/db/schema.ts`, `src/lib/trip-window.ts`, `src/jobs/link-trip-posts.ts`, `src/mcp/tools/trip-posts.ts`, `src/jobs/scheduler.ts`
 - **Topics:** trains, posts, joins, derivation, provenance, postgres
 
 ## Context
@@ -111,7 +111,7 @@ lanes do.
   array into positional parameters, so `ANY($3)` binds only the *first* actor —
   correct-looking for a one-account allowlist and silently wrong for the real
   six — and postgres-js rejects a bare `Date` parameter outright. Both were
-  caught by executing the job against Postgres 16 with all 24 migrations and real
+  caught by executing the job against Postgres 16 with all 25 migrations and real
   fixtures, not by the unit tests, which passed throughout. Same lesson as PR #66,
   a different mechanism.
 

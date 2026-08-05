@@ -3,7 +3,7 @@ import { sql, type SQL } from 'drizzle-orm'
 import { getDb } from '../../db/client.js'
 
 /**
- * The trip↔post join (ADR 0022), readable from both ends: the posts made on a
+ * The trip↔post join (ADR 0023), readable from both ends: the posts made on a
  * given journey, and the trip a given post was made on.
  *
  * Reads `trip_posts`, which jobs/link-trip-posts.ts derives. If it looks empty

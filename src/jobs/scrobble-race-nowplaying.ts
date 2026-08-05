@@ -8,7 +8,7 @@ import { type Notifier } from './scrobble-race.js'
 
 /**
  * The predictive endgame alert — the point of the whole feature: while the gap is
- * within RACE_ENDGAME_GAP, watch what is playing right now and say, out loud, that
+ * within RACE_NOWPLAYING_GAP, watch what is playing right now and say, out loud, that
  * THIS song is the one that ties or wins it. An alert that arrives after the scrobble
  * lands is a result; this one arrives while the song is still going.
  *
@@ -25,7 +25,7 @@ export async function checkRaceNowPlaying(
 ): Promise<void> {
   const racers = getScrobbleRacers()
   if (!racers) return
-  if (config.RACE_ENDGAME_GAP <= 0) return
+  if (config.RACE_NOWPLAYING_GAP <= 0) return
   if (!config.NTFY_PASSWORD) return
   if (!config.LASTFM_API_KEY || !config.LASTFM_USERNAME) return
 
@@ -34,7 +34,7 @@ export async function checkRaceNowPlaying(
   if (state.overtakenAt) return
 
   const gap = state.leaderPlays - state.challengerPlays
-  if (gap < 0 || gap > config.RACE_ENDGAME_GAP) return
+  if (gap < 0 || gap > config.RACE_NOWPLAYING_GAP) return
 
   // Deliberately NOT getNowPlaying(): its 20-second cache is a module-level singleton
   // shared with the public get_now_playing tool, so this could read a value warmed by

@@ -1,0 +1,17 @@
+-- Persist when the scrobble race first entered its endgame countdown band.
+--
+-- The band itself is now RACE_COUNTDOWN_GAP rather than a side-effect of the
+-- smallest milestone, and get_scrobble_race reports it as endgame_gap /
+-- endgame_armed. Reporting "armed" as a live comparison of the current gap against
+-- the band would make the flag flicker: the leader scrobbling twice would un-arm a
+-- race that has demonstrably reached its endgame, and nothing would record that it
+-- ever got there.
+--
+-- So it is a latch, not a level. Set on the first observation at or inside the band
+-- and never cleared — not by the leader pulling away, not by the overtake.
+--
+-- Nullable with no default and no backfill on purpose: NULL means "this pairing has
+-- not been seen inside the band", which is the correct answer for every existing
+-- row. The current race sits at a gap of ~297 against a band of 10, so the first
+-- write happens when the race actually gets there.
+ALTER TABLE "scrobble_race_state" ADD COLUMN "endgame_armed_at" timestamp with time zone;

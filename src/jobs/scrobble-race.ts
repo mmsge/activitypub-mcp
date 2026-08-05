@@ -31,7 +31,9 @@ export async function runScrobbleRace(notify: Notifier = publishNtfy): Promise<v
 
   const snap = await loadRaceSnapshot(racers.leader, racers.challenger)
   const prev = await loadRaceState(racers.leader, racers.challenger)
-  const decision = decideRaceAlert(snap, prev, getRaceMilestones())
+  const decision = decideRaceAlert(
+    snap, prev, getRaceMilestones(), new Date(), config.RACE_COUNTDOWN_GAP,
+  )
 
   if (decision.kind === 'seeded') {
     await saveRaceState(racers.leader, racers.challenger, decision.state)

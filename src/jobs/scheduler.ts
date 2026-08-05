@@ -41,7 +41,7 @@ export function startScheduler(): void {
 
   // Live now-playing watch for the endgame of the scrobble race. Outside the endgame
   // this is one indexed row read and no API call, so a short interval is cheap.
-  if (config.RACE_ENDGAME_GAP > 0) {
+  if (config.RACE_NOWPLAYING_GAP > 0) {
     setInterval(async () => {
       try { await checkRaceNowPlaying() } catch (e) { logger.error(e, 'Scrobble race now-playing error') }
     }, config.RACE_NOWPLAYING_INTERVAL_SECONDS * 1_000)
@@ -92,7 +92,7 @@ export function startScheduler(): void {
   // Bind posts to the trips they were posted on — hourly. Both sides move: a post
   // arrives from Mastodon, or a re-imported CSV corrects an arrival time and
   // re-classifies the posts around it. The job is diff-based, so a tick with
-  // nothing to do writes nothing (ADR 0022).
+  // nothing to do writes nothing (ADR 0023).
   setInterval(async () => {
     try { await linkTripPosts() } catch (e) { logger.error(e, 'Trip/post linking error') }
   }, 60 * 60_000)

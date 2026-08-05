@@ -3261,9 +3261,30 @@ components:
             topic: { type: [string, "null"] }
             last_milestone: { type: [integer, "null"] }
             next_milestone: { type: [integer, "null"] }
-            endgame_gap: { type: integer }
-            endgame_armed: { type: boolean }
-            overtaken_at: { type: [string, "null"], format: date-time }
+            endgame_gap:
+              type: integer
+              description: >-
+                The endgame countdown band (RACE_COUNTDOWN_GAP). At or below this gap the
+                milestone ladder stands down and every challenger play that moves the
+                number gets its own alert. 0 disables the countdown; the decisive alerts
+                at gap 1 and gap 0, and the overtake, fire regardless.
+            endgame_armed:
+              type: boolean
+              description: >-
+                Whether the race has ever been observed inside the band. A latch, not a
+                level — it stays true once set, including after the overtake.
+            nowplaying_gap:
+              type: integer
+              description: >-
+                Band for the optional live now-playing watcher (RACE_NOWPLAYING_GAP),
+                which names the currently-playing track as the one about to tie or win.
+                0 disables it; it requires a scrobbler that sends track.updateNowPlaying.
+            overtaken_at:
+              type: [string, "null"]
+              format: date-time
+              description: >-
+                When the challenger took the lead — the playedAt of the play that did it,
+                not the time the sync noticed. Written once and never overwritten.
         error:
           type: string
           description: Present when no race is configured and none was given.

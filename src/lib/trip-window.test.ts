@@ -214,7 +214,7 @@ describe('planTripPostLinks', () => {
   })
 
   it('writes nothing when a re-run derives the same links', () => {
-    // The idempotence claim in ADR 0022: a second run reports zeroes.
+    // The idempotence claim in ADR 0023: a second run reports zeroes.
     const plan = planTripPostLinks([desired('p1', 't1')], [stored('p1', 't1')])
     expect(plan).toEqual({ toInsert: [], toUpdate: [], toDelete: [] })
   })

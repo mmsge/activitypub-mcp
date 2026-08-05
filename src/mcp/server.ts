@@ -190,7 +190,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_trip_posts',
-    "The posts Markus made on a given train trip, and the trip a given post was made on — a derived join between the viaduct.world trips and the archived posts, matched on time (see ADR 0022). Each row carries the post plus its trip's stations, operator, rolling stock, distance and delay, and how the post relates to the trip: boarding (the 30 min before departure), aboard, or alighting (the 30 min after arrival). Filter by journey, station, operator, relation, hashtag (e.g. tag=\"togselfie\"), year or time window; with_media_only=true narrows to photos. Answers \"what did I post on Sjælland rundt?\" and \"which train was I on when I posted this?\"",
+    "The posts Markus made on a given train trip, and the trip a given post was made on — a derived join between the viaduct.world trips and the archived posts, matched on time (see ADR 0023). Each row carries the post plus its trip's stations, operator, rolling stock, distance and delay, and how the post relates to the trip: boarding (the 30 min before departure), aboard, or alighting (the 30 min after arrival). Filter by journey, station, operator, relation, hashtag (e.g. tag=\"togselfie\"), year or time window; with_media_only=true narrows to photos. Answers \"what did I post on Sjælland rundt?\" and \"which train was I on when I posted this?\"",
     getTripPostsSchema.shape,
     async (input) => {
       const result = await getTripPosts(input as any)
