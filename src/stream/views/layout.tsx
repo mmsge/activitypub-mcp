@@ -408,10 +408,30 @@ a:hover { color: var(--ink); }
 .journey .operators { color: var(--muted); font-size: .85rem; }
 .legs { margin: 0 0 2rem; padding-left: 1.2rem; }
 .legs li { margin: .35rem 0; font-size: .9rem; }
+.legs a { text-decoration: none; }
+.legs a:hover .leg-route { text-decoration: underline; }
 .leg-when { color: var(--muted); font-variant-numeric: tabular-nums; }
 .leg-route { font-weight: 600; }
 .leg-fact { color: var(--muted); }
 .journey .back { margin-top: 2.5rem; }
+
+/* Each leg is a chapter, in departure order: the one page on the site that reads
+   forwards, so scrolling it follows the journey from start to end. */
+.chapter { margin: 2.5rem 0 0; scroll-margin-top: 1rem; }
+.chapter-head {
+  display: flex; align-items: baseline; gap: .6rem;
+  margin: 0; padding-top: 1.2rem; border-top: 2px solid var(--line);
+  font-size: 1.15rem;
+}
+.chapter-no {
+  flex: none; color: var(--muted); font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: .8rem; font-variant-numeric: tabular-nums;
+}
+.chapter-when {
+  margin: .25rem 0 1.2rem calc(.6rem + 1ch);
+  font-size: .85rem; font-family: ui-sans-serif, system-ui, sans-serif;
+}
+.chapter-empty { color: var(--muted); font-size: .9rem; font-style: italic; margin: 0; }
 
 /* The garden notes with no date anywhere: listed at the foot of /kjelde/hage. */
 .undated {

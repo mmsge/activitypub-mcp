@@ -33,18 +33,34 @@ export interface JourneySummary {
   stations: string[]
 }
 
+/**
+ * One leg of a journey, and what was posted on it.
+ *
+ * The leg is the journey page's chapter: `trip_posts` binds every post to exactly
+ * one trip (ADR 0023), so "which chapter does this post belong to" has the same
+ * single answer as "which train was I on".
+ */
+export interface JourneyLeg {
+  /** `train_trips.id` — the key `trip_posts` binds posts by. */
+  id: string
+  fromStation: string
+  toStation: string
+  departureAt: Date
+  /** Null where viaduct.world recorded no arrival; the chapter then has no span. */
+  arrivalAt: Date | null
+  operator: string | null
+  distanceKm: number | null
+  night: boolean
+  /** Ref ids (`post:<uuid>`) of the posts made on this leg, oldest first. */
+  postRefIds: string[]
+}
+
 /** One journey's page: the summary, its legs, and what was posted on them. */
 export interface JourneyDetail extends JourneySummary {
   operators: string[]
-  legs: Array<{
-    fromStation: string
-    toStation: string
-    departureAt: Date
-    operator: string | null
-    distanceKm: number | null
-    night: boolean
-  }>
-  /** Ref ids (`post:<uuid>`) of the posts made on this journey, newest first. */
+  /** The legs in departure order — the chapters, start at top, end at bottom. */
+  legs: JourneyLeg[]
+  /** Ref ids of every post made on this journey, oldest first. */
   postRefIds: string[]
 }
 
@@ -161,24 +177,39 @@ export async function loadJourney(slug: string): Promise<JourneyDetail | null> {
 
   const db = getDb()
   const legs = (await db.execute(sql`
-    SELECT from_station, to_station, departure_at, operator, distance_km, night
+    SELECT id::text AS id, from_station, to_station, departure_at, arrival_at,
+           operator, distance_km, night
     FROM train_trips
     WHERE journey = ${summary.name} AND departure_at <= now()
     ORDER BY departure_at ASC`)) as unknown as Array<Record<string, unknown>>
 
   // Posts on this journey, as stream ref ids so the page can reuse the ordinary
-  // hydration and renderer rather than growing a second way to draw a post.
+  // hydration and renderer rather than growing a second way to draw a post. The
+  // trip id comes along so the page can file each post under its leg; `DISTINCT`
+  // cannot split a post across two of them, since `trip_posts.object_ap_id` is
+  // unique. Oldest first, which is the order the chapters read in.
+  //
+  // The `departure_at <= now()` here mirrors the legs query above: a post bound to
+  // a leg that has not departed yet would otherwise have no chapter to sit in.
   const posts = (await db.execute(sql`
-    SELECT DISTINCT o.id::text AS id, o.published_at
+    SELECT DISTINCT o.id::text AS id, o.published_at, tp.trip_id::text AS trip_id
     FROM trip_posts tp
     JOIN train_trips t ON t.id = tp.trip_id
     JOIN objects o ON o.ap_id = tp.object_ap_id
     WHERE t.journey = ${summary.name}
+      AND t.departure_at <= now()
       AND o.deleted_at IS NULL
       AND o.published_at IS NOT NULL
       AND o.in_reply_to IS NULL
       AND ${publicOnlyOn('o', config.STREAM_INCLUDE_UNLISTED)}
-    ORDER BY o.published_at DESC`)) as unknown as Array<{ id: string }>
+    ORDER BY o.published_at ASC`)) as unknown as Array<{ id: string; trip_id: string }>
+
+  const byTrip = new Map<string, string[]>()
+  for (const p of posts) {
+    const refIds = byTrip.get(p.trip_id)
+    if (refIds) refIds.push(`post:${p.id}`)
+    else byTrip.set(p.trip_id, [`post:${p.id}`])
+  }
 
   const operators = new Set<string>()
   for (const l of legs) if (l.operator) operators.add(String(l.operator))
@@ -187,12 +218,15 @@ export async function loadJourney(slug: string): Promise<JourneyDetail | null> {
     ...summary,
     operators: [...operators].sort(),
     legs: legs.map((l) => ({
+      id: String(l.id),
       fromStation: String(l.from_station),
       toStation: String(l.to_station),
       departureAt: new Date(l.departure_at as string),
+      arrivalAt: l.arrival_at == null ? null : new Date(l.arrival_at as string),
       operator: l.operator == null ? null : String(l.operator),
       distanceKm: l.distance_km == null ? null : Number(l.distance_km),
       night: Boolean(l.night),
+      postRefIds: byTrip.get(String(l.id)) ?? [],
     })),
     postRefIds: posts.map((p) => `post:${p.id}`),
   }
