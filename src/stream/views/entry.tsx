@@ -197,9 +197,21 @@ const ABOARD_LABEL: Record<PostTrip['relation'], string> = {
  * Never presented as part of what the post said — the post carries no station or
  * operator; this was worked out from when it was published (ADR 0023). Hence its
  * own line, its own class, and a label that says what the relation was.
+ *
+ * `brief` keeps the relation and drops the leg, for the journey page's chapters:
+ * there the heading already names the train, so the full line would repeat it under
+ * every post — but whether he was on the platform or already moving is still
+ * something only the post can say.
  */
-const Aboard: FC<{ trip: PostTrip | null }> = ({ trip }) => {
+const Aboard: FC<{ trip: PostTrip | null; brief?: boolean }> = ({ trip, brief }) => {
   if (!trip) return null
+  if (brief) {
+    return (
+      <p class="aboard">
+        <span class="aboard-label">{ABOARD_LABEL[trip.relation]}</span>
+      </p>
+    )
+  }
   const facts = [
     trip.operator,
     trip.distanceKm ? `${trip.distanceKm} km` : null,
@@ -218,7 +230,7 @@ const Aboard: FC<{ trip: PostTrip | null }> = ({ trip }) => {
   )
 }
 
-const Post: FC<{ entry: PostEntry }> = ({ entry }) => (
+const Post: FC<{ entry: PostEntry; briefTrip?: boolean }> = ({ entry, briefTrip }) => (
   <article class="entry" id={`e-${entry.refId}`}>
     <Meta entry={entry} verb={entry.kind === 'video' ? 'la ut ein video' : entry.kind === 'photo' ? 'la ut eit bilete' : 'skreiv'} />
     <Body html={entry.html} warning={entry.sensitive ? entry.contentWarning ?? 'Innhaldsvarsel' : null} lang={entry.language} />
@@ -233,7 +245,7 @@ const Post: FC<{ entry: PostEntry }> = ({ entry }) => (
         {entry.sensitive ? null : <Media attachments={part.attachments} />}
       </div>
     ))}
-    <Aboard trip={entry.trip} />
+    <Aboard trip={entry.trip} brief={briefTrip} />
     <Tags tags={entry.hashtags} />
   </article>
 )
@@ -384,12 +396,18 @@ export const UndatedGarden: FC<{ notes: UndatedGardenNote[] }> = ({ notes }) => 
   )
 }
 
-export const EntryView: FC<{ entry: Entry }> = ({ entry }) => {
+/**
+ * One entry, whatever kind it is.
+ *
+ * `briefTrip` is the journey page's: see Aboard. Every other view leaves it off and
+ * gets the full travel line.
+ */
+export const EntryView: FC<{ entry: Entry; briefTrip?: boolean }> = ({ entry, briefTrip }) => {
   switch (entry.kind) {
     case 'post':
     case 'photo':
     case 'video':
-      return <Post entry={entry} />
+      return <Post entry={entry} briefTrip={briefTrip} />
     case 'book_started':
     case 'book_finished':
     case 'book_review':

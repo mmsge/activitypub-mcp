@@ -343,6 +343,17 @@ describe('the train a post was written on', () => {
     expect(html).not.toContain('/reise/')
   })
 
+  it('drops the leg but keeps the relation under briefTrip', () => {
+    // The journey page's chapters: the heading has already named the train, so
+    // repeating it under every post is noise — but "om bord" or "på perrongen"
+    // is something only the post can say.
+    const html = render(<EntryView entry={aboard} briefTrip />)
+    expect(html).toContain('Om bord')
+    expect(html).not.toContain('Göteborgs central → Oslo S')
+    expect(html).not.toContain('346 km')
+    expect(html).not.toContain('/reise/ndc-copenhagen-2026')
+  })
+
   it('still hides the images of a sensitive post that was on a train', () => {
     // The trip line is metadata, not body — but it must not become a way for a
     // content-warned post to render its attachments anyway.
