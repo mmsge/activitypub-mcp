@@ -83,6 +83,39 @@ export function clearActorIdCache(): void {
   actorIdCache = null
 }
 
+/**
+ * Seconds from an ISO-8601 duration (`PT16S`, `PT1M0S`, `PT1H2M3S`), or null.
+ *
+ * Only the time part is read. A day-or-longer video is not a thing Markus posts, and
+ * a parser that guessed at `P1M` — a month, or a minute, depending on where it sits —
+ * would be guessing about the one place the format is genuinely ambiguous.
+ */
+export function parseIsoDuration(raw: unknown): number | null {
+  if (typeof raw !== 'string') return null
+  const m = /^PT(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?$/.exec(raw.trim())
+  if (!m || (!m[1] && !m[2] && !m[3])) return null
+  const seconds = Number(m[1] ?? 0) * 3600 + Number(m[2] ?? 0) * 60 + Number(m[3] ?? 0)
+  return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : null
+}
+
+/**
+ * An https URL out of an AP value that may be a string, an object with `url`/`href`,
+ * or an array of either. Servers disagree on all three, and the shapes are cheap to
+ * accept; what is not cheap is a poster silently missing because a peer wrapped it.
+ */
+function firstUrl(raw: unknown): string | null {
+  const candidates = Array.isArray(raw) ? raw : [raw]
+  for (const c of candidates) {
+    if (typeof c === 'string' && /^https?:\/\//i.test(c)) return c
+    if (c && typeof c === 'object') {
+      const o = c as Record<string, unknown>
+      const nested = firstUrl(o.url ?? o.href)
+      if (nested) return nested
+    }
+  }
+  return null
+}
+
 /** Normalise the AP `attachment` array into what the views render. */
 export function toAttachments(raw: unknown): Attachment[] {
   if (!Array.isArray(raw)) return []
@@ -105,7 +138,42 @@ export function toAttachments(raw: unknown): Attachment[] {
       width: typeof att.width === 'number' ? att.width : null,
       height: typeof att.height === 'number' ? att.height : null,
       blurhash: typeof att.blurhash === 'string' ? att.blurhash : null,
+      // A video's still frame. `icon` is where Rullen puts it; `preview` and `image`
+      // are the other two spellings in the wild, and reading all three costs nothing.
+      posterUrl: firstUrl(att.icon) ?? firstUrl(att.preview) ?? firstUrl(att.image),
+      durationSeconds: parseIsoDuration(att.duration),
     })
+  }
+  return out
+}
+
+/**
+ * Thread parts, minus anything the root already shows.
+ *
+ * A server can federate one post two ways at once: a root carrying every attachment,
+ * and one reply per attachment. Rullen does exactly that — a story Note holding all
+ * its clips, plus a captionless clip Note for each — so the card rendered every clip
+ * twice, the second time inside a thread block with no text in it at all.
+ *
+ * So: drop from a part any attachment the root already shows, then drop the part
+ * outright if that leaves it with nothing to say. Keyed on the attachment URL rather
+ * than written as a per-platform rule — the shape is not Rullen's alone, and a
+ * platform check is a thing to remember to edit for the next server that does it.
+ */
+export function foldThread(
+  parts: Array<{ content: string | null; url: string | null; attachments: unknown }>,
+  rootAttachments: Attachment[],
+): PostEntry['thread'] {
+  const shown = new Set(rootAttachments.map((a) => a.url))
+  const out: PostEntry['thread'] = []
+  for (const r of parts) {
+    const html = sanitizeHtml(r.content)
+    const attachments = toAttachments(r.attachments).filter((a) => !shown.has(a.url))
+    // A part that is only a duplicate is not a part. Its own text, if it has any,
+    // still earns it a place — a caption is something Markus wrote.
+    if (!html.trim() && attachments.length === 0) continue
+    for (const a of attachments) shown.add(a.url)
+    out.push({ html, attachments, originUrl: r.url })
   }
   return out
 }
@@ -148,6 +216,13 @@ async function hydratePosts(cands: Candidate[]): Promise<Map<string, Entry>> {
       url: objects.url, publishedAt: objects.publishedAt, createdAt: objects.createdAt,
       attachments: objects.attachments, tags: objects.tags, sensitive: objects.sensitive,
       language: objects.language, actorApId: objects.actorApId,
+      // The origin's embeddable player, when it offers one. Read as a narrow JSON path
+      // rather than by selecting `raw` — the whole object is large and this is the
+      // only field of it the stream wants — and read from the payload rather than
+      // built here, so no origin's URL shape gets hardcoded into this repo.
+      previewHref: sql<string | null>`
+        CASE WHEN ${objects.raw}->'preview'->>'mediaType' = 'text/html'
+          THEN ${objects.raw}->'preview'->>'href' END`,
     })
     .from(objects)
     .where(inArray(objects.id, ids))
@@ -247,6 +322,7 @@ async function hydratePosts(cands: Candidate[]): Promise<Map<string, Entry>> {
     const { id } = refParts(c.refId)
     const row = rows.find((r) => r.id === id)
     if (!row) continue
+    const attachments = toAttachments(row.attachments)
     const entry: PostEntry = {
       refId: c.refId,
       eventAt: c.eventAt,
@@ -258,13 +334,10 @@ async function hydratePosts(cands: Candidate[]): Promise<Map<string, Entry>> {
       contentWarning: row.summary || null,
       sensitive: Boolean(row.sensitive) || Boolean(row.summary),
       language: row.language,
-      attachments: toAttachments(row.attachments),
+      attachments,
       hashtags: toHashtags(row.tags),
-      thread: threadOf(row.apId).map((r) => ({
-        html: sanitizeHtml(r.content),
-        attachments: toAttachments(r.attachments),
-        originUrl: r.url,
-      })),
+      embedUrl: row.previewHref && /^https:\/\//i.test(row.previewHref) ? row.previewHref : null,
+      thread: foldThread(threadOf(row.apId), attachments),
       trip: tripByApId.get(row.apId) ?? null,
     }
     out.set(c.refId, entry)

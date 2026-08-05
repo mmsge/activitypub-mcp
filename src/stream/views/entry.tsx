@@ -60,6 +60,41 @@ const Meta: FC<{ entry: Entry; verb: string }> = ({ entry, verb }) => {
   )
 }
 
+/** `0:16`, `7:04`, `1:02:03` — as long as it needs to be and no longer. */
+function formatDuration(seconds: number): string {
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = seconds % 60
+  const mm = h > 0 ? String(m).padStart(2, '0') : String(m)
+  return `${h > 0 ? `${h}:` : ''}${mm}:${String(s).padStart(2, '0')}`
+}
+
+/**
+ * One video: its poster if the origin sent one, a text chip if it did not.
+ *
+ * Never an `<img>` pointed at the video file. That is what this used to do — the
+ * comment said "poster" while the code passed the attachment URL — and since almost
+ * every attachment here is an .mp4 or a .webm, every Rullen card drew a row of
+ * broken-image icons. A browser handed a video in an `<img>` has nothing to fall back
+ * on, so the honest thing when there is no poster is to say so in text.
+ */
+const VideoAttachment: FC<{ a: Attachment }> = ({ a }) => {
+  const label = a.durationSeconds ? `Sjå video · ${formatDuration(a.durationSeconds)}` : 'Sjå video'
+  return (
+    <a class={a.posterUrl ? 'poster' : 'poster chip'} href={a.url} rel="noopener nofollow" target="_blank">
+      {a.posterUrl ? (
+        <img src={imageSrc(a.posterUrl)} alt={a.alt ?? ''} loading="lazy" referrerpolicy="no-referrer"
+          width={a.width ?? undefined} height={a.height ?? undefined} />
+      ) : (
+        <span>{label}</span>
+      )}
+      {a.posterUrl && a.durationSeconds ? (
+        <span class="dur">{formatDuration(a.durationSeconds)}</span>
+      ) : null}
+    </a>
+  )
+}
+
 /** Media, served through this origin's image proxy where it can be — see imageSrc. */
 const Media: FC<{ attachments: Attachment[] }> = ({ attachments }) => {
   if (attachments.length === 0) return null
@@ -67,18 +102,7 @@ const Media: FC<{ attachments: Attachment[] }> = ({ attachments }) => {
   return (
     <div class={shown.length > 1 ? 'media two' : 'media'}>
       {shown.map((a) => {
-        const isVideo = a.mediaType?.startsWith('video/')
-        if (isVideo) {
-          // Poster and a link out, never an inline player: an embedded remote
-          // video is a heavier third-party load than an image, and proxying video
-          // on two vCPUs is not viable.
-          return (
-            <a class="poster" href={a.url} rel="noopener nofollow" target="_blank">
-              <img src={imageSrc(a.url)} alt={a.alt ?? ''} loading="lazy" referrerpolicy="no-referrer"
-                width={a.width ?? undefined} height={a.height ?? undefined} />
-            </a>
-          )
-        }
+        if (a.mediaType?.startsWith('video/')) return <VideoAttachment a={a} />
         return (
           <figure>
             <img src={imageSrc(a.url)} alt={a.alt ?? ''} loading="lazy" referrerpolicy="no-referrer"
@@ -88,6 +112,41 @@ const Media: FC<{ attachments: Attachment[] }> = ({ attachments }) => {
         )
       })}
     </div>
+  )
+}
+
+/**
+ * A post with an embeddable player: its poster, and the player itself on request.
+ *
+ * The iframe lives inside a closed `<details>` and carries `loading="lazy"`, so
+ * nothing is fetched from the origin until the reader opens it. That is the whole
+ * point of the arrangement. This page fetches no fonts, no scripts and — since ADR
+ * 0021 — no images from anyone else; an embed that loaded on sight would quietly
+ * undo that for every reader who never pressed play. Opening it is a choice, and the
+ * summary says what the choice costs.
+ *
+ * No JavaScript, because the page has none and one embed is not worth starting.
+ */
+const Embed: FC<{ entry: PostEntry }> = ({ entry }) => {
+  const clips = entry.attachments.length
+  const seconds = entry.attachments.reduce((n, a) => n + (a.durationSeconds ?? 0), 0)
+  const poster = entry.attachments.find((a) => a.posterUrl)?.posterUrl
+  const facts = [
+    clips > 0 ? `${clips} ${clips === 1 ? 'snutt' : 'snuttar'}` : null,
+    seconds > 0 ? formatDuration(seconds) : null,
+  ].filter(Boolean).join(' · ')
+
+  return (
+    <details class="embed">
+      <summary>
+        {poster ? (
+          <img src={imageSrc(poster)} alt="" loading="lazy" referrerpolicy="no-referrer" />
+        ) : null}
+        <span class="play">{facts ? `Spel av · ${facts}` : 'Spel av'}</span>
+      </summary>
+      <iframe src={`${entry.embedUrl}?autoplay=0`} loading="lazy" title={`Spelar frå ${platformInfo(entry.source).label}`}
+        allow="fullscreen" referrerpolicy="no-referrer" />
+    </details>
   )
 }
 
@@ -163,11 +222,15 @@ const Post: FC<{ entry: PostEntry }> = ({ entry }) => (
   <article class="entry" id={`e-${entry.refId}`}>
     <Meta entry={entry} verb={entry.kind === 'video' ? 'la ut ein video' : entry.kind === 'photo' ? 'la ut eit bilete' : 'skreiv'} />
     <Body html={entry.html} warning={entry.sensitive ? entry.contentWarning ?? 'Innhaldsvarsel' : null} lang={entry.language} />
-    {entry.sensitive ? null : <Media attachments={entry.attachments} />}
+    {entry.sensitive ? null : entry.embedUrl
+      ? <Embed entry={entry} />
+      : <Media attachments={entry.attachments} />}
     {entry.thread.map((part) => (
       <div class="thread">
         <div class="body">{raw(part.html)}</div>
-        <Media attachments={part.attachments} />
+        {/* Gated like the root. Without this a content-warned post kept its warning
+            over the body and showed the thread's media underneath it regardless. */}
+        {entry.sensitive ? null : <Media attachments={part.attachments} />}
       </div>
     ))}
     <Aboard trip={entry.trip} />
