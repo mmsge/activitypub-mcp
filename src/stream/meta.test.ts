@@ -16,7 +16,7 @@ const entry = {
   archivedAt: new Date('2026-08-03T10:01:00Z'), source: 'mastodon' as const,
   originUrl: 'https://skvip.lol/@markus/1', kind: 'post' as const,
   html: '<p>Hei</p>', contentWarning: null, sensitive: false, language: 'nn',
-  attachments: [], hashtags: [], thread: [],
+  attachments: [], hashtags: [], embedUrl: null, thread: [],
 }
 
 const base = {

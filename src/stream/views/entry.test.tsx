@@ -19,7 +19,7 @@ const post = {
   refId: 'post:1', eventAt: at('2026-08-03T10:00:00Z'), archivedAt: at('2026-08-03T10:01:00Z'),
   source: 'mastodon' as const, originUrl: 'https://skvip.lol/@markus/1', kind: 'post' as const,
   html: '<p>Hei alle saman</p>', contentWarning: null, sensitive: false, language: 'nn',
-  attachments: [], hashtags: ['togselfie'], thread: [],
+  attachments: [], hashtags: ['togselfie'], embedUrl: null, thread: [],
 }
 
 const book = {
@@ -103,14 +103,98 @@ describe('media', () => {
     expect(html).toContain('width="800"')
   })
 
+  const clip = (extra: Record<string, unknown> = {}) => ({
+    url: 'https://rullen.no/api/media/clips/u/v.mp4', mediaType: 'video/mp4',
+    alt: null, width: null, height: null, blurhash: null,
+    posterUrl: null, durationSeconds: null, ...extra,
+  })
+
   it('renders video as a poster linking out, never as an inline player', () => {
     const video = {
       ...post, kind: 'video' as const,
-      attachments: [{ url: 'https://cdn.example/v.mp4', mediaType: 'video/mp4', alt: null, width: null, height: null, blurhash: null }],
+      attachments: [clip({ posterUrl: 'https://rullen.no/api/media/thumbnails/u/9f.jpg' })],
     }
     const html = render(<EntryView entry={video as never} />)
     expect(html).not.toContain('<video')
     expect(html).toContain('class="poster"')
+    // Through this origin, like every other image on the page.
+    expect(html).toMatch(/<img src="\/bilete\//)
+  })
+
+  it('never points an <img> at the video file itself', () => {
+    // The bug this replaces: the video branch passed the attachment URL as the
+    // <img src>, so every Rullen card drew a row of broken-image icons. A browser
+    // handed an .mp4 in an <img> has nothing to fall back on.
+    const video = { ...post, kind: 'video' as const, attachments: [clip({ durationSeconds: 16 })] }
+    const html = render(<EntryView entry={video as never} />)
+    expect(html).not.toMatch(/<img[^>]+\.mp4/)
+    expect(html).not.toMatch(/<img[^>]+\.webm/)
+    // It says what it holds instead, and still links out.
+    expect(html).toContain('Sjå video · 0:16')
+    expect(html).toContain('https://rullen.no/api/media/clips/u/v.mp4')
+  })
+
+  it('shows the clip length over the poster when it has both', () => {
+    const video = {
+      ...post, kind: 'video' as const,
+      attachments: [clip({ posterUrl: 'https://rullen.no/api/media/thumbnails/u/9f.jpg', durationSeconds: 64 })],
+    }
+    expect(render(<EntryView entry={video as never} />)).toContain('<span class="dur">1:04</span>')
+  })
+})
+
+/**
+ * The origin's own player, behind a click. Nothing may reach the origin until the
+ * reader asks for it — this page fetches nothing third-party otherwise, and an embed
+ * that loaded on sight would undo that for every reader who never pressed play.
+ */
+describe('embedded players', () => {
+  const story = {
+    ...post, kind: 'video' as const, source: 'rullen' as const,
+    originUrl: 'https://rullen.no/@markus/london-2026',
+    embedUrl: 'https://rullen.no/embed/stories/markus/london-2026',
+    attachments: [
+      { url: 'https://rullen.no/api/media/clips/u/1.mp4', mediaType: 'video/mp4', alt: null, width: null, height: null, blurhash: null, posterUrl: 'https://rullen.no/api/media/thumbnails/u/9f.jpg', durationSeconds: 16 },
+      { url: 'https://rullen.no/api/media/clips/u/2.mp4', mediaType: 'video/mp4', alt: null, width: null, height: null, blurhash: null, posterUrl: null, durationSeconds: 44 },
+    ],
+  }
+
+  it('keeps the iframe inside a closed details, and lazy', () => {
+    const html = render(<EntryView entry={story as never} />)
+    expect(html).toContain('<details class="embed">')
+    expect(html).not.toContain('<details class="embed" open')
+    expect(html).toContain('loading="lazy"')
+    expect(html).toContain('src="https://rullen.no/embed/stories/markus/london-2026?autoplay=0"')
+  })
+
+  it('needs no JavaScript to open', () => {
+    const html = render(<EntryView entry={story as never} />)
+    expect(html).not.toContain('<script')
+    expect(html).not.toMatch(/\son[a-z]+=/)
+  })
+
+  it('says how much there is before the reader commits to loading it', () => {
+    expect(render(<EntryView entry={story as never} />)).toContain('Spel av · 2 snuttar · 1:00')
+  })
+
+  it('says "snutt" for one', () => {
+    const one = { ...story, attachments: story.attachments.slice(0, 1) }
+    expect(render(<EntryView entry={one as never} />)).toContain('1 snutt ·')
+  })
+
+  it('shows the poster through this origin, not hotlinked', () => {
+    const html = render(<EntryView entry={story as never} />)
+    expect(html).not.toContain('src="https://rullen.no/api/media/thumbnails/u/9f.jpg"')
+    const src = html.match(/<summary><img src="([^"]+)"/)![1]
+    expect(Buffer.from(src.split('/')[3], 'base64url').toString('utf8'))
+      .toBe('https://rullen.no/api/media/thumbnails/u/9f.jpg')
+  })
+
+  it('withholds the whole player on a warned post', () => {
+    const cw = { ...story, sensitive: true, contentWarning: 'Politikk' }
+    const html = render(<EntryView entry={cw as never} />)
+    expect(html).not.toContain('<iframe')
+    expect(html).not.toContain('rullen.no/embed')
   })
 })
 

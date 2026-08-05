@@ -18,6 +18,15 @@ export interface Attachment {
   width: number | null
   height: number | null
   blurhash: string | null
+  /**
+   * The still frame for a video, from the attachment's `icon`.
+   *
+   * Null for most video anywhere: hardly any server sends one. A video with no poster
+   * gets a text chip, never an `<img>` pointed at the video file — see Media.
+   */
+  posterUrl: string | null
+  /** From the attachment's ISO-8601 `duration`. Null when the server sent none. */
+  durationSeconds: number | null
 }
 
 interface Base {
@@ -40,6 +49,13 @@ export interface PostEntry extends Base {
   language: string | null
   attachments: Attachment[]
   hashtags: string[]
+  /**
+   * An embeddable player for this post on its origin, from the object's `preview`.
+   *
+   * Only ever framed on the reader's say-so — see Post. Null unless the origin
+   * offered one, which today means Rullen.
+   */
+  embedUrl: string | null
   /** Later parts of one of Markus' own threads, in order. Empty for a lone post. */
   thread: Array<{ html: string; attachments: Attachment[]; originUrl: string | null }>
 }

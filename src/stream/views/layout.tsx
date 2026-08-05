@@ -149,6 +149,12 @@ const Colophon: FC = () => (
         </>
       )}
       {' '}
+      {/* The one exception, and it must be stated. The claim above is what ADR 0021
+          was written to make true; an embedded player is a third-party load, so the
+          colophon has to say that opening one is what triggers it. */}
+      Opnar du ein videospelar i eit innlegg, hentar nettlesaren din han frå
+      tenesta han ligg på — men ikkje før du trykkjer.
+      {' '}
       <a href={`${streamOrigin()}/feed.atom`}>Atom-straum</a>
       {' · '}
       <a href={`https://${config.APP_DOMAIN}/@${config.APP_USERNAME}`}>Om roboten bak</a>
@@ -254,12 +260,77 @@ a:hover { color: var(--ink); }
 .media { display: grid; gap: .5rem; margin: .8rem 0 0; }
 .media.two { grid-template-columns: 1fr 1fr; }
 .media img, .media video { width: 100%; height: auto; border-radius: 10px; display: block; }
+/* Same cap as the embed poster: a portrait video still would otherwise be a
+   screenful on its own. Photos are left alone — they are the point of a photo post. */
+.poster img { max-height: 24rem; object-fit: cover; }
 .media figure { margin: 0; }
 .media figcaption { font-size: .78rem; color: var(--muted); margin-top: .3rem; }
 .poster { position: relative; display: block; }
 .poster::after {
   content: "▶"; position: absolute; inset: 0; display: grid; place-items: center;
   font-size: 2rem; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.6);
+}
+/* A video the origin sent no poster for. Says what it is in words rather than
+   leaving a browser to render a video file as a broken image. */
+.poster.chip {
+  display: flex; align-items: center; gap: .4rem; padding: .5rem .8rem .5rem 2.2rem;
+  background: var(--accent-soft); border-radius: 8px; text-decoration: none;
+  font-family: ui-sans-serif, system-ui, sans-serif; font-size: .85rem;
+}
+.poster.chip::after {
+  inset: auto auto auto .8rem; top: 50%; transform: translateY(-50%);
+  font-size: 1rem; color: var(--accent); text-shadow: none;
+}
+.poster .dur {
+  position: absolute; right: .4rem; bottom: .4rem; z-index: 1;
+  font-family: ui-sans-serif, system-ui, sans-serif; font-size: .72rem;
+  background: rgba(0,0,0,.65); color: #fff; border-radius: 5px; padding: .1rem .35rem;
+}
+
+/* The origin's own player, loaded only when the reader opens it — see Embed. */
+.embed { margin: .8rem 0 0; }
+.embed > summary {
+  cursor: pointer; position: relative; display: block; list-style: none;
+  border-radius: 10px; overflow: hidden; background: var(--accent-soft);
+  /* Never collapse. The label is positioned over the poster, so a poster that
+     fails to load would otherwise leave a zero-height summary — no play control at
+     all, and no way to reach the video. A dead image must cost the picture, not
+     the control. */
+  min-height: 2.75rem;
+}
+.embed > summary::-webkit-details-marker { display: none; }
+/* Rullen's clips are 720×1280 portrait, and a poster at that ratio across the full
+   card width fills a whole screen with one entry. Cap it and crop. */
+.embed > summary > img {
+  width: 100%; height: auto; max-height: 24rem; object-fit: cover; display: block;
+}
+.embed > summary .play {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 1.6rem .7rem .5rem;
+  font-family: ui-sans-serif, system-ui, sans-serif; font-size: .82rem; color: #fff;
+  background: linear-gradient(to bottom, transparent, rgba(0,0,0,.72));
+}
+/* No poster came through: the summary is the label, so it needs its own padding
+   and a colour that works against the page rather than against an image. */
+.embed > summary:not(:has(img)) .play {
+  position: static; padding: .55rem .8rem; color: var(--ink); background: none;
+}
+.embed > summary::before {
+  content: "▶"; position: absolute; inset: 0; display: grid; place-items: center;
+  font-size: 2rem; color: #fff; text-shadow: 0 1px 6px rgba(0,0,0,.6);
+}
+.embed > summary:not(:has(img))::before { content: none; }
+/* Open: the poster gives way to the player rather than sitting on top of it, and
+   the summary shrinks to the bar that closes it again. */
+.embed[open] > summary { border-radius: 10px 10px 0 0; min-height: 0; }
+.embed[open] > summary > img { display: none; }
+.embed[open] > summary::before { content: none; }
+.embed[open] > summary .play {
+  position: static; padding: .5rem .8rem; color: var(--muted); background: none;
+}
+.embed[open] > summary .play::after { content: " — trykk for å lukka"; opacity: .8; }
+.embed > iframe {
+  width: 100%; aspect-ratio: 9 / 16; max-height: 34rem; border: 0; display: block;
+  border-radius: 0 0 10px 10px; background: #000;
 }
 
 .card { display: flex; gap: 1rem; align-items: flex-start; }

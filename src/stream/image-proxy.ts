@@ -52,6 +52,9 @@ export const IMAGE_HOSTS: readonly string[] = [
   'bookwyrm.social',
   '*.digitaloceanspaces.com',
   'minreol.dk',
+  // Rullen serves its clip posters from its own origin (MEDIA_FORCE_PROXY), not from
+  // the object-storage bucket its .env.example points at.
+  'rullen.no',
   'lastfm.freetls.fastly.net',
   '*.lastfm.freetls.fastly.net',
 ]
