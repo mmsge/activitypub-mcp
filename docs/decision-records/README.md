@@ -38,3 +38,4 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | [0025](0025-render-remote-video-as-a-poster-and-an-on-demand-embed.md) | Render remote video as a poster, and load the origin's player only on request |
 | [0026](0026-rest-serves-public-posts-only.md) | The REST API serves public posts only; MCP still sees the whole archive |
 | [0027](0027-read-a-journey-forwards-in-chapters.md) | Read a journey forwards: one chapter per leg, oldest post first |
+| [0028](0028-weather-at-the-stations-he-travelled-through.md) | The weather at the stations he travelled through: geocode once, ERA5 per travel day |

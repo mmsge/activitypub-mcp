@@ -133,6 +133,16 @@ export interface TripEntry extends Base {
   distanceKm: number | null
   mode: string | null
   night: boolean
+  /**
+   * The weather at the origin on the departure day — "🌧️ regn · 12°" — from
+   * Open-Meteo's ERA5 archive (ADR 0028).
+   *
+   * Null far more often than not: the station may not be geocoded, the date may
+   * still be inside the archive's lag, and the archive itself has gaps. A missing
+   * value is a gap, never a zero, so the view omits the line rather than printing
+   * one that reads like a measurement.
+   */
+  weather: string | null
 }
 
 export interface GardenEntry extends Base {

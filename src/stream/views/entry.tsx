@@ -345,6 +345,9 @@ const Trip: FC<{ entry: TripEntry }> = ({ entry }) => (
           entry.operator,
           entry.distanceKm ? `${entry.distanceKm} km` : null,
           entry.night ? 'nattog' : null,
+          // Not measured on the platform — a reanalysis of that day at that place.
+          // Omitted entirely when unknown, rather than shown as a blank.
+          entry.weather,
         ].filter(Boolean).map((f, i) => <>{i > 0 ? ' · ' : ''}{f}</>)}
       </p>
     </div>

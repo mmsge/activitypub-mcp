@@ -11,6 +11,8 @@ import { sampleEngagement } from './sample-engagement.js'
 import { pruneActivityLog } from './prune-activity-log.js'
 import { publishStatusNote } from './publish-status-note.js'
 import { linkTripPosts } from './link-trip-posts.js'
+import { syncStations } from './sync-stations.js'
+import { syncStationWeather } from './sync-station-weather.js'
 import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
 
@@ -96,6 +98,17 @@ export function startScheduler(): void {
   setInterval(async () => {
     try { await linkTripPosts() } catch (e) { logger.error(e, 'Trip/post linking error') }
   }, 60 * 60_000)
+
+  // Station geocoding, then the weather at them — every 6 hours, chained so the
+  // weather pass runs against coordinates the geocode pass just wrote. Both take a
+  // bounded bite per run: Nominatim allows one request a second, and the whole
+  // backfill is 115 stations with no deadline (ADR 0028).
+  setInterval(async () => {
+    try {
+      await syncStations()
+      await syncStationWeather()
+    } catch (e) { logger.error(e, 'Station/weather sync error') }
+  }, SIX_HOURS_MS)
 
   logger.info({ scrobbleIntervalSeconds: config.LASTFM_SYNC_INTERVAL_SECONDS }, 'Scheduler started')
 }

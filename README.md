@@ -536,6 +536,7 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_watched` | "What have I marked on NeoDB? What did I watch in 2016 — watched_year=2016? Show my games from 2024, or every album by category=music. What's the IMDb link for Conflict? Everything tagged thriller. Which films did I see at the cinema — mark_comment=kino?" |
 | `get_catalogue_details` | "Give me the full record for this NeoDB item — who developed it, its ISBN/publisher, the podcast feed URL — and where each field came from." |
 | `get_trip_posts` | "What did I post on Sjælland rundt? Show every togselfie with the train it was taken on. Which train was I on when I posted this?" |
+| `get_trip_weather` | "What was the weather on the Bergensbanen that day? How many trips have I taken in snow? Which was the coldest journey?" |
 
 Unlike the REST API, these MCP tools return **every** stored post, including followers-only
 ones — this is your own archive. See [ADR 0026](docs/decision-records/0026-rest-serves-public-posts-only.md).
@@ -688,6 +689,34 @@ CSV name ("NDC Copenhagen 2026") while the posts carry the public one (`#kodetog
 the two share no characters. The page shows whichever hashtag the journey's posts carry
 most, so it updates itself and reports `null` rather than guessing when there is none.
 See [ADR 0024](docs/decision-records/0024-give-the-trip-post-join-a-surface.md).
+
+### Weather on the trips
+
+Every station in the trip history is geocoded once (OpenStreetMap/Nominatim), and the
+weather on the days Markus was actually there is fetched from Open-Meteo's ERA5 archive —
+both keyless, no account. `get_trip_weather` and `/api/v1/trip-weather` then join each trip
+to the conditions at its origin on the departure day and its destination on the arrival
+day, filterable by condition (Nynorsk: `snø`, `regn`, `klårvêr`), temperature range, journey
+or station. Trip entries on the public stream gain a line like *"🌧️ regn · 12°"*.
+
+The dates are **local** calendar days (`departure_local` / `arrival_local`), so a night
+train reports the morning it arrived. Precision is not chased: ERA5 is a ~25 km
+reanalysis, so a station name resolving to the right town is as good as the right
+platform — which is why a bare lookup, biased by the country the trip's timezone implies,
+is enough. What the geocoder matched is stored and surfaced, so a wrong hit is visible;
+`source = 'manual'` pins a hand-corrected row.
+
+The backfill is bounded (Nominatim allows one request a second), so it completes over a
+few scheduler ticks. To push it along:
+
+```bash
+docker compose exec app npm run sync-weather   # repeat until it reports nothing pending
+```
+
+Weather is null wherever a station is not geocoded, the date is still inside the archive's
+~7-day lag, or ERA5 has no value — a gap, never a zero. Every response states its coverage
+so a thin result reads as "not fetched yet" rather than "never happened". See
+[ADR 0028](docs/decision-records/0028-weather-at-the-stations-he-travelled-through.md).
 
 ---
 

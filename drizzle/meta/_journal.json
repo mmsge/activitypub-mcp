@@ -176,6 +176,13 @@
       "when": 1785882590314,
       "tag": "0024_trip_posts",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1785886190314,
+      "tag": "0025_station_weather",
+      "breakpoints": true
     }
   ]
 }
