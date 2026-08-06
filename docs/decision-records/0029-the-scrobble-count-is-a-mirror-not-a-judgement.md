@@ -165,7 +165,11 @@ predicate rather than two that agree by coincidence.
   would leave the local total disagreeing with Last.fm while the underlying submissions
   carried on.
 - The sub-60-second share is *rising*, so the audit is worth re-running rather than
-  treating as a one-off answer.
+  treating as a one-off answer. The first run is written up in
+  [`docs/scrobble-audit-2026-08-06.md`](../scrobble-audit-2026-08-06.md): on a 16.6 %
+  stratified sample it puts the true head-to-head gap at roughly 555 rather than the
+  reported 234, and separates the new scrobble-at-start restarts from an older, flat ~1 %
+  background of batch-flush artefacts that goes back to 2017.
 - `get_now_playing` gains a third response state. Consumers testing truthiness are
   unaffected; consumers testing `=== false` will now miss the failure case, which is the
   intended behaviour change.

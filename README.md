@@ -769,7 +769,9 @@ docker compose exec app npm run scrobble-audit
 It reports a spectrum of thresholds rather than one verdict, because the answer depends
 almost entirely on where the line is drawn. Read-only: pure `SELECT`s inside a
 `READ ONLY` transaction, and it changes no count anywhere in the app. See
-[ADR 0029](docs/decision-records/0029-the-scrobble-count-is-a-mirror-not-a-judgement.md).
+[ADR 0029](docs/decision-records/0029-the-scrobble-count-is-a-mirror-not-a-judgement.md),
+and [the 6 August 2026 report](docs/scrobble-audit-2026-08-06.md) for what it found the
+first time it was run.
 
 ### Authentication
 
