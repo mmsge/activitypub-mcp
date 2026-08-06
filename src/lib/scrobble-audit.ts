@@ -83,6 +83,8 @@ export type Verdict =
   | 'unbounded'
   /** A relative threshold with no trusted length to be relative to. Counted as kept. */
   | 'no-estimate'
+  /** Two scrobbles share a timestamp — see `classify`. Neither suspect nor kept. */
+  | 'collision'
 
 /** The cut, in seconds, below which a play does not count under this threshold. */
 export function cutFor(t: Threshold, estSeconds: number | null): number | null {
@@ -101,6 +103,16 @@ export function classify(
   // to the end or been abandoned after eight seconds, and nothing here can tell which —
   // so it is never counted against anyone.
   if (group.playSeconds == null || group.playSeconds > ceilingSeconds) return 'unbounded'
+  // A gap of exactly zero is two scrobbles carrying the same `uts` — a batch submission
+  // with a collided timestamp, not a track that was cut short. It cannot be a repeat of
+  // the same track: scrobbles_dedupe_idx (played_at, track_name, artist_name) would have
+  // collapsed that on insert, so the neighbour is necessarily a different track.
+  //
+  // The timestamp is wrong, not the play — the track may well have run to the end — so
+  // counting it as suspect would inflate the headline with an artefact of how the
+  // scrobbler batches. It gets its own bucket instead, before any threshold is consulted,
+  // so every threshold treats it identically.
+  if (group.playSeconds === 0) return 'collision'
   const cut = cutFor(t, group.estSeconds)
   // Refuse to guess a length rather than substituting a corpus median: an invented
   // duration could only ever inflate the suspect count, which is the one direction this
@@ -116,9 +128,14 @@ export interface Totals {
   unbounded: number
   /** Subset of kept. Always zero for a fixed threshold. */
   noEstimate: number
+  /** Timestamp collisions. Its own bucket, claimed neither as suspect nor as kept —
+   *  `plays === suspect + kept + unbounded + collisions`. */
+  collisions: number
 }
 
-const zero = (): Totals => ({ plays: 0, suspect: 0, kept: 0, unbounded: 0, noEstimate: 0 })
+const zero = (): Totals => ({
+  plays: 0, suspect: 0, kept: 0, unbounded: 0, noEstimate: 0, collisions: 0,
+})
 
 export function tally(
   groups: Iterable<GapGroup>,
@@ -131,6 +148,7 @@ export function tally(
     switch (classify(g, t, ceilingSeconds)) {
       case 'suspect': out.suspect += g.plays; break
       case 'unbounded': out.unbounded += g.plays; break
+      case 'collision': out.collisions += g.plays; break
       case 'no-estimate': out.kept += g.plays; out.noEstimate += g.plays; break
       default: out.kept += g.plays
     }

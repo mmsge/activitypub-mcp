@@ -21,6 +21,17 @@ A row's real play length is bounded only by the next row's `played_at`. Rows wit
 successor, or one past the 15-minute session ceiling, are **unbounded**: their length is
 unknowable, so they are never counted as suspect. There are 4,795 of them (9.3%).
 
+> **Amended after the first run.** The run below counted **timestamp collisions** — rows
+> sharing a `uts` with their neighbour, which is a batch submission, not a play that was cut
+> short — as suspect. They now have their own bucket and are excluded from every suspect
+> count. The suspect figures and the ~3 % share below are therefore **upper bounds**; the
+> race conclusion is unaffected, since collisions occur on both sides. Re-run
+> `npm run scrobble-audit` for the corrected figures and replace this note with them.
+>
+> The same run also displayed 25 zero-gap rows in its evidence table and not one of the 246
+> restarts, because the ordering let collisions consume the whole limit. Restarts now get
+> their own table.
+
 ## The headline: the correction is a wash
 
 **246 sub-60-second plays are followed by the same track again** — restarts, which only a
