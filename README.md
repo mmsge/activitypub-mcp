@@ -596,7 +596,7 @@ On this account `get_now_playing` is permanently `{ nowPlaying: false }`, mid-so
 included: the scrobbler has never sent `track.updateNowPlaying`, so Last.fm has no live
 entry to hand back. That is now distinguishable from an outage — a failed upstream read
 returns `{ nowPlaying: null, error }` and is never cached, so a momentary blip can no
-longer masquerade as twenty seconds of silence. See decision record 0029.
+longer masquerade as twenty seconds of silence. See decision record 0030.
 
 Artist names are matched **exactly** here, unlike the substring filters on `get_scrobbles`
 and `get_scrobble_stats`: a countdown that reaches zero must not have its finish line moved
@@ -769,7 +769,7 @@ docker compose exec app npm run scrobble-audit
 It reports a spectrum of thresholds rather than one verdict, because the answer depends
 almost entirely on where the line is drawn. Read-only: pure `SELECT`s inside a
 `READ ONLY` transaction, and it changes no count anywhere in the app. See
-[ADR 0029](docs/decision-records/0029-the-scrobble-count-is-a-mirror-not-a-judgement.md),
+[ADR 0030](docs/decision-records/0030-the-scrobble-count-is-a-mirror-not-a-judgement.md),
 and [the 6 August 2026 report](docs/scrobble-audit-2026-08-06.md) for what it found the
 first time it was run.
 

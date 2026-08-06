@@ -109,7 +109,7 @@ describe('get_scrobble_race — the notifications block', () => {
  * next_milestone answers "which rung speaks next?", so it has to agree with the rung
  * predicate the watcher itself uses. It used to be a second, independent comparison
  * (`m < gap`), and the two drifted: tightestCrossed is inclusive, so at a gap of exactly
- * 250 the notifier was about to fire 250 while this reported 200. Decision record 0029.
+ * 250 the notifier was about to fire 250 while this reported 200. Decision record 0030.
  */
 describe('get_scrobble_race — next_milestone tracks the notifier', () => {
   const DEFAULT_COUNTS = { leaderPlays: 10_439, challengerPlays: 10_142 }

@@ -428,7 +428,7 @@ export const activityLog = pgTable('activity_log', {
  * A scrobbler that submits at track start turns restarts and skips into ordinary
  * scrobbles, which is why the same song can appear three times in sixteen seconds.
  * Those rows are upstream truth, not ingest noise — see `scrobble-audit` for how to
- * measure them, and decision record 0029 for why they are not filtered out here.
+ * measure them, and decision record 0030 for why they are not filtered out here.
  */
 export const scrobbles = pgTable('scrobbles', {
   id: uuid('id').primaryKey().defaultRandom(),

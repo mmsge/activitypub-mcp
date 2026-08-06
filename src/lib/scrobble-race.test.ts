@@ -304,7 +304,7 @@ describe('decideRaceAlert — the configurable countdown band', () => {
     const d = decideRaceAlert(snap(10_439, 10_364), prev, MILESTONES, NOW, 10) // gap 75
     expect(d.kind).toBe('milestone')
     // Exactly ON the rung, so "at", not "under" — this assertion carried the very
-    // off-by-one it was meant to pin until decision record 0029.
+    // off-by-one it was meant to pin until decision record 0030.
     expect(d.message?.body).toContain('At 75 for the first time')
   })
 })
@@ -429,7 +429,7 @@ describe('decideNowPlayingAlert', () => {
 describe('decideRaceAlert — the exact boundaries', () => {
   // The rung comparison is inclusive on purpose (see tightestCrossed), which makes the
   // copy the thing that has to be right: at a gap of exactly 250, "Under 250" is simply
-  // false, however correct the "250 to go" title is. Decision record 0029.
+  // false, however correct the "250 to go" title is. Decision record 0030.
   it('says "At 250" when the gap lands exactly on the rung', () => {
     const prev = state({ leaderPlays: 10_439, challengerPlays: 10_188, lastMilestone: 300 })
     const d = decideRaceAlert(snap(10_439, 10_189), prev, MILESTONES, NOW) // gap exactly 250

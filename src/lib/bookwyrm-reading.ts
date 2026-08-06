@@ -23,7 +23,12 @@ export type ReadingEventType =
 const SEG_GENERATEDNOTE = '%/generatednote/%'
 const SEG_COMMENT = '%/comment/%'
 const SEG_REVIEW = '%/review/%'
-const SEG_RATING = '%/rating/%'
+// A bare star rating federates as `/reviewrating/`, not `/rating/` — and `%/rating/%`
+// cannot match it, because the character before "rating" is a "w". This read
+// `'%/rating/%'` for as long as the module has existed, so `event_type: 'rating'`
+// was a filter that could only ever return nothing. Verified against the box: four
+// Rating objects, all at /reviewrating/, all public, all carrying a star and a book.
+const SEG_RATING = '%/reviewrating/%'
 const SEG_QUOTATION = '%/quotation/%'
 
 // Content phrases BookWyrm puts in generatednote posts ("Markus 🌱 started
@@ -107,7 +112,7 @@ export function classifyReadingEvent(row: ClassifierInput): ReadingEvent | null 
     event_type = 'comment'
   } else if (ap.includes('/review/')) {
     event_type = 'review'
-  } else if (ap.includes('/rating/')) {
+  } else if (ap.includes('/reviewrating/')) {
     event_type = 'rating'
   } else if (ap.includes('/quotation/')) {
     event_type = 'quotation'

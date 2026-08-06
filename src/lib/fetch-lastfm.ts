@@ -12,7 +12,7 @@ type AnyObject = Record<string, unknown>
  *
  *  - A row's real play length is bounded by the NEXT row's `playedAt`, not by anything
  *    stored on the row itself. `scrobble-audit` is built on exactly that.
- *  - A scrobbler that submits at track start (Markus' does — see decision record 0029)
+ *  - A scrobbler that submits at track start (Markus' does — see decision record 0030)
  *    makes a restart or a skip land here as an ordinary scrobble, because Last.fm
  *    accepted it as one. That is upstream truth, not an ingest bug.
  */

@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  * something is playing, nothing is playing, or we never got an answer. The third used
  * to collapse into the second — and worse, got cached there for twenty seconds, so one
  * failed request manufactured a window of "nothing is playing" out of nothing.
- * Decision record 0029.
+ * Decision record 0030.
  */
 
 const fetchNowPlaying = vi.fn()

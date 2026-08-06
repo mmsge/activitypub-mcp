@@ -2,7 +2,7 @@
 
 **Nothing was deleted, migrated or recounted.** This is a report. Every number the app
 serves is unchanged, and `get_scrobble_race` still matches last.fm.com exactly. See
-[ADR 0029](decision-records/0029-the-scrobble-count-is-a-mirror-not-a-judgement.md) for why
+[ADR 0030](decision-records/0030-the-scrobble-count-is-a-mirror-not-a-judgement.md) for why
 that is deliberate.
 
 ## What is being counted
@@ -145,7 +145,7 @@ before anything else; the audit says *what* is happening, not *which player* is 
 If a local correction is ever wanted anyway, the least destructive form is a derived
 `counts_as_play` flag computed from the successor gap, with every existing count left on
 the raw rows and the flag exposed as an opt-in filter. That is deliberately **not**
-implemented — see ADR 0029.
+implemented — see ADR 0030.
 
 Two things to do regardless, both cheap:
 

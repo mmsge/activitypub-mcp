@@ -85,7 +85,7 @@ function eta(gap: number, netPerDay: number | null): string {
  *  Inclusive on purpose: a rung is crossed ON the number, not one play past it, so
  *  gap 250 crosses the 250 rung. That makes the *copy* the thing that has to be right —
  *  "under 250" is simply false at a gap of 250, however correct "250 to go" is. See
- *  `milestoneReach` below and decision record 0029. */
+ *  `milestoneReach` below and decision record 0030. */
 export function tightestCrossed(gap: number, milestones: number[]): number | null {
   const crossed = milestones.filter(m => gap <= m)
   return crossed.length ? Math.min(...crossed) : null

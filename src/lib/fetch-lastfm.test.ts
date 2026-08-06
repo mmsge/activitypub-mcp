@@ -5,7 +5,7 @@ import { fetchRecentScrobbles, fetchNowPlaying } from './fetch-lastfm.js'
  * The Last.fm mapper had no tests at all, which is how a reported "now-playing is being
  * counted as a scrobble" bug cost a day of data forensics to disprove. These pin the two
  * facts the whole scrobble store rests on: the live entry never becomes a row, and
- * played_at is Last.fm's own timestamp rather than the clock. Decision record 0029.
+ * played_at is Last.fm's own timestamp rather than the clock. Decision record 0030.
  */
 
 const NOW_PLAYING_ENTRY = {

@@ -1,4 +1,4 @@
-# 0029 — The scrobble count is a mirror of Last.fm, not a judgement: audit the short plays, change nothing
+# 0030 — The scrobble count is a mirror of Last.fm, not a judgement: audit the short plays, change nothing
 
 - **Status:** Accepted
 - **Date:** 2026-08-06

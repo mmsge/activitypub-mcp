@@ -44,12 +44,14 @@ function imageSrc(url: string | null | undefined): string | undefined {
   return proxyPath(url) ?? url
 }
 
-const Meta: FC<{ entry: Entry; verb: string }> = ({ entry, verb }) => {
+const Meta: FC<{ entry: Entry; verb: string; verbClass?: string }> = ({ entry, verb, verbClass }) => {
   const info = platformInfo(entry.source)
   return (
     <div class="meta">
       <span class="badge">{info.label}</span>
-      <span>{verb}</span>
+      {/* hono/jsx drops an attribute whose value is undefined, so every entry type
+          that does not name a class renders exactly the span it always did. */}
+      <span class={verbClass}>{verb}</span>
       <time datetime={entry.eventAt.toISOString()}>{formatDate(entry.eventAt)}</time>
       {entry.originUrl ? (
         <a class="out" href={entry.originUrl} rel="noopener nofollow" target="_blank">
@@ -250,40 +252,98 @@ const Post: FC<{ entry: PostEntry; briefTrip?: boolean }> = ({ entry, briefTrip 
   </article>
 )
 
+/** What the event was, in Markus' own words. Not translated, not reworded. */
 const BOOK_VERB: Record<BookEntry['kind'], string> = {
   book_started: 'byrja å lesa',
-  book_finished: 'las ut',
-  book_review: 'melde',
-  book_quote: 'siterte frå',
+  book_finished: 'lesen ut',
+  book_comment: 'kommentar',
+  book_review: 'melding',
+  book_quote: 'sitat',
 }
 
-const Book: FC<{ entry: BookEntry }> = ({ entry }) => (
-  <article class="entry" id={`e-${entry.refId}`}>
-    <Meta entry={entry} verb={BOOK_VERB[entry.kind]} />
-    <div class="card">
-      {entry.coverUrl ? (
-        <img class="cover" src={imageSrc(entry.coverUrl)} alt="" loading="lazy" referrerpolicy="no-referrer" />
+/** The chip's shape per kind. Never `chip` — that class is the source tab strip. */
+const BOOK_CHIP: Record<BookEntry['kind'], string> = {
+  book_started: 'bookchip start',
+  book_finished: 'bookchip finish',
+  book_comment: 'bookchip said',
+  book_review: 'bookchip review',
+  book_quote: 'bookchip quote',
+}
+
+/**
+ * A reading event, in five shapes.
+ *
+ * The chip names the event, but a card has to be recognisable with the chip's words
+ * masked — so the shapes differ in what leads, how large the cover is and how much
+ * of the catalogue is shown, not only in colour:
+ *
+ *   byrja å lesa /   the milestones: full cover, the whole facts line. Unchanged
+ *   lesen ut         from what the stream has always drawn, except that a shelf
+ *                    flip made with a sentence now has that sentence under it.
+ *   kommentar        what he wrote leads; the book shrinks to a thumbnail and a
+ *                    title, because the book is the context and not the news.
+ *   sitat            the passage is the card, framed, in the page's own serif.
+ *   melding          the widest: his heading, the review, then a mark saying the
+ *                    book was finished — which is the only place that gets said.
+ */
+const Book: FC<{ entry: BookEntry }> = ({ entry }) => {
+  const slim = entry.kind === 'book_comment' || entry.kind === 'book_quote'
+  const heading = [entry.title ?? 'Ukjend bok', entry.subtitle].filter(Boolean).join(' — ')
+  const facts = [
+    entry.pubYear ? String(entry.pubYear) : null,
+    entry.pages ? `${entry.pages} sider` : null,
+    entry.series,
+  ].filter(Boolean)
+  const position = entry.progress == null
+    ? null
+    : entry.progressMode === 'PCT' ? `${entry.progress} %` : `side ${entry.progress}`
+
+  return (
+    <article class={`entry ${entry.kind}`} id={`e-${entry.refId}`}>
+      <Meta entry={entry} verb={BOOK_VERB[entry.kind]} verbClass={BOOK_CHIP[entry.kind]} />
+
+      {/* A remark is about the book, so it comes before it. */}
+      {entry.kind === 'book_comment' && entry.html ? (
+        <div class="said"><Body html={entry.html} warning={entry.contentWarning} /></div>
       ) : null}
-      <div class="about">
-        <h3>{entry.title ?? 'Ukjend bok'}</h3>
-        {entry.author ? <p class="by">{entry.author}</p> : null}
-        <p class="facts">
-          <Stars rating={entry.rating} />
-          {[
-            entry.pubYear ? String(entry.pubYear) : null,
-            entry.pages ? `${entry.pages} sider` : null,
-            entry.series,
-          ].filter(Boolean).map((f, i) => <>{i > 0 || entry.rating != null ? ' · ' : ''}{f}</>)}
-        </p>
+
+      {entry.quote ? (
+        <figure class="quote-frame"><blockquote>{entry.quote}</blockquote></figure>
+      ) : null}
+
+      <div class={slim ? 'card slim' : 'card'}>
+        {entry.coverUrl ? (
+          <img class="cover" src={imageSrc(entry.coverUrl)} alt="" loading="lazy" referrerpolicy="no-referrer" />
+        ) : null}
+        <div class="about">
+          <h3>{heading}</h3>
+          {!slim && entry.author ? <p class="by">{entry.author}</p> : null}
+          {!slim ? (
+            <p class="facts">
+              <Stars rating={entry.rating} />
+              {facts.map((f, i) => <>{i > 0 || entry.rating != null ? ' · ' : ''}{f}</>)}
+            </p>
+          ) : null}
+          {slim && position ? <p class="facts">{position}</p> : null}
+        </div>
       </div>
-    </div>
-    {entry.quote ? <p class="quote">{entry.quote}</p> : null}
-    {entry.reviewTitle ? <h4 class="note">{entry.reviewTitle}</h4> : null}
-    {entry.html ? (
-      <Body html={entry.html} warning={entry.contentWarning} />
-    ) : null}
-  </article>
-)
+
+      {entry.reviewTitle ? <h3 class="review-title">{entry.reviewTitle}</h3> : null}
+
+      {entry.kind !== 'book_comment' && entry.html ? (
+        <Body html={entry.html} warning={entry.contentWarning} />
+      ) : null}
+
+      {/* A review, or a quotation or remark posted off the "read" shelf, is a finish
+          BookWyrm never announced with a note of its own — so this card is the only
+          one that can say it happened. Not on a finish card: the chip there already
+          carries the same date, and printing it twice reads as two finishes. */}
+      {entry.kind !== 'book_finished' && entry.finishedAt ? (
+        <p class="finished-mark">Lesen ut {formatDate(entry.finishedAt)}</p>
+      ) : null}
+    </article>
+  )
+}
 
 const MARK_VERB: Record<MarkEntry['kind'], string> = {
   screen: 'såg',
@@ -413,6 +473,7 @@ export const EntryView: FC<{ entry: Entry; briefTrip?: boolean }> = ({ entry, br
       return <Post entry={entry} briefTrip={briefTrip} />
     case 'book_started':
     case 'book_finished':
+    case 'book_comment':
     case 'book_review':
     case 'book_quote':
       return <Book entry={entry} />

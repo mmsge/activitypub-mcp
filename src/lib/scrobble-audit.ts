@@ -5,7 +5,7 @@
  * `scrobbles` table comment), and Markus decided to keep it that way — a local total
  * that disagrees with last.fm.com is not a better truth, it is a second one. This
  * module exists to *measure* the divergence so the decision to act on it can be made
- * on numbers. Decision record 0029.
+ * on numbers. Decision record 0030.
  *
  * The measurement rests on one fact: `played_at` is the moment a track STARTED, so the
  * next row's `played_at` is the only bound we have on how long this one actually

@@ -19,7 +19,7 @@ import {
  *
  * **Read-only, and deliberately so.** It runs inside a READ ONLY transaction: nothing
  * here can write even by accident. It changes no count anywhere in the app; acting on
- * what it finds means changing the scrobbler, not this store. Decision record 0029.
+ * what it finds means changing the scrobbler, not this store. Decision record 0030.
  *
  *   npm run scrobble-audit
  */

@@ -114,7 +114,7 @@ describe('checkRaceNowPlaying', () => {
 /**
  * A failed Last.fm read used to arrive as the same `null` that means "nothing is
  * playing". In this one window of the race that conflation is expensive: an outage
- * looks like a quiet moment, and nothing says otherwise. Decision record 0029.
+ * looks like a quiet moment, and nothing says otherwise. Decision record 0030.
  */
 describe('checkRaceNowPlaying — an outage is not silence', () => {
   beforeEach(() => { arm(); loadRaceState.mockReset(); saveRaceState.mockClear() })

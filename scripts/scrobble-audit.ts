@@ -4,7 +4,7 @@
 //
 // Read-only: pure SELECTs inside a READ ONLY transaction. It changes no count anywhere,
 // and it deletes nothing. Deciding what to do about the numbers is a separate act.
-// See decision record 0029.
+// See decision record 0030.
 //
 //   npm run scrobble-audit
 import { auditScrobbles } from '../src/jobs/scrobble-audit.js'

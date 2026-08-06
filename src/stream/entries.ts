@@ -83,8 +83,10 @@ export interface PostEntry extends Base {
 }
 
 export interface BookEntry extends Base {
-  kind: 'book_started' | 'book_finished' | 'book_review' | 'book_quote'
+  kind: 'book_started' | 'book_finished' | 'book_comment' | 'book_review' | 'book_quote'
   title: string | null
+  /** The volume or edition line, where the catalogue carries one separately. */
+  subtitle: string | null
   author: string | null
   coverUrl: string | null
   /** 0–5, as BookWyrm records it. */
@@ -98,6 +100,19 @@ export interface BookEntry extends Base {
   series: string | null
   bookUrl: string | null
   contentWarning: string | null
+  /** How far in the reader was, when BookWyrm carried a position. */
+  progress: number | null
+  /** The unit for `progress`: 'PG' for pages, 'PCT' for a percentage. */
+  progressMode: string | null
+  /**
+   * The day this event closed the book, when it did.
+   *
+   * BookWyrm treats a review and a `read`-shelved comment as a finish without ever
+   * emitting a "finished reading" note, so on those cards this is the only place a
+   * reader can learn it happened. Set on a finish card too — it is a fact about the
+   * event, not about the layout — and the view is what declines to print it there.
+   */
+  finishedAt: Date | null
 }
 
 export interface MarkEntry extends Base {
