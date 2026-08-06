@@ -84,7 +84,13 @@ describe('classifyReadingEvent — event_type by ap_id segment + content', () =>
   it('classifies comment / review / rating segments', () => {
     expect(classifyReadingEvent({ apId: `${AP}/comment/5`, content: 'nice', tags: [], attachments: [] })?.event_type).toBe('comment')
     expect(classifyReadingEvent({ apId: `${AP}/review/6`, content: 'great', tags: [], attachments: [] })?.event_type).toBe('review')
-    expect(classifyReadingEvent({ apId: `${AP}/rating/7`, content: null, tags: [], attachments: [] })?.event_type).toBe('rating')
+    // BookWyrm puts a bare star at /reviewrating/, not /rating/. This test asserted
+    // the invented shape for as long as it existed, which is how `event_type:
+    // 'rating'` shipped as a filter that could never match anything real.
+    expect(classifyReadingEvent({ apId: `${AP}/reviewrating/7`, content: null, tags: [], attachments: [] })?.event_type).toBe('rating')
+    // The near-miss it has to stay clear of: a review is /review/, and neither
+    // pattern may swallow the other.
+    expect(classifyReadingEvent({ apId: `${AP}/review/7`, content: null, tags: [], attachments: [] })?.event_type).toBe('review')
   })
 
   it('returns null for a non-reading Note', () => {

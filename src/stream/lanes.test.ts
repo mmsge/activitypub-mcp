@@ -141,7 +141,7 @@ describe('readingLane', () => {
     const sql = renderBound(readingLane(ctx()))
     expect(sql).toContain('/review/')
     expect(sql).toContain('/quotation/')
-    expect(sql).toContain('/rating/')
+    expect(sql).toContain('/reviewrating/')
     expect(sql).toContain('started reading')
     expect(sql).toContain('finished reading')
   })

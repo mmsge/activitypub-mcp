@@ -101,20 +101,31 @@ keeps both cards, which is the safe direction to fail in.
   nearly empty: almost every comment carries a shelf state and therefore renders as
   a start or a finish. It is the fallback that stops anything being dropped, not a
   page.
-- Ratings render as **melding** cards with stars and no body. There are four in the
-  archive, and none is currently public, so this is code without a picture yet.
+- **A second bug fell out of the pre-flight: a bare star rating federates as
+  `/reviewrating/`, not `/rating/`.** `'%/rating/%'` cannot match it — the character
+  before "rating" is a "w" — so the segment had never matched anything, in this
+  module *or* in `lib/bookwyrm-reading.ts`, where it meant the MCP's advertised
+  `event_type: 'rating'` filter could only ever return an empty list. It survived
+  because the test asserted the invented shape too. Both constants now read
+  `'%/reviewrating/%'`, and there is a regression test that pins the real shape and
+  the near-miss against each other. Four ratings (3.5, 3.5, 4, 5), all public, all
+  carrying a book, become **melding** cards.
 - Reading-goal notes now render as **kommentar**. That reverses the earlier call;
   Markus asked for the story's rule list to be followed literally.
-- Roughly 7–8 previously-invisible entries a month appear. About half of the new
-  finish cards have a body that is nothing but a link to the reader's own
+- **252 previously-invisible entries appear**, counted on the box: **byrja å lesa**
+  284 → 430, **lesen ut** 311 → 402, **kommentar** 0 → 15. **melding** (171) and
+  **sitat** (36) are unchanged, which is the check that the change adds cards
+  without disturbing the ones that already worked. Every one of the 1094 objects is
+  addressed `public`, so nothing is lost to the visibility gate. About half of the
+  new finish cards have a body that is nothing but a link to the reader's own
   markus.plus review plus `#BokTut`, and that review is often already a `garden`
   entry in the same stream — so the front page will show some near-duplication.
   Left as it is: the site's posture is what he wrote, unedited, and suppressing a
   body because it is "only" a link is an editorial judgement this codebase does not
   make anywhere else.
-- The dedupe may never fire — no same-book, same-day, same-kind note+comment pair
-  exists in the sampled history. It is insurance against a double flip. No index
-  was added for it: the subquery is bounded by the lane's own `LIMIT` and has
+- The dedupe never fires on the archive as it stands — the query returns zero pairs
+  across all 1094 events. It is insurance against a double flip, not a working part.
+  No index was added for it: the subquery is bounded by the lane's own `LIMIT` and has
   `objects_actor_published_idx` to sit on. If it shows up in an `EXPLAIN` on the
   box, a partial expression index on `((raw->>'inReplyToBook'), actor_ap_id)` for
   comment rows is the fix.

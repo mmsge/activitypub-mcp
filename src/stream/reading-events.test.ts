@@ -36,7 +36,7 @@ const AP = {
   note: 'https://bookwyrm.social/user/mvrkws/generatednote/12091719',
   comment: 'https://bookwyrm.social/user/mvrkws/comment/12215917',
   review: 'https://bookwyrm.social/user/mvrkws/review/7609066',
-  rating: 'https://bookwyrm.social/user/mvrkws/rating/4410021',
+  rating: 'https://bookwyrm.social/user/mvrkws/reviewrating/3877264',
   quotation: 'https://bookwyrm.social/user/mvrkws/quotation/9452950',
 }
 
@@ -120,6 +120,19 @@ describe('streamReadingKind', () => {
       expect(streamReadingKind(row(AP.rating))).toBe('book_review')
     })
 
+    it('finds a rating at /reviewrating/, which is where BookWyrm actually puts it', () => {
+      // The trap, and it hid for the life of the module: the segment read
+      // '/rating/', which cannot match '/reviewrating/' because the character
+      // before "rating" is a "w". Four real ratings sat unclassified, and the
+      // MCP's `event_type: 'rating'` filter could only ever return nothing —
+      // because the test that should have caught it asserted the invented shape.
+      const AT = 'https://bookwyrm.social/user/mvrkws'
+      expect(streamReadingKind(row(`${AT}/reviewrating/3877264`))).toBe('book_review')
+      expect(streamReadingKind(row(`${AT}/rating/3877264`))).toBeNull()
+      // And it must not swallow, or be swallowed by, a review.
+      expect(streamReadingKind(row(`${AT}/review/7609066`))).toBe('book_review')
+    })
+
     it('quotation that is also a finish stays a quotation', () => {
       expect(streamReadingKind(row(AP.quotation, { contentText: 'Heh', readingStatus: 'read' })))
         .toBe('book_quote')
@@ -194,7 +207,7 @@ describe('the SQL and the predicate select the same set', () => {
 
   it('gates on the same segments the predicate recognises', () => {
     const sql = render(meaningfulReadingOn('o'))
-    for (const seg of ['/review/', '/rating/', '/quotation/', '/comment/', '/generatednote/']) {
+    for (const seg of ['/review/', '/reviewrating/', '/quotation/', '/comment/', '/generatednote/']) {
       expect(sql, seg).toContain(seg)
     }
     expect(sql).toContain('wants to read')

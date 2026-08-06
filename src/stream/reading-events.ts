@@ -32,7 +32,10 @@ import type { Kind } from './sources.js'
 const SEG_GENERATEDNOTE = '%/generatednote/%'
 const SEG_COMMENT = '%/comment/%'
 const SEG_REVIEW = '%/review/%'
-const SEG_RATING = '%/rating/%'
+// Not `/rating/`: a bare star federates as `/reviewrating/`, which `%/rating/%`
+// cannot match — the character before "rating" is a "w". See the same constant in
+// lib/bookwyrm-reading.ts, where the typo made `event_type: 'rating'` unfillable.
+const SEG_RATING = '%/reviewrating/%'
 const SEG_QUOTATION = '%/quotation/%'
 const PHRASE_STARTED = '%started reading%'
 const PHRASE_FINISHED = '%finished reading%'
@@ -59,7 +62,7 @@ export function streamReadingKind(row: StreamReadingRow): Kind | null {
   const text = (row.contentText ?? '').toLowerCase()
   const status = normalizeReadingStatus(row.readingStatus ?? null)
 
-  if (ap.includes('/review/') || ap.includes('/rating/')) return 'book_review'
+  if (ap.includes('/review/') || ap.includes('/reviewrating/')) return 'book_review'
   if (ap.includes('/quotation/')) return 'book_quote'
 
   const generated = ap.includes('/generatednote/')
