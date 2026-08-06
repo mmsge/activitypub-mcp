@@ -40,7 +40,14 @@ export async function checkRaceNowPlaying(
   // shared with the public get_now_playing tool, so this could read a value warmed by
   // an unrelated request. In the one window of the race where seconds matter, hidden
   // staleness is the wrong trade.
-  const playing = await fetchNP(config.LASTFM_API_KEY, config.LASTFM_USERNAME)
+  const result = await fetchNP(config.LASTFM_API_KEY, config.LASTFM_USERNAME)
+  // A failed read is not "nothing is playing" — passing it on as null would let an
+  // outage look like silence in the one window where this feature has to be right.
+  if (!result.ok) {
+    logger.warn({ gap, reason: result.reason }, 'Skipping race now-playing check: Last.fm unavailable')
+    return
+  }
+  const playing = result.track
 
   const alert = decideNowPlayingAlert(
     playing,

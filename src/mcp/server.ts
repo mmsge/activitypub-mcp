@@ -161,7 +161,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_now_playing',
-    "Get the Last.fm user's currently-playing track as a live read (not a stored scrobble). Returns { nowPlaying: true, track, artist, album, image, url } when something is playing, or { nowPlaying: false } otherwise.",
+    "Get the Last.fm user's currently-playing track as a live read (not a stored scrobble). Returns { nowPlaying: true, track, artist, album, image, url } when something is playing, { nowPlaying: false } when Last.fm answered and nothing is, and { nowPlaying: null, error } when the upstream read failed or Last.fm is not configured — an outage is never reported as silence. Note this stays false mid-song for a scrobbler that never sends track.updateNowPlaying, which is the common case here.",
     getNowPlayingSchema.shape,
     async (input) => {
       const result = await getNowPlaying(input as any)

@@ -303,7 +303,9 @@ describe('decideRaceAlert — the configurable countdown band', () => {
     const prev = state({ leaderPlays: 10_439, challengerPlays: 10_339, lastMilestone: 150 })
     const d = decideRaceAlert(snap(10_439, 10_364), prev, MILESTONES, NOW, 10) // gap 75
     expect(d.kind).toBe('milestone')
-    expect(d.message?.body).toContain('Under 75 for the first time')
+    // Exactly ON the rung, so "at", not "under" — this assertion carried the very
+    // off-by-one it was meant to pin until decision record 0030.
+    expect(d.message?.body).toContain('At 75 for the first time')
   })
 })
 
@@ -421,5 +423,66 @@ describe('decideNowPlayingAlert', () => {
       { key: first.key, at: NOW }, new Date(NOW.getTime() + NOWPLAYING_REARM_MS + 1_000),
     )
     expect(later).not.toBeNull()
+  })
+})
+
+describe('decideRaceAlert — the exact boundaries', () => {
+  // The rung comparison is inclusive on purpose (see tightestCrossed), which makes the
+  // copy the thing that has to be right: at a gap of exactly 250, "Under 250" is simply
+  // false, however correct the "250 to go" title is. Decision record 0030.
+  it('says "At 250" when the gap lands exactly on the rung', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_188, lastMilestone: 300 })
+    const d = decideRaceAlert(snap(10_439, 10_189), prev, MILESTONES, NOW) // gap exactly 250
+    expect(d.kind).toBe('milestone')
+    expect(d.message?.title).toBe('250 to go')
+    expect(d.message?.body).toContain('At 250 for the first time')
+    expect(d.message?.body).not.toContain('Under 250')
+    expect(d.state.lastMilestone).toBe(250)
+  })
+
+  it('still says "Under 250" when the gap is genuinely inside the rung', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_185, lastMilestone: 300 })
+    const d = decideRaceAlert(snap(10_439, 10_192), prev, MILESTONES, NOW) // gap 247
+    expect(d.kind).toBe('milestone')
+    expect(d.message?.title).toBe('247 to go')
+    expect(d.message?.body).toContain('Under 250 for the first time')
+  })
+
+  it('treats a gap exactly equal to the countdown band as inside it', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_428, lastMilestone: 15, lastAnnouncedGap: 11 })
+    const d = decideRaceAlert(snap(10_439, 10_429), prev, MILESTONES, NOW, 10) // gap exactly 10
+    expect(d.kind).toBe('per-play')
+    expect(d.message?.title).toBe('10 to go')
+    expect(d.state.endgameArmedAt).toEqual(NOW)
+  })
+
+  it('at exactly 1 promises a level, never a win', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_437, lastMilestone: 10, lastAnnouncedGap: 2 })
+    const d = decideRaceAlert(snap(10_439, 10_438), prev, MILESTONES, NOW)
+    expect(d.kind).toBe('armed')
+    expect(d.message?.title).toBe('1 to go — next one levels it')
+    expect(d.message?.body).toContain('One more Maisie Peters play levels it')
+    expect(d.state.overtakenAt).toBeNull()
+  })
+
+  it('at exactly 0 promises the lead, and a dead heat is still not the finish', () => {
+    const prev = state({ leaderPlays: 10_439, challengerPlays: 10_438, lastMilestone: 10, lastAnnouncedGap: 1 })
+    const d = decideRaceAlert(snap(10_439, 10_439), prev, MILESTONES, NOW)
+    expect(d.kind).toBe('level')
+    expect(d.message?.title).toBe('Next Maisie Peters song wins it')
+    expect(d.state.overtakenAt).toBeNull()
+  })
+})
+
+describe('tightestCrossed — the rung is inclusive', () => {
+  it('is crossed on the number, not one play past it', () => {
+    expect(tightestCrossed(251, MILESTONES)).toBe(300)
+    expect(tightestCrossed(250, MILESTONES)).toBe(250)
+    expect(tightestCrossed(249, MILESTONES)).toBe(250)
+  })
+
+  it('sits on the floor rung at and below a dead heat', () => {
+    expect(tightestCrossed(10, MILESTONES)).toBe(10)
+    expect(tightestCrossed(0, MILESTONES)).toBe(10)
   })
 })
