@@ -143,8 +143,16 @@ export function markEventDate(row: {
 }
 
 /**
- * A BookWyrm reading event's date. Started/finished events carry the reader's own
- * dates on the AP object; everything else is placed by when it was posted.
+ * A BookWyrm reading event's date.
+ *
+ * Started/finished *generated notes* carry the reader's own dates on the AP object;
+ * everything else — reviews, quotations, and the comments that now stand for a start
+ * or a finish in their own right — is placed by when it was posted.
+ *
+ * A comment is dated by `published_at` even when it marks a start, because BookWyrm
+ * sends no startedDate or finishedDate on one. The lane's `eventAt` gates both
+ * coalesce arms on `/generatednote/` for exactly that reason, and the two must keep
+ * agreeing.
  */
 export function readingEventDate(row: {
   eventType: string

@@ -53,6 +53,7 @@ export function entryTitle(entry: Entry): string {
   switch (entry.kind) {
     case 'book_started': return `Byrja å lesa ${entry.title ?? 'ei bok'}`
     case 'book_finished': return `Las ut ${entry.title ?? 'ei bok'}`
+    case 'book_comment': return `Om ${entry.title ?? 'ei bok'}`
     case 'book_review': return `Melding: ${entry.title ?? 'ei bok'}`
     case 'book_quote': return `Sitat frå ${entry.title ?? 'ei bok'}`
     case 'screen': return `Såg ${entry.title ?? 'noko'}`
@@ -84,6 +85,10 @@ function entryContent(entry: Entry): string {
       return entry.sensitive
         ? `<p><em>${esc(entry.contentWarning ?? 'Innhaldsvarsel')}</em></p>`
         : entry.html
+    // Every reading event, not just reviews and quotations: a start or a finish
+    // made with a sentence attached carries that sentence now, and a subscriber
+    // who got the title but not the words would be getting the worse half.
+    case 'book_started': case 'book_finished': case 'book_comment':
     case 'book_review': case 'book_quote':
       return [
         entry.quote ? `<blockquote>${esc(entry.quote)}</blockquote>` : '',

@@ -133,6 +133,19 @@ describe('entryTitle', () => {
     expect(entryTitle(backdated)).toBe('Såg Ein gammal film')
     expect(entryTitle({ ...backdated, kind: 'book_finished', title: 'Ei bok' } as never))
       .toBe('Las ut Ei bok')
+    expect(entryTitle({ ...backdated, kind: 'book_comment', title: 'Ei bok' } as never))
+      .toBe('Om Ei bok')
+  })
+
+  it('never falls through to the post branch for a reading event', () => {
+    // The default arm reads entry.html, which a reading event may leave null — an
+    // unhandled book kind takes the whole feed down rather than titling one entry
+    // oddly. This is the assertion that catches a sixth kind added without a case.
+    for (const kind of ['book_started', 'book_finished', 'book_comment', 'book_review', 'book_quote']) {
+      const entry = { ...backdated, kind, title: null, html: null, quote: null }
+      expect(() => entryTitle(entry as never), kind).not.toThrow()
+      expect(entryTitle(entry as never), kind).toContain('ei bok')
+    }
   })
 
   it('falls back to the post text, trimmed of markup', () => {

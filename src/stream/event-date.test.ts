@@ -150,6 +150,16 @@ describe('readingEventDate', () => {
     ).toEqual(published)
   })
 
+  it('dates a comment by when it was posted, whatever it signals', () => {
+    // A shelf flip made with text federates as a comment and carries neither date,
+    // so the day it was posted is the day the shelf moved. The lane's eventAt gates
+    // both of its coalesce arms on /generatednote/ to match.
+    expect(readingEventDate({ eventType: 'comment', publishedAt: published })).toEqual(published)
+    expect(
+      readingEventDate({ eventType: 'comment', startedDate: '2020-01-01', publishedAt: published }),
+    ).toEqual(published)
+  })
+
   it('excludes an event with no date at all', () => {
     expect(readingEventDate({ eventType: 'review', publishedAt: null })).toBeNull()
   })
