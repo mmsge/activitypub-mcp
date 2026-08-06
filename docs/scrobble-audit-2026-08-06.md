@@ -5,6 +5,11 @@ serves is unchanged, and `get_scrobble_race` still matches last.fm.com exactly. 
 [ADR 0030](decision-records/0030-the-scrobble-count-is-a-mirror-not-a-judgement.md) for why
 that is deliberate.
 
+These are the **exact figures**, from `npm run scrobble-audit` against the production
+database — 51,398 rows, the whole history. An earlier draft of this document carried a
+sample-based estimate that was badly wrong in both directions; what it got wrong, and why,
+is recorded at the end, because the sampling mistake is more reusable than the numbers.
+
 ## What is being counted
 
 `played_at` is the moment a track **started**. The scrobbler in use submits
@@ -12,143 +17,121 @@ that is deliberate.
 minutes), so a track that is started and then skipped or restarted becomes a genuine
 Last.fm scrobble. Last.fm counts it; this store mirrors Last.fm; the race counts it.
 
-A row's real play length is bounded only by the next row's `played_at`. So the question
-"did this play qualify?" is answerable from the gap to the next row — and only that.
+A row's real play length is bounded only by the next row's `played_at`. Rows with no
+successor, or one past the 15-minute session ceiling, are **unbounded**: their length is
+unknowable, so they are never counted as suspect. There are 4,795 of them (9.3%).
 
-## Method, and what it cannot tell you
+## The headline: the correction is a wash
 
-The exact figures come from running the committed audit against the production database:
+**246 sub-60-second plays are followed by the same track again** — restarts, which only a
+scrobble submitted at track start can produce. The mechanism is real and confirmed.
 
-```bash
-ssh msge 'cd /srv/bot && docker compose exec -T app npm run scrobble-audit'
-```
+But it barely moves the race, because it applies to **both** artists at almost the same rate.
 
-That was not possible from where this report was written (no SSH client, and the REST API
-requires a key), so the numbers below are an **estimate** from a large stratified sample
-pulled through the `get_scrobbles` MCP tool: **8,529 of 51,386 rows (16.6 %)**, covering
-every year from 2016 to 2026, loaded into a local Postgres and passed through the same
-`src/lib/scrobble-audit.ts` classifier the script uses. Ranges are 95 % Wilson intervals on
-the sampled rate, scaled by exact per-era play counts from `get_scrobble_stats`.
+| Threshold | Taylor suspect | Maisie suspect | gap now | gap corrected | change |
+|---|---:|---:|---:|---:|---:|
+| under 30 s | 295 | 272 | 228 | **205** | −23 |
+| under 60 s | 312 | 331 | 228 | **247** | +19 |
+| under half the estimated length | 410 | 381 | 228 | **199** | −29 |
+| Last.fm's own rule, `min(half, 4 min)` | 392 | 381 | 228 | **217** | −11 |
 
-Three limits worth stating plainly:
+The four thresholds **disagree on the direction**. Correcting the race makes the gap
+smaller under three of them and larger under one, and every result sits within ±29 of the
+reported 228. That is the answer: **the race is where it says it is.** No projection, no
+milestone and no crossover date is materially wrong.
 
-- The sample is 39 contiguous blocks, not one run. Rows at a block edge have no known
-  successor and are classified **unbounded** — never suspect. That makes every figure here
-  a **floor**, not a ceiling.
-- Track-length estimates need ≥ 10 observations of the same track. In a 16 % sample most
-  tracks do not reach that, so 3,529 rows fall to `no-estimate` and the two
-  length-relative thresholds are badly under-populated. **Only the `<30 s` and `<60 s`
-  columns are trustworthy at this sample size.** On the full history the relative
-  thresholds would be the more meaningful ones.
-- Where an artist's own sample in an era is under 20 rows the rate is imputed, and marked
-  as such below.
+This is precisely what asking for a spectrum rather than a single verdict was for. One
+threshold, quoted alone, would have read as a confident correction in whichever direction
+it happened to fall.
 
-## Where the plays are
+Unbounded plays are 1,224 for Taylor against 768 for Maisie — the error bar, and it leans
+slightly towards Taylor having *more* uncounted short plays rather than fewer.
 
-This is the finding that makes the distortion one-sided, and it is not about the bug at
-all — it is about when each artist was listened to.
+## Overall
 
-| Era | Taylor Swift | Maisie Peters |
-|---|---:|---:|
-| before 2024 | 10,214 | 4,259 |
-| 2024 | 30 | 2,450 |
-| 2025 | 109 | 676 |
-| 2026 (to 6 Aug) | 86 | 2,820 |
-| **total** | **10,439** | **10,205** |
+| Threshold | suspect | share | kept | unbounded | no estimate |
+|---|---:|---:|---:|---:|---:|
+| under 30 s | 1,175 | 2.29 % | 45,428 | 4,795 | 0 |
+| under 60 s | 1,496 | 2.91 % | 45,107 | 4,795 | 0 |
+| under half the estimated length | 1,544 | 3.00 % | 45,059 | 4,795 | 5,570 |
+| Last.fm's own rule | 1,525 | 2.97 % | 45,078 | 4,795 | 5,570 |
 
-97.8 % of the leader's plays were banked before 2024. 57.3 % of the challenger's were not.
-Exposure to the affected period is 225 plays against 5,946 — a factor of 26.
+The four land within 0.7 points of each other, so the answer is not sensitive to where the
+line is drawn — about **3 % of the history** is a play that was cut short.
 
-## When it started
+5,570 rows (10.8 %) have no trusted track length, so the two relative columns are floors.
 
-Sub-60-second gaps per Oslo year, from the sample, split by whether the *next* scrobble
-repeats the same track. A repeat is a **restart**, and a restart can only be produced by a
-scrobble submitted at track start — it is the unambiguous signature.
+The per-artist table shows why the relative threshold earns its place. Pikekyss has 56
+plays under 60 seconds but only **2** under half their own length: those are short tracks
+played in full, and the absolute thresholds misread every one of them. Michelle Ullestad is
+the same shape (34 → 20).
 
-| Year | sampled | < 60 s | of which restarts | share |
-|---|---:|---:|---:|---:|
-| 2016 | 485 | 9 | 8 | 1.86 % |
-| 2017 | 133 | 1 | 0 | 0.75 % |
-| 2018 | 200 | 6 | 0 | 3.00 % |
-| 2019 | 398 | 5 | 0 | 1.26 % |
-| 2020 | 402 | 4 | 0 | 1.00 % |
-| 2021 | 400 | 7 | 0 | 1.75 % |
-| 2022 | 400 | 3 | 0 | 0.75 % |
-| 2023 | 643 | 1 | 0 | 0.16 % |
-| 2024 | 1,557 | 34 | 1 | 2.18 % |
-| 2025 | 1,893 | 77 | 25 | 4.07 % |
-| 2026 | 2,018 | 131 | 49 | 6.49 % |
+## When it started — earlier than it looked
 
-Two different things are visible here, and conflating them would overstate the case.
-
-**The old one, 2017–2023.** A low background of short gaps, almost all under five seconds,
-almost none of them restarts. Consecutive *different* tracks landing within five seconds of
-each other is a batch or offline flush, not a skip. It runs at roughly 1 % and shows no
-trend.
-
-**The new one, from 2024.** Restarts appear — 1 in 2024, 25 in 2025, 49 in 2026 — and the
-overall short-gap share triples. This is the scrobble-at-start behaviour, and it is
-**growing**: 2.18 % → 4.07 % → 6.49 %.
-
-It does not predate any change in this repository. The ingest path has been unchanged since
-the `scrobbles` table was added, and the guard that drops Last.fm's live `nowplaying` entry
-has been there the whole time.
-
-## The head-to-head
-
-Raw, as `get_scrobble_race` reports it at 2026-08-06T11:56Z:
-
-**Taylor Swift 10,439 · Maisie Peters 10,205 · gap 234.**
-
-Estimated plays that never met Last.fm's own threshold, `< 60 s`:
-
-| Artist | Era | plays | sampled | rate | estimated suspect |
-|---|---|---:|---:|---:|---|
-| Taylor Swift | before 2024 | 10,214 | 727 | 1.51 % | 155 [87–275] |
-| Taylor Swift | 2024 | 30 | 4 | 2.94 % *(imputed)* | 1 |
-| Taylor Swift | 2025 | 109 | 76 | 2.63 % | 3 [1–10] |
-| Taylor Swift | 2026 | 86 | 34 | 2.94 % | 3 [0–13] |
-| **Taylor Swift** | **all** | **10,439** | **841** | | **161 [89–298]** |
-| Maisie Peters | before 2024 | 4,259 | 6 | 1.18 % *(imputed, pooled)* | 50 |
-| Maisie Peters | 2024 | 2,450 | 160 | 10.00 % | 245 [153–383] |
-| Maisie Peters | 2025 | 676 | 312 | 5.13 % | 35 [22–55] |
-| Maisie Peters | 2026 | 2,820 | 1,130 | 5.40 % | 152 [119–194] |
-| **Maisie Peters** | **all** | **10,205** | **1,608** | | **482 [344–682]** |
-
-| | Taylor Swift | Maisie Peters | gap |
+| Year | plays | suspect < 60 s | share |
 |---|---:|---:|---:|
-| as reported | 10,439 | 10,205 | **234** |
-| restart rows only (hard floor) | 10,439 | 10,131 | **308** |
-| less plays under 60 s | 10,278 | 9,723 | **555** *(range 280–827)* |
+| 2016 | 485 | 9 | 1.86 % |
+| 2017 | 133 | 1 | 0.75 % |
+| 2018 | 680 | 20 | 2.94 % |
+| 2019 | 1,957 | 24 | 1.23 % |
+| 2020 | 2,021 | 30 | 1.48 % |
+| 2021 | 1,664 | 53 | 3.19 % |
+| 2022 | 4,872 | 166 | 3.41 % |
+| 2023 | 18,031 | 492 | 2.73 % |
+| 2024 | 11,731 | 181 | 1.54 % |
+| 2025 | 3,776 | 166 | 4.40 % |
+| 2026 | 6,048 | 354 | 5.85 % |
 
-The restart-only line counts nothing but same-track repeats inside 60 seconds — the one
-category that cannot be anything else. Zero were seen on the leader's side in any era.
+There is a background of 1–3.4 % running the entire length of the history. It does not
+start in 2024; 2022 sits at 3.41 % and 2023 at 2.73 %, both higher than 2024's 1.54 %.
 
-**The headline: the race is roughly twice as far from its finish as the notifier says.** A
-gap reported as 234 is, on this estimate, somewhere between 280 and 827 real plays, most
-likely around 550. The pace figure is inflated the same way — the challenger's plays/day is
-built from the same rows — so the projected crossover date is biased early on both terms at
-once.
+What is real is the **recent rise**: 4.40 % in 2025 and 5.85 % in 2026, the two highest
+years on record. That is worth watching. It is a rise from a substantial baseline, not from
+zero, and it is not evidence of a change in this repository — the ingest path is unchanged
+since the table was added.
 
 ## Recommendation
 
-**Fix the scrobbler, not the store.** These rows are real Last.fm scrobbles: they are in
-Markus' public profile, they count towards his Last.fm charts, and they will keep arriving.
-Deleting them here would leave this database disagreeing with last.fm.com while the
-submissions carried on, and every future discrepancy would start with "which of our two
-numbers is this?".
+**Fix the scrobbler if you want fewer of these rows — but not to fix the race.** The race
+does not need fixing. These are real Last.fm scrobbles, they are in the public profile, and
+they affect both artists about equally.
 
-The durable fix is in whatever client is scrobbling — either a setting to submit at the
-threshold rather than at track start, or a different client. Worth checking what it is
-before anything else; the audit says *what* is happening, not *which player* is doing it.
+The case for changing the scrobbler is now about **data quality in general**, not about the
+head-to-head: roughly 3 % of a ten-year listening history records plays that never happened,
+and the rate is climbing.
 
-If a local correction is ever wanted anyway, the least destructive form is a derived
-`counts_as_play` flag computed from the successor gap, with every existing count left on
-the raw rows and the flag exposed as an opt-in filter. That is deliberately **not**
-implemented — see ADR 0030.
+There is no threshold setting to tune. Qobuz's Last.fm integration is an account-level
+connection configured in its desktop/web settings, so the options are to replace it with a
+local scrobbler or leave it. Worth ruling out first: Qobuz Connect can register plays from
+signed-in devices that are not producing audio, so signing out of idle devices and re-running
+this audit in a month is the cheapest possible test.
 
-Two things to do regardless, both cheap:
+**No local cleanup is recommended.** Deleting rows here would leave this database disagreeing
+with last.fm.com for a correction worth ±29 plays on the only number anyone is watching.
 
-- Run the committed script on the box for exact figures rather than this estimate.
-- Re-run it periodically. The rate is rising, so a number measured today is not the number
-  next year.
+## What the earlier estimate got wrong, and why
+
+The first version of this document estimated the corrected gap at **~555 (range 280–827)**
+against a reported 228. The true range is **199–247**. The estimate was not merely imprecise
+— it pointed the wrong way, and its confidence interval did not contain the answer.
+
+Three compounding errors, all from the same root:
+
+- **It claimed the behaviour began in 2024**, from samples reading 0 % in 2023 and mid-2024.
+  The real figures are 2.73 % and 1.54 %.
+- **It claimed the inflation was one-sided.** Taylor's true suspect count (295–410) is
+  roughly equal to Maisie's (272–381). The sample put Taylor at 161.
+- **It imputed a 10 % rate for Maisie in 2024** from 160 sampled rows. The real year is
+  1.54 %.
+
+The root cause is that the sample was drawn as **contiguous 200-row blocks**, and a
+contiguous block of scrobbles is one listening session. Sessions are internally correlated:
+an album played straight through contains no skips at all, an afternoon of shuffling
+contains many. So each block behaved like a single observation rather than 200 independent
+ones, and the Wilson intervals — which assume independent draws — were far too narrow. 2023
+was sampled at 643 rows out of 18,031, in two windows that happened to be clean album runs.
+
+The lesson is not "sample more". It is that **a time-ordered behavioural history cannot be
+block-sampled** for a rate that varies by session. Either draw rows at random across the
+whole span, or measure the whole thing — which, at 51,398 rows and a few seconds of query
+time, was always the cheaper option.
