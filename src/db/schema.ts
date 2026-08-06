@@ -416,6 +416,20 @@ export const activityLog = pgTable('activity_log', {
   index('activity_log_direction_idx').on(t.direction),
 ])
 
+/**
+ * One play, mirrored from Last.fm's user.getrecenttracks.
+ *
+ * `played_at` (and its raw `uts`) is the moment the track **started**, per the
+ * scrobbler that submitted it — not the submission time and not our poll time. So a
+ * row's real play length is bounded by the NEXT row's `played_at`, and nothing on the
+ * row itself says how long it actually played.
+ *
+ * This table is deliberately a faithful mirror: whatever Last.fm counts, it counts.
+ * A scrobbler that submits at track start turns restarts and skips into ordinary
+ * scrobbles, which is why the same song can appear three times in sixteen seconds.
+ * Those rows are upstream truth, not ingest noise — see `scrobble-audit` for how to
+ * measure them, and decision record 0029 for why they are not filtered out here.
+ */
 export const scrobbles = pgTable('scrobbles', {
   id: uuid('id').primaryKey().defaultRandom(),
   trackName: text('track_name').notNull(),

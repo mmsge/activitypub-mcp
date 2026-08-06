@@ -592,6 +592,12 @@ off by default) that names the currently-playing track instead — but it only w
 scrobbler sends Last.fm the separate `track.updateNowPlaying` call, which many players
 never do. Verify with `get_now_playing` before enabling it. See decision record 0016.
 
+On this account `get_now_playing` is permanently `{ nowPlaying: false }`, mid-song
+included: the scrobbler has never sent `track.updateNowPlaying`, so Last.fm has no live
+entry to hand back. That is now distinguishable from an outage — a failed upstream read
+returns `{ nowPlaying: null, error }` and is never cached, so a momentary blip can no
+longer masquerade as twenty seconds of silence. See decision record 0029.
+
 Artist names are matched **exactly** here, unlike the substring filters on `get_scrobbles`
 and `get_scrobble_stats`: a countdown that reaches zero must not have its finish line moved
 by a stray collaboration credit. See decision record 0015.
@@ -743,6 +749,27 @@ To see exactly what that withholds from your own archive:
 ```bash
 docker compose exec app npm run visibility-audit
 ```
+
+### Auditing the scrobble history
+
+`played_at` is the moment a track **started**, as reported by whatever scrobbler submitted
+it. A scrobbler that submits at track start — Markus' does — turns a skip or a restart into
+a genuine Last.fm scrobble, so the same song can appear three times in sixteen seconds and
+Last.fm counts all three. The store mirrors Last.fm faithfully and does not filter them
+out; a local total that disagrees with last.fm.com would not be a better truth, just a
+second one.
+
+To measure how many of those there are, and what the head-to-head would look like without
+them:
+
+```bash
+docker compose exec app npm run scrobble-audit
+```
+
+It reports a spectrum of thresholds rather than one verdict, because the answer depends
+almost entirely on where the line is drawn. Read-only: pure `SELECT`s inside a
+`READ ONLY` transaction, and it changes no count anywhere in the app. See
+[ADR 0029](docs/decision-records/0029-the-scrobble-count-is-a-mirror-not-a-judgement.md).
 
 ### Authentication
 
