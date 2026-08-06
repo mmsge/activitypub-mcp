@@ -8,6 +8,7 @@ import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
 import { encodeCursor } from '../mcp/tools/pagination.js'
 import { stripHtml } from '../lib/strip-html.js'
+import { normalizeReadingStatus } from '../lib/bookwyrm-reading.js'
 import { mergedCandidateSql, idArray, type LaneContext } from './lanes.js'
 import { sanitizeHtml } from './sanitize-html.js'
 import { publicOnlyCondition } from './visibility.js'
@@ -360,6 +361,10 @@ async function hydrateBooks(cands: Candidate[]): Promise<Map<string, Entry>> {
       reviewTitle: sql<string | null>`${objects.raw}->>'name'`,
       quote: sql<string | null>`${objects.raw}->>'quote'`,
       inReplyToBook: sql<string | null>`${objects.raw}->>'inReplyToBook'`,
+      readingStatus: sql<string | null>`${objects.raw}->>'readingStatus'`,
+      finishedDate: sql<string | null>`${objects.raw}->>'finishedDate'`,
+      progress: sql<string | null>`${objects.raw}->>'progress'`,
+      progressMode: sql<string | null>`${objects.raw}->>'progressMode'`,
     })
     .from(objects)
     .leftJoin(bookwyrmObjects, eq(bookwyrmObjects.objectApId, objects.apId))
@@ -394,6 +399,18 @@ async function hydrateBooks(cands: Candidate[]): Promise<Map<string, Entry>> {
     if (!row) continue
     const bookUrl = bookUrlFor(row)
     const m = bookUrl ? metaByUrl.get(bookUrl) : undefined
+    // A generated note has no body worth showing: its text is "Markus started
+    // reading X", which is what the card already says in Norwegian. Everything else
+    // is words Markus wrote, whatever kind the event was classified as — and that
+    // is what puts his sentence on a start that arrived as a comment. Gating this
+    // on `kind` instead of on the object is what used to lose it.
+    const generated = row.apId.includes('/generatednote/')
+    const status = normalizeReadingStatus(row.readingStatus)
+    // Did this event close the book? A review does by BookWyrm's own reckoning, and
+    // so does a `read`-shelved comment — neither of which produces a "finished
+    // reading" note anywhere. Whether the card then says so is the view's call.
+    const marksFinish = c.kind === 'book_finished' || c.kind === 'book_review' || status === 'read'
+    const progress = row.progress ? Number(row.progress) : null
     const entry: BookEntry = {
       refId: c.refId,
       eventAt: c.eventAt,
@@ -402,17 +419,21 @@ async function hydrateBooks(cands: Candidate[]): Promise<Map<string, Entry>> {
       originUrl: row.url ?? row.apId,
       kind: c.kind as BookEntry['kind'],
       title: m?.title ?? null,
+      subtitle: m?.subtitle ?? null,
       author: m?.author ?? null,
       coverUrl: m?.coverUrl ?? null,
       rating: ratingOf(row.rating),
       reviewTitle: row.reviewTitle,
-      html: c.kind === 'book_review' || c.kind === 'book_quote' ? sanitizeHtml(row.content) : null,
+      html: generated ? null : sanitizeHtml(row.content),
       quote: row.quote ? stripHtml(row.quote) : null,
       pages: m?.pages ?? null,
       pubYear: m?.pubYear ?? null,
       series: m?.series ?? null,
       bookUrl,
       contentWarning: row.summary || null,
+      progress: progress != null && Number.isFinite(progress) ? progress : null,
+      progressMode: row.progressMode,
+      finishedAt: marksFinish ? (parsePartialDate(row.finishedDate) ?? c.eventAt) : null,
     }
     out.set(c.refId, entry)
   }

@@ -29,6 +29,7 @@ const book = {
   coverUrl: 'https://bookwyrm.social/cover.jpg', rating: 4, reviewTitle: 'Verdt tida',
   html: '<p>God bok.</p>', quote: null, pages: 312, pubYear: 2019, series: null,
   bookUrl: 'https://bookwyrm.social/book/1', contentWarning: null,
+  subtitle: null, progress: null, progressMode: null, finishedAt: null,
 }
 
 const mark = {
@@ -231,6 +232,13 @@ describe('rich cards', () => {
     expect(html).toContain('Verdt tida')
   })
 
+  it('names the volume when the catalogue keeps it apart from the title', () => {
+    // BookWyrm files Heartstopper vol. 6 as title "Heartstopper" + subtitle
+    // "Volume 6". Showing the title alone makes six books look like one.
+    const vol = { ...book, title: 'Heartstopper', subtitle: 'Volume 6' }
+    expect(render(<EntryView entry={vol as never} />)).toContain('Heartstopper — Volume 6')
+  })
+
   it('shows a mark with the note Markus wrote, verbatim', () => {
     const html = render(<EntryView entry={mark as never} />)
     expect(html).toContain('Ein gammal film')
@@ -364,5 +372,123 @@ describe('the train a post was written on', () => {
     const html = render(<EntryView entry={sensitive} />)
     expect(html).toContain('Ikkje for alle')
     expect(html).not.toContain('cdn/x.jpg')
+  })
+})
+
+/**
+ * The five reading cards.
+ *
+ * Fixtures are the real events from the live archive, because the point of the
+ * change was that four of these five had never rendered at all.
+ */
+describe('reading cards', () => {
+  const started = {
+    ...book, refId: 'book:10', kind: 'book_started' as const,
+    eventAt: at('2026-08-05T20:57:15Z'),
+    originUrl: 'https://bookwyrm.social/user/mvrkws/comment/12215917',
+    title: 'A Parade of Horribles', author: 'Matt Dinniman', pages: 624, pubYear: 2026,
+    rating: null, reviewTitle: null, html: '<p>Siste bok for no!</p>',
+  }
+  const bareStart = { ...started, refId: 'book:11', html: null, finishedAt: null }
+  const finished = {
+    ...book, refId: 'book:12', kind: 'book_finished' as const,
+    eventAt: at('2026-08-05T20:40:55Z'), title: 'This Inevitable Ruin',
+    rating: null, reviewTitle: null, html: '<p>markus.plus/melding/bok/this-inevitable-ruin</p>',
+  }
+  const comment = {
+    ...book, refId: 'book:13', kind: 'book_comment' as const,
+    title: 'Heartstopper', subtitle: 'Volume 6', rating: null, reviewTitle: null,
+    html: '<p>Pause frå Carl for å sjå slutten til Nick og Charlie.</p>',
+    progress: 120, progressMode: 'PG',
+  }
+  const quote = {
+    ...book, refId: 'book:14', kind: 'book_quote' as const, rating: null, reviewTitle: null,
+    quote: 'Maybe he wanted to visit the British Library in London.',
+    html: '<p>Tromsø bokhandel???</p>',
+  }
+  const review = { ...book, refId: 'book:15', finishedAt: at('2025-06-04T19:38:36Z') }
+
+  const FIVE = [
+    ['byrja å lesa', started], ['lesen ut', finished], ['kommentar', comment],
+    ['sitat', quote], ['melding', review],
+  ] as const
+
+  it('labels each kind with the word Markus chose for it', () => {
+    for (const [label, entry] of FIVE) {
+      expect(render(<EntryView entry={entry as never} />), label).toContain(`>${label}<`)
+    }
+  })
+
+  it('gives each kind a silhouette of its own', () => {
+    // Criterion 8: tellable apart in a screenshot with the chip text masked. Both
+    // the article's class and the chip's shape have to differ, or "masked" would
+    // leave five identical cards.
+    const cards = FIVE.map(([, e]) => render(<EntryView entry={e as never} />))
+    const article = cards.map((h) => h.match(/<article class="([^"]+)"/)![1])
+    const chip = cards.map((h) => h.match(/<span class="(bookchip[^"]*)"/)![1])
+    expect(new Set(article).size).toBe(5)
+    expect(new Set(chip).size).toBe(5)
+  })
+
+  it('tells a start from a finish with every word stripped out', () => {
+    const strip = (h: string) => h.replace(/>[^<]*</g, '><')
+    expect(strip(render(<EntryView entry={started as never} />)))
+      .not.toBe(strip(render(<EntryView entry={finished as never} />)))
+  })
+
+  it('shows what he wrote when the start came in a comment', () => {
+    // The bug, from the reader's side: this sentence existed and the page did not
+    // show it, because the start had no generatednote to hang off.
+    const html = render(<EntryView entry={started as never} />)
+    expect(html).toContain('Siste bok for no!')
+    expect(html).toContain('A Parade of Horribles')
+    expect(html).toContain('Matt Dinniman')
+    expect(html).toContain('624 sider')
+  })
+
+  it('says nothing extra for a shelf flip made without words', () => {
+    // Criterion 3: the generatednote start must look exactly as it always has.
+    const html = render(<EntryView entry={bareStart as never} />)
+    expect(html).not.toContain('class="body"')
+    expect(html).not.toContain('started reading')
+    expect(html).toContain('byrja å lesa')
+  })
+
+  it('puts a remark above the book it is about', () => {
+    const html = render(<EntryView entry={comment as never} />)
+    expect(html.indexOf('Pause frå Carl')).toBeLessThan(html.indexOf('class="card slim"'))
+    expect(html).toContain('side 120')
+    // Chatter shows the title and nothing else of the catalogue.
+    expect(html).not.toContain('312 sider')
+  })
+
+  it('frames a quotation as a quotation', () => {
+    const html = render(<EntryView entry={quote as never} />)
+    expect(html).toContain('<figure class="quote-frame">')
+    expect(html).toContain('<blockquote>')
+    expect(html).toContain('British Library')
+    // The remark he added alongside the passage is still his, and still shown.
+    expect(html).toContain('Tromsø bokhandel???')
+  })
+
+  it('marks a review that also closed the book', () => {
+    const html = render(<EntryView entry={review as never} />)
+    expect(html).toContain('class="finished-mark"')
+    expect(html).toContain('4. juni 2025')
+    expect(html).toContain('<h3 class="review-title">Verdt tida</h3>')
+  })
+
+  it('never repeats the finish on a card whose chip already says it', () => {
+    // hydrateBooks is what leaves finishedAt null here, so the fixture has to carry
+    // one for this to be worth asserting — a card with no date cannot print one.
+    const marked = { ...finished, finishedAt: at('2026-08-05T20:40:55Z') }
+    expect(render(<EntryView entry={marked as never} />)).not.toContain('finished-mark')
+  })
+
+  it('escapes a hostile title on every one of the five', () => {
+    for (const [label, entry] of FIVE) {
+      const nasty = { ...entry, title: '</h3><script>alert(1)</script>', subtitle: null }
+      expect(render(<EntryView entry={nasty as never} />), label).not.toContain('<script>')
+    }
   })
 })

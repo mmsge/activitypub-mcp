@@ -3,7 +3,9 @@ import { config } from '../config.js'
 import { decodeCursor } from '../mcp/tools/pagination.js'
 import { archiveRange, type Facets } from './facets.js'
 import { lanesForPlatform, platformInfo, AP_PLATFORMS, type ApPlatform, type Lane } from './sources.js'
-import { readingKindOn, meaningfulReadingOn } from './reading-events.js'
+import {
+  readingKindOn, meaningfulReadingOn, readingKindCaseOn, supersededGeneratedNoteOn,
+} from './reading-events.js'
 import { publicOnlyOn } from './visibility.js'
 import { gardenEventAtOn } from './garden-date-sql.js'
 
@@ -198,11 +200,14 @@ export function postsLane(ctx: LaneContext): SQL | null {
 }
 
 /**
- * BookWyrm reading events — started, finished, reviews and quotations. Ratings and
- * automatic progress notes are excluded by meaningfulReadingCondition.
+ * BookWyrm reading events — every kind of them except "wants to read", which is
+ * intent rather than activity. Which card each one renders as is decided by
+ * reading-events.ts, not here.
  *
  * Started/finished are dated by the reader's own recorded dates where BookWyrm
- * carried them, so a book finished in June but posted in August sits in June.
+ * carried them, so a book finished in June but posted in August sits in June. Only
+ * a GeneratedNote ever carries those; a start that arrived as a Comment is dated by
+ * when it was posted, which is the same day the reader flipped the shelf.
  */
 export function readingLane(ctx: LaneContext): SQL | null {
   const { facets } = ctx
@@ -216,11 +221,7 @@ export function readingLane(ctx: LaneContext): SQL | null {
          THEN (o.raw->>'finishedDate')::timestamptz END,
     o.published_at)`
   const refId = sql`('book:' || o.id::text)`
-  const kind = sql`CASE
-    WHEN o.ap_id LIKE '%/review/%' THEN 'book_review'
-    WHEN o.ap_id LIKE '%/quotation/%' THEN 'book_quote'
-    WHEN o.content_text LIKE '%started reading%' THEN 'book_started'
-    ELSE 'book_finished' END`
+  const kind = readingKindCaseOn('o')
 
   return sql`
     SELECT ${eventAt} AS event_at, ${kind} AS kind, ${refId} AS ref_id, 'bookwyrm' AS source
@@ -233,6 +234,9 @@ export function readingLane(ctx: LaneContext): SQL | null {
       // it is not a reply. A genuine reply to someone else's review is.
       sql`o.in_reply_to IS NULL`,
       meaningfulReadingOn('o'),
+      // One act of reading, one card: where BookWyrm emitted both a bare note and a
+      // comment, the comment is the one with the words in it.
+      sql`NOT ${supersededGeneratedNoteOn('o', eventAt, publicOnlyOn('c', config.STREAM_INCLUDE_UNLISTED))}`,
       sql`${eventAt} IS NOT NULL`,
       facets.tag ? tagCondition(facets.tag) : null,
       facets.kind ? readingKindOn('o', facets.kind) ?? sql`false` : null,
