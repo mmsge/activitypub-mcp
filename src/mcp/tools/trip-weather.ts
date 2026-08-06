@@ -91,6 +91,7 @@ export async function getTripWeather(input: z.infer<typeof getTripWeatherSchema>
       t.from_station, t.to_station, t.journey, t.operator, t.mode,
       t.distance_km, t.night, t.departure_at, t.arrival_at,
       ds.display_name AS dep_station_matched,
+      ds.geocode_error_km::float8 AS dep_geocode_error_km,
       dw.id AS dep_id, dw.date::text AS dep_date, dw.weather_code AS dep_code,
       dw.temp_max_c AS dep_tmax, dw.temp_min_c AS dep_tmin,
       dw.precipitation_mm AS dep_precip, dw.snowfall_cm AS dep_snow, dw.wind_max_kmh AS dep_wind,
@@ -118,6 +119,13 @@ export async function getTripWeather(input: z.infer<typeof getTripWeatherSchema>
     arrival_at: r.arrival_at,
     /** What the geocoder matched for the origin — so a wrong hit is visible here. */
     departure_station_matched: r.dep_station_matched ?? null,
+    /**
+     * How far the origin's coordinates disagree with the distances its legs
+     * record, in km. Near zero or negative is fine; a large number means the
+     * station was geocoded to the wrong place and this weather is from there
+     * (ADR 0029). Null when unchecked.
+     */
+    departure_geocode_error_km: num(r.dep_geocode_error_km),
     departure_weather: side(r, 'dep'),
     arrival_weather: side(r, 'arr'),
   }))
