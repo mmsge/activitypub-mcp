@@ -355,6 +355,56 @@ a:hover { color: var(--ink); }
   font-style: italic;
 }
 
+/* ---- Reading cards -------------------------------------------------------
+   Five kinds of BookWyrm event. The chip names each one, but a card has to be
+   tellable apart with the chip's words masked — so the cover size, the order the
+   body comes in and how much of the catalogue is shown carry the difference too,
+   not the colour alone. */
+
+/* The event's own chip, in the meta line. Deliberately not the .chip class: that
+   one is the source tab strip at the top of the page, and sharing it would tie the
+   two together forever. */
+.bookchip { padding: .12rem .55rem; border-radius: 999px; font-weight: 600; }
+.bookchip.start { background: var(--accent-soft); color: var(--accent); }
+/* The only solid one. A finish is the event with an end to it, and it should read
+   as heavier than the start it closes. --paper rather than #fff, so it stays
+   legible when the page is dark. */
+.bookchip.finish { background: var(--accent); color: var(--paper); }
+.bookchip.review { background: var(--ink); color: var(--paper); }
+.bookchip.quote { border: 1px solid var(--accent); color: var(--accent); }
+.bookchip.said { border: 1px solid var(--line); color: var(--muted); }
+
+/* Chatter: his words first, the book after them and small. */
+.said { margin: 0 0 .85rem; }
+.card.slim { gap: .7rem; align-items: center; }
+.card.slim .cover { flex: 0 0 44px; width: 44px; border-radius: 4px; }
+.card.slim h3 { font-size: .95rem; margin: 0; font-weight: 600; }
+
+/* A quotation: the passage is the card. Serif, because the page is, and framed so
+   it does not read as another paragraph of his own. */
+.quote-frame {
+  margin: 0 0 .85rem; padding: .9rem 1rem .9rem 1.1rem;
+  background: var(--accent-soft); border-left: 3px solid var(--accent);
+  border-radius: 0 10px 10px 0;
+}
+.quote-frame blockquote {
+  margin: 0; font-size: 1.06rem; line-height: 1.55; font-style: italic; color: var(--ink);
+}
+.book_quote .card.slim { padding-top: .6rem; border-top: 1px solid var(--line); }
+
+/* A review: the widest of them, and the only one with a heading he wrote. */
+.entry.book_review { margin-left: -.75rem; margin-right: -.75rem; }
+.book_review .card .cover { flex: 0 0 96px; width: 96px; }
+.review-title { margin: .95rem 0 .35rem; font-size: 1.12rem; font-weight: 600; line-height: 1.3; }
+.finished-mark {
+  margin: .7rem 0 0; font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: .78rem; color: var(--muted);
+}
+.finished-mark::before { content: "\\2713 "; color: var(--accent); }
+
+/* A finish closes something; give it an edge the start does not have. */
+.entry.book_finished { box-shadow: inset 3px 0 0 var(--accent), 0 1px 2px var(--shadow); }
+
 .tracks { margin: .7rem 0 0; }
 .tracks > summary {
   cursor: pointer; font-family: ui-sans-serif, system-ui, sans-serif;
@@ -459,6 +509,10 @@ footer .fine { font-size: .8rem; opacity: .85; }
   .intro h1 { font-size: 1.7rem; }
   .card { gap: .8rem; }
   .card .cover { flex-basis: 64px; width: 64px; }
+  .book_review .card .cover { flex-basis: 72px; width: 72px; }
+  .card.slim .cover { flex-basis: 36px; width: 36px; }
+  /* No room to be the widest card on a phone — the page is already edge to edge. */
+  .entry.book_review { margin-left: 0; margin-right: 0; }
   .media.two { grid-template-columns: 1fr; }
 }
 `

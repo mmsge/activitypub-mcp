@@ -80,10 +80,23 @@ function eta(gap: number, netPerDay: number | null): string {
   return ` At the current pace, ~${num(days)} day${days === 1 ? '' : 's'}.`
 }
 
-/** The tightest configured milestone the gap has already crossed, or null. */
+/** The tightest configured milestone the gap has already crossed, or null.
+ *
+ *  Inclusive on purpose: a rung is crossed ON the number, not one play past it, so
+ *  gap 250 crosses the 250 rung. That makes the *copy* the thing that has to be right —
+ *  "under 250" is simply false at a gap of 250, however correct "250 to go" is. See
+ *  `milestoneReach` below and decision record 0030. */
 export function tightestCrossed(gap: number, milestones: number[]): number | null {
   const crossed = milestones.filter(m => gap <= m)
   return crossed.length ? Math.min(...crossed) : null
+}
+
+/** How the body should describe reaching a rung, given where the gap actually is.
+ *  Landing exactly on the rung is "at" it; anything tighter is "under" it. */
+export function milestoneReach(gap: number, milestone: number): string {
+  return gap === milestone
+    ? `At ${num(milestone)} for the first time.`
+    : `Under ${num(milestone)} for the first time.`
 }
 
 /**
@@ -258,7 +271,7 @@ export function decideRaceAlert(
         title: `${num(gap)} to go`,
         body: [
           standings(snap),
-          `Under ${num(nextMilestone)} for the first time.`,
+          milestoneReach(gap, nextMilestone),
           play ? `Last play: ${quote(play.track)}.` : '',
         ].filter(Boolean).join(' ') + eta(gap, snap.netPerDay),
         tags: ['chart_with_upwards_trend'],

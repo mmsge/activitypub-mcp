@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 /**
  * The `notifications` block of get_scrobble_race, which is the public contract for the
@@ -102,5 +102,59 @@ describe('get_scrobble_race — the notifications block', () => {
       nowplaying_gap: 0,
       overtaken_at: null,
     })
+  })
+})
+
+/**
+ * next_milestone answers "which rung speaks next?", so it has to agree with the rung
+ * predicate the watcher itself uses. It used to be a second, independent comparison
+ * (`m < gap`), and the two drifted: tightestCrossed is inclusive, so at a gap of exactly
+ * 250 the notifier was about to fire 250 while this reported 200. Decision record 0030.
+ */
+describe('get_scrobble_race — next_milestone tracks the notifier', () => {
+  const DEFAULT_COUNTS = { leaderPlays: 10_439, challengerPlays: 10_142 }
+  const atGap = (gap: number) =>
+    countRacePlays.mockResolvedValue({ leaderPlays: 10_439, challengerPlays: 10_439 - gap })
+
+  afterEach(() => { countRacePlays.mockResolvedValue(DEFAULT_COUNTS) })
+
+  it('names the rung the notifier will fire when the gap lands exactly on it', async () => {
+    atGap(250)
+    loadRaceState.mockResolvedValue(storedState({ lastMilestone: 300 }))
+    const r = await getScrobbleRace({ pace_days: 90 })
+    expect(r.gap).toBe(250)
+    expect(r.notifications?.next_milestone).toBe(250)
+  })
+
+  it('still owes a rung the gap has passed but no alert has spent', async () => {
+    atGap(249)
+    loadRaceState.mockResolvedValue(storedState({ lastMilestone: 300 }))
+    const r = await getScrobbleRace({ pace_days: 90 })
+    expect(r.notifications?.next_milestone).toBe(250)
+  })
+
+  it('moves down a rung once that one has been announced', async () => {
+    atGap(249)
+    loadRaceState.mockResolvedValue(storedState({ lastMilestone: 250 }))
+    const r = await getScrobbleRace({ pace_days: 90 })
+    expect(r.notifications?.next_milestone).toBe(200)
+  })
+
+  it('has no next rung once the race is run', async () => {
+    atGap(3)
+    loadRaceState.mockResolvedValue(storedState({
+      lastMilestone: 10,
+      overtakenAt: new Date('2026-08-26T21:14:03Z'),
+    }))
+    const r = await getScrobbleRace({ pace_days: 90 })
+    expect(r.notifications?.next_milestone).toBeNull()
+  })
+
+  it('has no next rung once the challenger is already ahead', async () => {
+    atGap(-5)
+    loadRaceState.mockResolvedValue(storedState({ lastMilestone: 10 }))
+    const r = await getScrobbleRace({ pace_days: 90 })
+    expect(r.gap).toBe(-5)
+    expect(r.notifications?.next_milestone).toBeNull()
   })
 })

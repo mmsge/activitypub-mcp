@@ -62,10 +62,20 @@ export async function getScrobbleRace(input: z.infer<typeof getScrobbleRaceSchem
   const netPerDay = challengerPerDay - leaderPerDay
   const crossover = projectCrossover({ gap, netPerDay })
 
+  // The rung the watcher will actually announce on the next play that moves the number.
+  // Derived from tightestCrossed — the notifier's own predicate — rather than from a
+  // second, independent comparison. The two drifted apart once already: with `m < gap`
+  // this reported 200 at a gap of 250 while the notifier was about to fire 250, because
+  // tightestCrossed is inclusive. Any rung the gap has already reached but no alert has
+  // spent is still owed; only past that do we look for the next one down.
   const milestones = getRaceMilestones()
-  const nextMilestone = milestones.filter(
-    m => m < (state?.lastMilestone ?? Infinity) && m < gap,
-  )[0] ?? null
+  const spent = state?.lastMilestone ?? null
+  const crossed = tightestCrossed(gap, milestones)
+  const owed = crossed != null && (spent == null || crossed < spent) ? crossed : null
+  const nextMilestone =
+    gap < 0 || state?.overtakenAt
+      ? null // the race is run; the next alert is the overtake, not a rung
+      : (owed ?? milestones.find(m => m < (spent ?? Infinity) && m < gap) ?? null)
 
   return {
     leader: {

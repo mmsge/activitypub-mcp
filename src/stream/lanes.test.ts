@@ -11,6 +11,21 @@ import { encodeCursor } from '../mcp/tools/pagination.js'
 const dialect = new PgDialect()
 const render = (s: SQL | null): string => (s == null ? '' : dialect.sqlToQuery(s).sql)
 
+/**
+ * The same query, with the values bound into it appended.
+ *
+ * The patterns a reading lane selects on ('%/review/%', 'started reading') are bound
+ * parameters, not inline literals. A test that read `.sql` alone would see `$7` and
+ * happily pass whatever the lane actually matched, so anything asserting *what* is
+ * selected has to look here. Anything asserting the query's shape wants `render` —
+ * this string does not end where the SQL does.
+ */
+const renderBound = (s: SQL | null): string => {
+  if (s == null) return ''
+  const q = dialect.sqlToQuery(s)
+  return `${q.sql}\n-- params: ${JSON.stringify(q.params)}`
+}
+
 const ACTOR_IDS = {
   mastodon: ['https://skvip.lol/users/markus'],
   pixelfed: ['https://pixelfed.babb.no/users/markus'],
@@ -122,23 +137,59 @@ describe('postsLane', () => {
 })
 
 describe('readingLane', () => {
-  it('keeps reviews, quotations, starts and finishes', () => {
-    const sql = render(readingLane(ctx()))
+  it('keeps every kind of reading event BookWyrm emits', () => {
+    const sql = renderBound(readingLane(ctx()))
     expect(sql).toContain('/review/')
     expect(sql).toContain('/quotation/')
+    expect(sql).toContain('/reviewrating/')
     expect(sql).toContain('started reading')
     expect(sql).toContain('finished reading')
   })
 
-  it('does not select bare ratings', () => {
-    // Built from positive matches, so a new BookWyrm post type stays out until
-    // someone decides it belongs — rather than appearing silently.
-    expect(render(readingLane(ctx()))).not.toContain('/rating/')
+  it('selects comments, because a start can arrive as one', () => {
+    // The bug this lane was fixed for: flipping a shelf *with text* makes BookWyrm
+    // emit no generatednote at all, only a comment carrying readingStatus. Dropping
+    // comments dropped real starts and finishes, not progress notes.
+    const sql = renderBound(readingLane(ctx()))
+    expect(sql).toContain('/comment/')
+    expect(sql).toContain("readingStatus")
+  })
+
+  it('leaves want-to-read out, in either shape it arrives in', () => {
+    // Intent is not activity — the same call as NeoDB wishlists. It reaches us as a
+    // generatednote saying so, or as a comment shelved to-read.
+    const sql = renderBound(readingLane(ctx()))
+    expect(sql).toContain('wants to read')
+    expect(sql).toContain('%to-read%')
+  })
+
+  it('collapses a bare start note into the comment that says it in words', () => {
+    // BookWyrm can emit both for one shelf flip. Done in SQL, not afterwards: every
+    // lane carries its own LIMIT, so dropping rows later would return short pages.
+    const sql = renderBound(readingLane(ctx()))
+    expect(sql).toContain('NOT (o.ap_id LIKE')
+    expect(sql).toContain('EXISTS (')
+    expect(sql).toContain("date_trunc('day', c.published_at AT TIME ZONE 'Europe/Oslo')")
+  })
+
+  it('holds the suppressing comment to the same visibility gate', () => {
+    // A followers-only comment may not delete a public note from the page.
+    expect(renderBound(readingLane(ctx()))).toContain("c.visibility = 'public'")
   })
 
   it('dates a finish by the reader\'s own finish date where BookWyrm carried one', () => {
-    expect(render(readingLane(ctx()))).toContain("'finishedDate'")
+    expect(renderBound(readingLane(ctx()))).toContain("'finishedDate'")
   })
+
+  for (const kind of ['book_started', 'book_finished', 'book_comment', 'book_review', 'book_quote'] as const) {
+    it(`narrows to ${kind} for /type/${kind}`, () => {
+      // `?? sql\`false\`` is the fallback for a kind this lane cannot serve, so an
+      // empty narrowing here would silently render an empty page instead.
+      const sql = renderBound(readingLane(ctx({ kind })))
+      expect(sql).not.toContain('false')
+      expect(sql.length).toBeGreaterThan(renderBound(readingLane(ctx())).length)
+    })
+  }
 })
 
 describe('marksLane', () => {
@@ -313,7 +364,7 @@ describe('mergedCandidateSql', () => {
   })
 
   it('runs only the selected lane when a platform is chosen', () => {
-    const sql = render(mergedCandidateSql(ctx({ platform: 'bookwyrm' })))
+    const sql = renderBound(mergedCandidateSql(ctx({ platform: 'bookwyrm' })))
     expect(sql).not.toContain('UNION ALL')
     expect(sql).toContain('/review/')
     expect(sql).not.toContain('scrobbles')

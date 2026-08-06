@@ -1142,8 +1142,14 @@ paths:
       summary: Currently-playing Last.fm track
       description: |
         A live read of the Last.fm user's currently-playing track (not a stored
-        scrobble). Returns `{ nowPlaying: false }` when nothing is playing or
-        Last.fm is not configured. Result is briefly cached server-side.
+        scrobble). Returns `{ nowPlaying: false }` when Last.fm answered and
+        nothing is playing, and `{ nowPlaying: null, error }` when the upstream
+        call failed or Last.fm is not configured — an outage is never reported as
+        silence. Successful reads are briefly cached server-side; failures are not.
+
+        Note that this stays `false` mid-song for a scrobbler that never sends
+        `track.updateNowPlaying`, which is the common case here. That is an honest
+        read of an upstream that has nothing to report, not a bug.
       operationId: getNowPlayingGet
       responses:
         "200":
@@ -3296,7 +3302,14 @@ components:
     NowPlayingResponse:
       type: object
       properties:
-        nowPlaying: { type: boolean }
+        nowPlaying:
+          type: [boolean, "null"]
+          description: >-
+            true when a track is playing, false when Last.fm answered and nothing
+            is, null when the upstream read failed (see `error`).
+        error:
+          type: string
+          description: Present only when `nowPlaying` is null.
         track: { type: string }
         artist: { type: string }
         album: { type: [string, "null"] }

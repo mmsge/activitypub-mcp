@@ -34,7 +34,7 @@ export type Lane = 'posts' | 'reading' | 'marks' | 'music' | 'trips' | 'garden'
 /** Every kind of entry the stream can render. The view layer dispatches on this. */
 export const KINDS = [
   'post', 'photo', 'video',
-  'book_started', 'book_finished', 'book_review', 'book_quote',
+  'book_started', 'book_finished', 'book_comment', 'book_review', 'book_quote',
   'screen', 'listen', 'play', 'read_neodb', 'mark',
   'scrobble_day', 'trip', 'garden',
 ] as const

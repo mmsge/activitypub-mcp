@@ -16,7 +16,7 @@ import { logger } from './logger.js'
  * it did not merely waste a request; it made wrong searches *succeed*, so six
  * stations were silently placed in France: Arna above Nice, Bergen in the Somme,
  * Chur in Normandy. A hint that is confidently wrong is worse than none, because
- * a hit stops the fallback from ever running. See ADR 0029.
+ * a hit stops the fallback from ever running. See ADR 0031.
  *
  * Unqualified search is right for most names and wrong for a few — "Falkenberg"
  * fuzzy-matches Faulquemont in Moselle whatever you do, and adding "station" to
