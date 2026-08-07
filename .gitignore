@@ -2,3 +2,9 @@ node_modules/
 dist/
 .env
 *.local
+
+# Written on the checkout at `make deploy` by scripts/generate-build-info.sh and
+# baked into the image for /version. Never committed: a stored SHA would go stale the
+# moment anything else is pushed, and /version's whole job is telling a stale image
+# from a current one. See naustet-server ADR 0022.
+build-info.json

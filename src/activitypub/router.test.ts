@@ -251,7 +251,7 @@ describe('robots.txt and sitemap.xml', () => {
 
   it('keeps crawlers off the surfaces that are not content', async () => {
     const body = await (await get('/robots.txt')).text()
-    for (const path of ['/admin', '/api/', '/mcp', '/oauth']) {
+    for (const path of ['/admin', '/api/', '/mcp', '/oauth', '/healthz', '/version', '/health']) {
       expect(body, path).toContain(`Disallow: ${path}`)
     }
   })

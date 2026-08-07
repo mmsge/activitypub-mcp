@@ -12,6 +12,7 @@ import { mcpRouter } from './mcp/router.js'
 import { oauthRouter } from './oauth/router.js'
 import { oauthWellknownRouter } from './oauth/wellknown.js'
 import { restRouter } from './rest/router.js'
+import { opsRouter } from './ops/router.js'
 import { startScheduler } from './jobs/scheduler.js'
 import { syncFollows } from './jobs/sync-follows.js'
 import { syncScrobbles } from './jobs/sync-scrobbles.js'
@@ -33,6 +34,12 @@ import { streamApp } from './stream/router.js'
 import { isStreamHost, streamEnabled } from './stream/host.js'
 
 const app = new Hono()
+
+// Ops contract: /healthz, /version, /health (naustet-server ADR 0022). First, so no
+// later router — or a catch-all added later — can shadow the three paths the box
+// probes. The same router is mounted on streamApp too, so the two hosts sharing this
+// process can never give different answers about the one image behind them.
+app.route('', opsRouter)
 
 // Well-known endpoints
 app.route('/.well-known', webfingerRouter)
@@ -56,10 +63,6 @@ app.route('/api/v1', restRouter)
 
 // Admin UI
 app.route('/admin', adminRouter)
-
-// Health check
-app.get('/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }))
-app.get('/healthz', (c) => c.text('ok'))
 
 async function main() {
   // Verify DB connection

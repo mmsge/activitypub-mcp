@@ -40,8 +40,13 @@ services:
     # main() runs blocking startup syncs before serve() binds the port, so give
     # the probe a generous grace period before failures count. node:22-alpine
     # ships busybox wget; probe the container-internal port 3000.
+    # /healthz, never /health: liveness only. /health reports on the database, the
+    # delivery queue and the scheduler, so pointing the probe at it would restart the
+    # container every time postgres hiccuped. 127.0.0.1, not localhost — and the body
+    # is compared, not just the status, because a route that 200s with the wrong body
+    # (an HTML shell, a redirect page) is the failure mode a status check misses.
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/healthz | grep -qx ok"]
       interval: 30s
       timeout: 5s
       retries: 3

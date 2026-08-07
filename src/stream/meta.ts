@@ -110,6 +110,11 @@ export function renderRobots(): string {
     // The cursor space is unbounded; a crawler walking it would page through the
     // whole archive one request at a time and cache-bust every step.
     'Disallow: /*?etter=',
+    // The ops endpoints (naustet-server ADR 0022): useful to the box and to agents,
+    // not content. They answer here too — one process serves both hosts.
+    'Disallow: /healthz',
+    'Disallow: /version',
+    'Disallow: /health',
     '',
     `Sitemap: ${streamOrigin()}/sitemap.xml`,
     '',

@@ -13,6 +13,7 @@ import { renderAtom } from './feed.js'
 import { renderHead, renderRobots, renderSitemap } from './meta.js'
 import { verifyProxyPath } from './image-proxy.js'
 import { getImage } from './image-cache.js'
+import { opsRouter } from '../ops/router.js'
 import { platformInfo, AP_PLATFORMS, LOCAL_PLATFORMS, type Platform } from './sources.js'
 import {
   EMPTY_FACETS, FRONT_PAGE_SIZE, PAGE_SIZE, cacheKey, parsePlatform, parseKind,
@@ -34,6 +35,13 @@ import type { StreamPage, UndatedGardenNote } from './entries.js'
  */
 
 export const streamApp = new Hono()
+
+// Ops contract: /healthz, /version, /health (naustet-server ADR 0022). Literally the
+// same router object the bot app mounts — one container, one image, one commit behind
+// both hosts (ADR 0032), so they must not be able to answer differently. Mounted first,
+// ahead of every page route and of streamApp.notFound(), which would otherwise turn a
+// missing ops path into a 404 HTML page and read as "endpoint absent" to the box audit.
+streamApp.route('', opsRouter)
 
 const TTL = config.STREAM_CACHE_TTL_SECONDS * 1000
 
@@ -319,8 +327,6 @@ streamApp.get('/bilete/:sig/:encoded', async (c) => {
     'X-Content-Type-Options': 'nosniff',
   })
 })
-
-streamApp.get('/healthz', (c) => c.text('ok'))
 
 /** A minimal page in the site's own voice, for the outcomes that are not a stream. */
 function message(c: Context, status: 400 | 404 | 500, title: string, body: string): Response {

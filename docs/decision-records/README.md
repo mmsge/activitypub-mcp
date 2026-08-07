@@ -42,3 +42,4 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | [0029](0029-a-shelf-flip-with-words-arrives-as-a-comment.md) | A shelf flip with words attached arrives as a Comment, not a GeneratedNote — classify reading events on what they say, and give each kind its own card |
 | [0030](0030-the-scrobble-count-is-a-mirror-not-a-judgement.md) | The scrobble count is a mirror of Last.fm, not a judgement: audit the short plays, change nothing |
 | [0031](0031-a-trip-is-visible-when-it-has-departed.md) | A trip is visible when it has departed, not when the export says Completed — the import's status is write-once |
+| [0032](0032-one-image-two-hosts-one-version.md) | One image, two hosts: `/version` names the deployable (`bot`), the ops contract is mounted on both apps, and no fediverse upstream is ever named in `/health` |

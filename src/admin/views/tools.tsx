@@ -37,7 +37,9 @@ export const INFRA_ROUTES: InfraRoute[] = [
   { methods: 'POST', path: '/oauth/revoke', description: 'OAuth token revocation' },
   { methods: 'ALL', path: '/mcp', description: 'MCP transport (Streamable HTTP)' },
   { methods: 'GET', path: '/api/v1/', description: 'REST API discovery document' },
-  { methods: 'GET', path: '/health', description: 'Health check' },
+  { methods: 'GET', path: '/healthz', description: 'Liveness probe (body: exactly "ok")' },
+  { methods: 'GET', path: '/version', description: 'Git identity of the running image' },
+  { methods: 'GET', path: '/health', description: 'Readiness, with per-dependency checks' },
   { methods: 'GET', path: '/admin/*', description: 'Admin UI (this dashboard)' },
 ]
 

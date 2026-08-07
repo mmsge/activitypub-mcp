@@ -15,12 +15,19 @@ import { syncStations } from './sync-stations.js'
 import { syncStationWeather } from './sync-station-weather.js'
 import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
+import { markSchedulerTick } from '../lib/heartbeat.js'
 
 const SIX_HOURS_MS = 6 * 60 * 60_000
 
 export function startScheduler(): void {
   // Delivery queue — every 30 seconds
   setInterval(async () => {
+    // Beat first, unconditionally: /health's `scheduler` check asks whether the timers
+    // are still firing, which is a different question from whether the work succeeded.
+    // Marking it after the await would report a dead scheduler every time a delivery
+    // threw — and this is the shortest interval in the file, so it is the one that
+    // makes the age meaningful.
+    markSchedulerTick()
     try { await runDeliveryWorker() } catch (e) { logger.error(e, 'Delivery worker error') }
   }, 30_000)
 

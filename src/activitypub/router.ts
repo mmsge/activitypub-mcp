@@ -159,7 +159,9 @@ for (const base of ['/actor', `/users/${config.APP_USERNAME}`]) {
  * public pages are indexable, and the surfaces that are not content are not.
  *
  * Kept away from `/admin` and `/api/` explicitly: neither is reachable without
- * credentials, but a crawler wasting requests on 401s helps nobody.
+ * credentials, but a crawler wasting requests on 401s helps nobody. The three ops
+ * paths are excluded for the same reason: useful to the box and to agents, not
+ * content for a search index (naustet-server ADR 0022).
  */
 app.get('/robots.txt', (c) =>
   c.text(
@@ -170,6 +172,9 @@ app.get('/robots.txt', (c) =>
       'Disallow: /api/',
       'Disallow: /mcp',
       'Disallow: /oauth',
+      'Disallow: /healthz',
+      'Disallow: /version',
+      'Disallow: /health',
       '',
       `Sitemap: https://${config.APP_DOMAIN}/sitemap.xml`,
       '',

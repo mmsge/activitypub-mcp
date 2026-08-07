@@ -15,7 +15,8 @@ info:
       byte-identical data.
     - **ActivityPub federation** — the actor document, inbox, outbox and
       collections used by other fediverse servers.
-    - **Discovery & health** — WebFinger, NodeInfo and a health probe.
+    - **Discovery & health** — WebFinger, NodeInfo, and the box's three-endpoint
+      ops contract (`/healthz`, `/version`, `/health`).
 
     The HTML admin UI (`/admin/*`) and the MCP protocol endpoint (`/mcp`) are
     intentionally not modelled here: the former serves HTML forms, the latter
@@ -61,7 +62,11 @@ tags:
   - name: Discovery
     description: WebFinger and NodeInfo discovery documents.
   - name: Health
-    description: Liveness probe.
+    description: >
+      Liveness, build identity and readiness — the three fixed paths every service
+      on the box answers (naustet-server ADR 0022). All three are public,
+      unauthenticated and uncached, and all three answer on both hosts this one
+      container serves.
 
 security:
   - BearerAuth: []
@@ -2607,22 +2612,85 @@ paths:
               schema: { $ref: "#/components/schemas/OrderedCollection" }
 
   # ------------------------------------------------------------------ Health
-  /health:
+  # The box's ops contract (naustet-server ADR 0022): three fixed paths answering
+  # three different questions. All three are public, uncached (`Cache-Control:
+  # no-store`) and served on both hosts this one container answers for.
+  /healthz:
     get:
       tags: [Health]
-      summary: Health check
-      operationId: getHealth
+      summary: Liveness probe
+      description: >
+        Is the process alive? Dependency-free by design — it makes no database or
+        upstream call, because the container healthcheck restarts on it. The body is
+        exactly `ok`, two bytes with no trailing newline; the probe compares them.
+      operationId: getHealthz
       security: []
       responses:
         "200":
-          description: Service is healthy.
+          description: The process is up.
+          content:
+            text/plain:
+              schema: { type: string, enum: [ok] }
+
+  /version:
+    get:
+      tags: [Health]
+      summary: Git identity of the running image
+      description: >
+        Which commit is actually running? Baked into the image at deploy time, so a
+        `git pull` that was never followed by a rebuild shows up here as an older
+        commit than the checkout's. When the build metadata is absent, `source` is
+        `unknown` and the other fields are `null` — never a guess, never an error.
+      operationId: getVersion
+      security: []
+      responses:
+        "200":
+          description: Build identity of the running image.
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  status: { type: string, example: ok }
-                  timestamp: { type: string, format: date-time }
+                  service: { type: string, example: bot }
+                  commit:
+                    type: [string, "null"]
+                    description: Full 40-character SHA; short SHAs collide.
+                  commit_short: { type: [string, "null"] }
+                  branch: { type: [string, "null"] }
+                  commit_time: { type: [string, "null"], format: date-time }
+                  repo:
+                    type: [string, "null"]
+                    example: mmsge/activitypub-mcp
+                  dirty:
+                    type: [boolean, "null"]
+                    description: Built from a tree with uncommitted changes.
+                  built_at: { type: [string, "null"], format: date-time }
+                  source: { type: string, enum: [build-info, unknown] }
+
+  /health:
+    get:
+      tags: [Health]
+      summary: Readiness and diagnostics
+      description: >
+        Is it working, and if not, which part? `status` is the worst of `checks[]`.
+        **`degraded` returns 200; only `error` returns 503** — a probe pointed here
+        must not restart the container because a remote inbox is slow. The response
+        is redacted by allowlist: statuses, ages, latencies, counts, and `detail`
+        strings from a fixed vocabulary. No paths, hostnames, ports, env vars,
+        connection strings or exception text.
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Healthy (`ok`) or working with a caveat (`degraded`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthReport" }
+        "503":
+          description: At least one check failed outright.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthReport" }
 
 components:
   securitySchemes:
@@ -2689,6 +2757,44 @@ components:
       properties:
         error: { type: string }
       required: [error]
+
+    HealthReport:
+      type: object
+      description: >
+        The redaction allowlist in schema form: every field here is on it, and
+        nothing else may be added. `checks[].name` and `checks[].detail` both come
+        from closed vocabularies.
+      required:
+        [status, service, started_at, uptime_seconds, checked_at, checks]
+      properties:
+        status: { type: string, enum: [ok, degraded, error] }
+        service: { type: string, example: bot }
+        commit_short: { type: [string, "null"] }
+        started_at: { type: string, format: date-time }
+        uptime_seconds: { type: integer }
+        checked_at: { type: string, format: date-time }
+        checks:
+          type: array
+          items:
+            type: object
+            required: [name, status]
+            properties:
+              name:
+                type: string
+                enum: [database, queue, scheduler]
+                description: >
+                  `database` — the archive answers a real count.
+                  `queue` — outbound ActivityPub deliveries are draining.
+                  `scheduler` — the background timers are still firing.
+              status: { type: string, enum: [ok, degraded, error] }
+              latency_ms: { type: number }
+              age_seconds: { type: integer }
+              detail:
+                type: string
+                description: >
+                  A plain count (`reachable; 12408 rows`, `3 pending`) or one of the
+                  contract's fixed failure words (`timeout`, `unavailable`, …).
+                  Never an exception message.
 
     # ---- REST request bodies ----
     ActorPostsRequest:
