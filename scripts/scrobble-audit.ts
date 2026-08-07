@@ -23,7 +23,11 @@ try {
   )
   console.log(
     `${r.sameTrackRestarts.toLocaleString('en-GB')} sub-60s plays are followed by the SAME track again — ` +
-    `restarts, which only a scrobble submitted at track start can produce.\n`,
+    `restarts, which only a scrobble submitted at track start can produce.`,
+  )
+  console.log(
+    `${r.collisions.toLocaleString('en-GB')} plays share a timestamp with the next one — a batch ` +
+    `submission with a collided uts, not a play that was cut short. Counted apart, never as suspect.\n`,
   )
 
   console.log('Overall, per threshold:')
@@ -35,6 +39,7 @@ try {
       'suspect %': pct(o.suspect, o.plays),
       kept: o.kept,
       unbounded: o.unbounded,
+      collisions: o.collisions,
       'no estimate': o.noEstimate,
     }
   }))
@@ -68,7 +73,17 @@ try {
     "Last.fm's rule": a.totals.lastfmRule.suspect,
   })))
 
-  console.log('\nTightest plays on record:')
+  // Restarts first: they are the finding. The tightest-plays table used to be ordered
+  // purely by gap, which meant timestamp collisions filled it and not one restart showed.
+  console.log('\nRestarts — the same track again within a minute:')
+  console.table(r.restartEvidence.map(e => ({
+    playedAt: e.playedAt.toISOString(),
+    artist: e.artist,
+    track: e.track,
+    'played for': `${e.playSeconds}s`,
+  })))
+
+  console.log('\nTightest genuine short plays (collisions excluded):')
   console.table(r.evidence.map(e => ({
     playedAt: e.playedAt.toISOString(),
     artist: e.artist,
