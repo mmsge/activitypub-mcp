@@ -1,4 +1,5 @@
 import type { Kind, Platform } from './sources.js'
+import type { Emoji } from './emoji.js'
 
 /**
  * What the view layer renders. One shape per kind, discriminated on `kind`, so a
@@ -70,14 +71,28 @@ export interface PostEntry extends Base {
   attachments: Attachment[]
   hashtags: string[]
   /**
+   * The custom emoji this post declared, for the `:vy:` shortcodes in its text
+   * and its warning. Empty for the vast majority. Drawn by the view, not folded
+   * into `html` — the URLs here are the origin's, and where an image is actually
+   * loaded from is a rendering decision that differs between the page and the
+   * feed. See emoji.ts.
+   */
+  emojis: Emoji[]
+  /**
    * An embeddable player for this post on its origin, from the object's `preview`.
    *
    * Only ever framed on the reader's say-so — see Post. Null unless the origin
    * offered one, which today means Rullen.
    */
   embedUrl: string | null
-  /** Later parts of one of Markus' own threads, in order. Empty for a lone post. */
-  thread: Array<{ html: string; attachments: Attachment[]; originUrl: string | null }>
+  /**
+   * Later parts of one of Markus' own threads, in order. Empty for a lone post.
+   *
+   * Each part carries its own emoji: a continuation is its own Note with its own
+   * `tag` array, and reusing the root's map would drop a shortcode first used
+   * halfway down a thread.
+   */
+  thread: Array<{ html: string; attachments: Attachment[]; originUrl: string | null; emojis: Emoji[] }>
   /** The trip this was posted on, when it was. Null for the vast majority. */
   trip: PostTrip | null
 }

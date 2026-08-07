@@ -616,7 +616,7 @@ export const stations = pgTable('stations', {
   /**
    * The worst disagreement, in km, between this station's coordinates and the
    * `distance_km` of the legs it appears on. Null when unchecked; near zero or
-   * negative when the placement is sane; large when it is not. See ADR 0032.
+   * negative when the placement is sane; large when it is not. See ADR 0033.
    */
   geocodeErrorKm: numeric('geocode_error_km'),
   geocodeCheckedAt: timestamp('geocode_checked_at', { withTimezone: true }),

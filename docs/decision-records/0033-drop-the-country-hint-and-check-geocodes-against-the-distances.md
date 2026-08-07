@@ -1,4 +1,4 @@
-# 0032 — Drop the country hint, and check geocodes against the distances travelled
+# 0033 — Drop the country hint, and check geocodes against the distances travelled
 
 - **Status:** Accepted
 - **Supersedes:** the country-hint premise of [0028](0028-weather-at-the-stations-he-travelled-through.md); the rest of that record stands

@@ -42,4 +42,5 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | [0029](0029-a-shelf-flip-with-words-arrives-as-a-comment.md) | A shelf flip with words attached arrives as a Comment, not a GeneratedNote — classify reading events on what they say, and give each kind its own card |
 | [0030](0030-the-scrobble-count-is-a-mirror-not-a-judgement.md) | The scrobble count is a mirror of Last.fm, not a judgement: audit the short plays, change nothing |
 | [0031](0031-a-trip-is-visible-when-it-has-departed.md) | A trip is visible when it has departed, not when the export says Completed — the import's status is write-once |
-| [0032](0032-drop-the-country-hint-and-check-geocodes-against-the-distances.md) | Drop the country hint, and check geocodes against the distances travelled |
+| [0032](0032-draw-the-custom-emoji-that-were-already-in-the-database.md) | Draw the custom emoji that were already in the database — they federate in the `tag` array — and drop the ones we cannot serve back to text |
+| [0033](0033-drop-the-country-hint-and-check-geocodes-against-the-distances.md) | Drop the country hint, and check geocodes against the distances travelled |

@@ -19,7 +19,7 @@ const post = {
   refId: 'post:1', eventAt: at('2026-08-03T10:00:00Z'), archivedAt: at('2026-08-03T10:01:00Z'),
   source: 'mastodon' as const, originUrl: 'https://skvip.lol/@markus/1', kind: 'post' as const,
   html: '<p>Hei alle saman</p>', contentWarning: null, sensitive: false, language: 'nn',
-  attachments: [], hashtags: ['togselfie'], embedUrl: null, thread: [], trip: null,
+  attachments: [], hashtags: ['togselfie'], emojis: [], embedUrl: null, thread: [], trip: null,
 }
 
 const book = {
@@ -204,8 +204,8 @@ describe('threads', () => {
     const threaded = {
       ...post,
       thread: [
-        { html: '<p>del to</p>', attachments: [], originUrl: null },
-        { html: '<p>del tre</p>', attachments: [], originUrl: null },
+        { html: '<p>del to</p>', attachments: [], originUrl: null, emojis: [] },
+        { html: '<p>del tre</p>', attachments: [], originUrl: null, emojis: [] },
       ],
     }
     const html = render(<EntryView entry={threaded as never} />)
@@ -490,5 +490,44 @@ describe('reading cards', () => {
       const nasty = { ...entry, title: '</h3><script>alert(1)</script>', subtitle: null }
       expect(render(<EntryView entry={nasty as never} />), label).not.toContain('<script>')
     }
+  })
+})
+
+describe('custom emoji', () => {
+  const VY = 'https://cdn.masto.host/skviplol/custom_emojis/images/000/024/644/original/x.png'
+  const emojis = [{ shortcode: 'vy', url: VY }]
+
+  it('draws a shortcode as a picture, served through this origin', () => {
+    const entry = { ...post, html: '<p>Vy :vy: har nye vassflaskar!</p>', emojis }
+    const html = render(<EntryView entry={entry as never} />)
+    expect(html).toContain('class="emoji"')
+    expect(html).toContain('alt=":vy:"')
+    // Proxied like every other image on the page (ADR 0021), never hotlinked.
+    expect(html).not.toContain(`src="${VY}"`)
+    expect(html).toContain('src="/bilete/')
+    expect(html).not.toContain(':vy: har')
+  })
+
+  it('draws them in a thread part too, from that part\'s own tag array', () => {
+    const entry = {
+      ...post,
+      thread: [{ html: '<p>og :vy: her</p>', attachments: [], originUrl: null, emojis }],
+    }
+    expect(render(<EntryView entry={entry as never} />)).toContain('class="emoji"')
+  })
+
+  it('draws them in a content warning without letting it emit markup', () => {
+    const entry = {
+      ...post, sensitive: true, emojis,
+      contentWarning: 'Vy :vy: <script>alert(1)</script>',
+    }
+    const html = render(<EntryView entry={entry as never} />)
+    expect(html).toContain('class="emoji"')
+    expect(html).not.toContain('<script>')
+  })
+
+  it('leaves the shortcode as text when the post declared no emoji', () => {
+    const entry = { ...post, html: '<p>Vy :vy: her</p>', emojis: [] }
+    expect(render(<EntryView entry={entry as never} />)).toContain(':vy:')
   })
 })

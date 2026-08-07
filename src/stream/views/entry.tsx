@@ -3,6 +3,9 @@ import type { FC } from 'hono/jsx'
 import { raw } from 'hono/html'
 import { platformInfo } from '../sources.js'
 import { proxyPath } from '../image-proxy.js'
+import { renderEmojis } from '../emoji.js'
+import { escapeHtml } from '../../lib/html.js'
+import type { Emoji } from '../emoji.js'
 import type {
   Attachment, Entry, PostEntry, BookEntry, MarkEntry,
   ScrobbleDayEntry, TripEntry, GardenEntry, UndatedGardenNote, PostTrip,
@@ -42,6 +45,18 @@ function formatDate(at: Date): string {
 function imageSrc(url: string | null | undefined): string | undefined {
   if (!url) return undefined
   return proxyPath(url) ?? url
+}
+
+/**
+ * Sanitised HTML with its `:vy:` shortcodes drawn as pictures.
+ *
+ * The one place this origin turns a federated post's text into extra markup, so
+ * it goes through `imageSrc` like every other image on the page and through
+ * `renderEmojis`, which will only substitute a shortcode the post declared. See
+ * emoji.ts.
+ */
+function withEmojis(html: string, emojis: Emoji[]): string {
+  return renderEmojis(html, emojis, imageSrc)
 }
 
 const Meta: FC<{ entry: Entry; verb: string; verbClass?: string }> = ({ entry, verb, verbClass }) => {
@@ -156,12 +171,20 @@ const Embed: FC<{ entry: PostEntry }> = ({ entry }) => {
  * The body, collapsed behind its warning when one is set. Markus set that warning
  * deliberately; a public page that ignores it is worse than one that never had it.
  */
-const Body: FC<{ html: string; warning: string | null; lang?: string | null }> = ({ html, warning, lang }) => {
+const Body: FC<{ html: string; warning: string | null; lang?: string | null; emojis?: Emoji[] }> = (
+  { html, warning, lang, emojis },
+) => {
   const inner = <div class="body" lang={lang ?? undefined}>{raw(html)}</div>
   if (!warning) return inner
+  // A warning is plain text out of `objects.summary`, so it is escaped here before
+  // any emoji are drawn into it — JSX escapes what it interpolates, `raw` does not.
+  // Callers with no emoji (every book card) keep the plain interpolation they had.
+  const label = emojis?.length
+    ? raw(withEmojis(escapeHtml(warning), emojis))
+    : warning
   return (
     <details class="cw">
-      <summary>{warning}</summary>
+      <summary>{label}</summary>
       {inner}
     </details>
   )
@@ -235,13 +258,15 @@ const Aboard: FC<{ trip: PostTrip | null; brief?: boolean }> = ({ trip, brief })
 const Post: FC<{ entry: PostEntry; briefTrip?: boolean }> = ({ entry, briefTrip }) => (
   <article class="entry" id={`e-${entry.refId}`}>
     <Meta entry={entry} verb={entry.kind === 'video' ? 'la ut ein video' : entry.kind === 'photo' ? 'la ut eit bilete' : 'skreiv'} />
-    <Body html={entry.html} warning={entry.sensitive ? entry.contentWarning ?? 'Innhaldsvarsel' : null} lang={entry.language} />
+    <Body html={withEmojis(entry.html, entry.emojis)}
+      warning={entry.sensitive ? entry.contentWarning ?? 'Innhaldsvarsel' : null}
+      lang={entry.language} emojis={entry.emojis} />
     {entry.sensitive ? null : entry.embedUrl
       ? <Embed entry={entry} />
       : <Media attachments={entry.attachments} />}
     {entry.thread.map((part) => (
       <div class="thread">
-        <div class="body">{raw(part.html)}</div>
+        <div class="body">{raw(withEmojis(part.html, part.emojis))}</div>
         {/* Gated like the root. Without this a content-warned post kept its warning
             over the body and showed the thread's media underneath it regardless. */}
         {entry.sensitive ? null : <Media attachments={part.attachments} />}

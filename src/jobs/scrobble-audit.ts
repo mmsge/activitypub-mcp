@@ -45,6 +45,11 @@ export interface ScrobbleAuditResult extends AuditSummary {
   totalPlays: number
   /** Sub-60-second plays whose next scrobble repeats the same track. */
   sameTrackRestarts: number
+  /** Rows sharing a timestamp with their neighbour. Excluded from every suspect count. */
+  collisions: number
+  /** The restarts themselves — the diagnostic, and the reason this tool exists. */
+  restartEvidence: AuditEvidence[]
+  /** The tightest genuine short plays, collisions excluded. */
   evidence: AuditEvidence[]
 }
 
@@ -138,31 +143,61 @@ export async function auditScrobbles(
       plays: number
     }>
 
-    const evidenceRows = (await tx.execute(sql`
-      WITH ${gapsCte(ceiling)}
-      SELECT g.artist_name, g.track_name, g.played_at, g.play_seconds,
-             (g.next_artist = g.artist_name AND g.next_track = g.track_name) AS same_track_next
-      FROM gaps g
-      WHERE g.play_seconds BETWEEN 0 AND 60
-      ORDER BY g.play_seconds ASC, g.played_at DESC
-      LIMIT ${evidenceLimit}::int
-    `)) as unknown as Array<{
+    type EvidenceRow = {
       artist_name: string
       track_name: string
       // Raw SQL bypasses drizzle's column mapping, so timestamptz arrives as a string.
       played_at: string | Date
       play_seconds: number
       same_track_next: boolean
-    }>
+    }
 
-    const [restarts] = (await tx.execute(sql`
+    // The restarts, on their own. Ordering the combined set by play_seconds put every
+    // timestamp collision first and consumed the whole LIMIT before reaching a single
+    // restart — the first production run showed 25 rows and not one of the 246 restarts
+    // that exist. The diagnostic gets its own query rather than competing for room.
+    const restartRows = (await tx.execute(sql`
       WITH ${gapsCte(ceiling)}
-      SELECT count(*)::int AS n
+      SELECT g.artist_name, g.track_name, g.played_at, g.play_seconds, true AS same_track_next
       FROM gaps g
       WHERE g.play_seconds BETWEEN 0 AND 60
         AND g.next_artist = g.artist_name
         AND g.next_track = g.track_name
-    `)) as unknown as Array<{ n: number }>
+      ORDER BY g.play_seconds ASC, g.played_at DESC
+      LIMIT ${evidenceLimit}::int
+    `)) as unknown as EvidenceRow[]
+
+    // Genuine short plays. `play_seconds > 0` keeps collisions out: they say nothing about
+    // how long anything played, so they are noise in a table about exactly that.
+    const evidenceRows = (await tx.execute(sql`
+      WITH ${gapsCte(ceiling)}
+      SELECT g.artist_name, g.track_name, g.played_at, g.play_seconds,
+             (g.next_artist = g.artist_name AND g.next_track = g.track_name) AS same_track_next
+      FROM gaps g
+      WHERE g.play_seconds BETWEEN 1 AND 60
+      ORDER BY g.play_seconds ASC, g.played_at DESC
+      LIMIT ${evidenceLimit}::int
+    `)) as unknown as EvidenceRow[]
+
+    const [counts] = (await tx.execute(sql`
+      WITH ${gapsCte(ceiling)}
+      SELECT
+        count(*) FILTER (
+          WHERE g.play_seconds BETWEEN 0 AND 60
+            AND g.next_artist = g.artist_name
+            AND g.next_track = g.track_name
+        )::int AS restarts,
+        count(*) FILTER (WHERE g.play_seconds = 0)::int AS collisions
+      FROM gaps g
+    `)) as unknown as Array<{ restarts: number; collisions: number }>
+
+    const toEvidence = (r: EvidenceRow): AuditEvidence => ({
+      artist: r.artist_name,
+      track: r.track_name,
+      playedAt: new Date(r.played_at),
+      playSeconds: r.play_seconds,
+      sameTrackNext: r.same_track_next,
+    })
 
     const gapGroups: GapGroup[] = groups.map(r => ({
       artistName: r.artist_name,
@@ -182,18 +217,18 @@ export async function auditScrobbles(
         challenger,
       },
       totalPlays: gapGroups.reduce((n, g) => n + g.plays, 0),
-      sameTrackRestarts: restarts?.n ?? 0,
-      evidence: evidenceRows.map(r => ({
-        artist: r.artist_name,
-        track: r.track_name,
-        playedAt: new Date(r.played_at),
-        playSeconds: r.play_seconds,
-        sameTrackNext: r.same_track_next,
-      })),
+      sameTrackRestarts: counts?.restarts ?? 0,
+      collisions: counts?.collisions ?? 0,
+      restartEvidence: restartRows.map(toEvidence),
+      evidence: evidenceRows.map(toEvidence),
     }
 
     logger.info(
-      { totalPlays: result.totalPlays, sameTrackRestarts: result.sameTrackRestarts },
+      {
+        totalPlays: result.totalPlays,
+        sameTrackRestarts: result.sameTrackRestarts,
+        collisions: result.collisions,
+      },
       'Scrobble audit complete (read-only; nothing was changed)',
     )
     return result

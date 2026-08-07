@@ -135,7 +135,7 @@ describe('tally', () => {
     ]
     for (const t of THRESHOLDS) {
       const o = tally(rows, t)
-      expect(o.suspect + o.unbounded + o.kept).toBe(o.plays)
+      expect(o.suspect + o.unbounded + o.kept + o.collisions).toBe(o.plays)
     }
   })
 })
@@ -217,5 +217,80 @@ describe('the audit classifier is read-only', () => {
       { leader: 'Taylor Swift', challenger: 'Maisie Peters' },
     )
     expect(getDb).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * A gap of exactly zero is two scrobbles carrying the same timestamp — a batch submission
+ * with a collided `uts`. It cannot be a repeat of the same track, because the dedupe index
+ * would have collapsed that on insert. The first production run counted these as plays
+ * that were cut short, which they are not: the timestamp is wrong, the play may well have
+ * run to the end.
+ */
+describe('classify — a collided timestamp is not a short play', () => {
+  it('calls a zero gap a collision at every threshold', () => {
+    for (const t of THRESHOLDS) {
+      expect(classify({ playSeconds: 0, estSeconds: 200 }, t), t.id).toBe('collision')
+    }
+  })
+
+  it('does not need a duration estimate to recognise one', () => {
+    expect(classify({ playSeconds: 0, estSeconds: null }, at('halfDuration'))).toBe('collision')
+  })
+
+  // The boundary that keeps this from swallowing genuine instant skips.
+  it('still calls a one-second gap suspect', () => {
+    expect(classify({ playSeconds: 1, estSeconds: 200 }, at('lt30s'))).toBe('suspect')
+  })
+
+  it('lets unknowable still win — a null gap is unbounded, not a collision', () => {
+    expect(classify({ playSeconds: null, estSeconds: 200 }, at('lt30s'))).toBe('unbounded')
+  })
+})
+
+describe('tally — collisions are their own bucket', () => {
+  it('counts them apart from suspect and from kept', () => {
+    const t = tally([group({ playSeconds: 0, plays: 12 })], at('lt30s'))
+    expect(t).toMatchObject({ plays: 12, collisions: 12, suspect: 0, kept: 0, unbounded: 0 })
+  })
+
+  it('keeps the four buckets summing to the total', () => {
+    const rows = [
+      group({ playSeconds: 0, plays: 12 }),
+      group({ playSeconds: 5, plays: 3 }),
+      group({ playSeconds: null, plays: 2 }),
+      group({ playSeconds: 300, plays: 7 }),
+    ]
+    for (const t of THRESHOLDS) {
+      const o = tally(rows, t)
+      expect(o.suspect + o.kept + o.unbounded + o.collisions).toBe(o.plays)
+    }
+  })
+})
+
+describe('summarise — collisions never move the race', () => {
+  it('leaves the corrected gap untouched when both sides collide', () => {
+    const base: GapGroup[] = [
+      { artistName: 'Taylor Swift', year: 2026, playSeconds: 200, estSeconds: 200, plays: 100 },
+      { artistName: 'Maisie Peters', year: 2026, playSeconds: 200, estSeconds: 200, plays: 90 },
+    ]
+    const withCollisions: GapGroup[] = [
+      ...base,
+      { artistName: 'Taylor Swift', year: 2026, playSeconds: 0, estSeconds: 200, plays: 25 },
+      { artistName: 'Maisie Peters', year: 2026, playSeconds: 0, estSeconds: 200, plays: 40 },
+    ]
+    const opts = { leader: 'Taylor Swift', challenger: 'Maisie Peters' }
+
+    const before = summarise(base, opts).race.find(l => l.threshold === 'lt30s')!
+    const after = summarise(withCollisions, opts).race.find(l => l.threshold === 'lt30s')!
+
+    // The raw gap moves, because collisions are still real stored rows Last.fm counts.
+    expect(before.gap).toBe(10)
+    expect(after.gap).toBe(-5)
+    // But the *correction* is zero on both sides: no collision is ever called suspect.
+    expect(after.leaderSuspect).toBe(0)
+    expect(after.challengerSuspect).toBe(0)
+    expect(after.gapDelta).toBe(0)
+    expect(before.gapDelta).toBe(0)
   })
 })
