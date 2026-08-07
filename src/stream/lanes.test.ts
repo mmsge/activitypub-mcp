@@ -389,9 +389,15 @@ describe('mergedCandidateSql', () => {
 })
 
 describe('tripsLane', () => {
-  it('excludes planned journeys — intent is not activity', () => {
-    // The same call as NeoDB wishlists. viaduct.world exports both; 13 planned
-    // trips reaching to October were leading the front page.
-    expect(render(tripsLane(ctx()))).toContain("t.status IS DISTINCT FROM 'Planned'")
+  // Regression: the lane used to exclude `status = 'Planned'` as a stand-in for
+  // "has not happened yet". viaduct.world only flips a trip to `Completed` on the
+  // next CSV export, so the two legs Markus travelled on 6-7 August 2026 were still
+  // `Planned` in the store — and the Tog stream stopped dead at 14 June while
+  // /reise/torucon-2026, which gates on departure time only, listed them both.
+  // A departed trip belongs on the page whatever the export says about it.
+  it('gates on the departure time, not on the export status', () => {
+    const sql = render(tripsLane(ctx()))
+    expect(sql).not.toContain('status')
+    expect(sql).toContain('<= now()')
   })
 })
