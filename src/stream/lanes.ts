@@ -65,6 +65,10 @@ function keyset(facets: Facets, eventAt: SQL, refId: SQL): SQL | null {
  * Applied to every lane rather than only to trips. Any source can hand us a future
  * date — a scheduled post, a mistyped frontmatter year, a mark shelved with
  * tomorrow's date — and in each case the answer is the same.
+ *
+ * For trips this is the *only* gate. `train_trips.status` reads like a second one
+ * and must never be used as such: it is a frozen field of the import, not a clock.
+ * See ADR 0031.
  */
 function notFuture(eventAt: SQL): SQL {
   return sql`${eventAt} <= now()`
@@ -359,8 +363,14 @@ export function tripsLane(ctx: LaneContext): SQL | null {
     SELECT ${eventAt} AS event_at, 'trip' AS kind, ${refId} AS ref_id, 'tog' AS source
     FROM train_trips t
     WHERE ${allOf([
-      // A planned journey is intent, not activity — the same call as NeoDB wishlists.
-      sql`t.status IS DISTINCT FROM 'Planned'`,
+      // Gated on the departure time alone. `train_trips.status` looks like the
+      // obvious filter and is not one: viaduct.world only flips a trip to
+      // `Completed` when Markus re-exports the CSV, and the import dedupes on
+      // (from, to, departure_local, train_code, journey) with ON CONFLICT DO
+      // NOTHING — so a leg first seen as `Planned` keeps that value forever, even
+      // after he has travelled it. Excluding `Planned` hid 13 real journeys for
+      // good, two of them mid-trip. The departure time is the only fact that
+      // answers the question, and `notFuture` already asks it. See ADR 0031.
       notFuture(eventAt),
       archiveBound(facets, eventAt),
       keyset(facets, eventAt, refId),
