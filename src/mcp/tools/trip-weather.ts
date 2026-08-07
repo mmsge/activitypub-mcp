@@ -123,7 +123,7 @@ export async function getTripWeather(input: z.infer<typeof getTripWeatherSchema>
      * How far the origin's coordinates disagree with the distances its legs
      * record, in km. Near zero or negative is fine; a large number means the
      * station was geocoded to the wrong place and this weather is from there
-     * (ADR 0031). Null when unchecked.
+     * (ADR 0032). Null when unchecked.
      */
     departure_geocode_error_km: num(r.dep_geocode_error_km),
     departure_weather: side(r, 'dep'),

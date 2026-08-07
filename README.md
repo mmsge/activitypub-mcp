@@ -718,7 +718,7 @@ apart has a station in the wrong place. That excess is stored per station and re
 `get_trip_weather`, and what the geocoder actually matched is stored beside it — so a bad
 placement is a number and a name, not a weather report nobody questions. Fix one with
 `source = 'manual'` and the geocoder will never overwrite it. See
-[ADR 0031](docs/decision-records/0031-drop-the-country-hint-and-check-geocodes-against-the-distances.md).
+[ADR 0032](docs/decision-records/0032-drop-the-country-hint-and-check-geocodes-against-the-distances.md).
 
 To find them:
 

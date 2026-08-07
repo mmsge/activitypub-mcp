@@ -166,10 +166,19 @@ predicate rather than two that agree by coincidence.
   carried on.
 - The sub-60-second share is *rising*, so the audit is worth re-running rather than
   treating as a one-off answer. The first run is written up in
-  [`docs/scrobble-audit-2026-08-06.md`](../scrobble-audit-2026-08-06.md): on a 16.6 %
-  stratified sample it puts the true head-to-head gap at roughly 555 rather than the
-  reported 234, and separates the new scrobble-at-start restarts from an older, flat ~1 %
-  background of batch-flush artefacts that goes back to 2017.
+  [`docs/scrobble-audit-2026-08-06.md`](../scrobble-audit-2026-08-06.md): about 3 % of the
+  history is a play that was cut short, 2025 and 2026 are the highest years on record, and
+  the corrected head-to-head lands between 199 and 247 against a reported 228 — the four
+  thresholds disagree on the *direction*, so the race is where it says it is.
+
+  > **Corrected 2026-08-06**, once the audit had been run against all 51,398 rows. This
+  > bullet originally cited a sample-based estimate of a ~555 gap and claimed the behaviour
+  > began in 2024. Both were wrong: the true correction is ±29, and there is a 1–3.4 %
+  > background running the whole history. The report's closing section records why the
+  > sampling failed — contiguous blocks are single listening sessions, so they behave as one
+  > observation rather than 200. The decision above is unaffected; the requirement to report
+  > a *spectrum* rather than one verdict is what made the error visible instead of
+  > authoritative.
 - `get_now_playing` gains a third response state. Consumers testing truthiness are
   unaffected; consumers testing `=== false` will now miss the failure case, which is the
   intended behaviour change.
