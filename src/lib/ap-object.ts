@@ -38,6 +38,30 @@ export function resolveRef(v: unknown): string | null {
 }
 
 /**
+ * The first absolute http(s) URL inside a value that may be a string, an object with
+ * `url`/`href`, or an array of either.
+ *
+ * Narrower than `resolveRef` in what it accepts (a scheme is required, so a bare id
+ * that happens to be a URN is rejected) and wider in where it looks (it descends
+ * through `url`/`href` rather than stopping at the first entry). For the properties
+ * that name a *picture* — a video's `icon`/`preview`/`image`, a custom emoji's
+ * `icon` — where servers disagree on all three shapes and the cost of not accepting
+ * them is an image that silently never renders.
+ */
+export function firstHttpUrl(raw: unknown): string | null {
+  const candidates = Array.isArray(raw) ? raw : [raw]
+  for (const c of candidates) {
+    if (typeof c === 'string' && /^https?:\/\//i.test(c)) return c
+    if (c && typeof c === 'object') {
+      const o = c as AnyObject
+      const nested = firstHttpUrl(o.url ?? o.href)
+      if (nested) return nested
+    }
+  }
+  return null
+}
+
+/**
  * True when an object carries nothing worth storing beyond its identity — no text, no
  * media, no tags, no timestamp. A boost can embed such a stub instead of the post
  * itself; storing it would create a contentless row (and, on a re-ingest, overwrite a

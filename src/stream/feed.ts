@@ -1,6 +1,7 @@
 import { config } from '../config.js'
 import { streamOrigin } from './host.js'
 import { platformInfo } from './sources.js'
+import { renderEmojis } from './emoji.js'
 import type { Entry } from './entries.js'
 
 /**
@@ -82,9 +83,13 @@ function entryContent(entry: Entry): string {
     case 'post': case 'photo': case 'video':
       // A content warning is a request not to show the body unbidden. A feed has
       // no way to collapse anything, so the warning is all a subscriber gets.
+      // Custom emoji are drawn with their origin URLs, not this site's proxy paths:
+      // a subscriber's feed reader resolves a relative `/bilete/…` against its own
+      // page and loads nothing. `toEmojis` has already restricted these to hosts we
+      // are willing to point at.
       return entry.sensitive
         ? `<p><em>${esc(entry.contentWarning ?? 'Innhaldsvarsel')}</em></p>`
-        : entry.html
+        : renderEmojis(entry.html, entry.emojis, (url) => url)
     // Every reading event, not just reviews and quotations: a start or a finish
     // made with a sentence attached carries that sentence now, and a subscriber
     // who got the title but not the words would be getting the worse half.

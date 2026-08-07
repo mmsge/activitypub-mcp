@@ -11,6 +11,8 @@ import { stripHtml } from '../lib/strip-html.js'
 import { normalizeReadingStatus } from '../lib/bookwyrm-reading.js'
 import { mergedCandidateSql, idArray, type LaneContext } from './lanes.js'
 import { sanitizeHtml } from './sanitize-html.js'
+import { toEmojis } from './emoji.js'
+import { firstHttpUrl } from '../lib/ap-object.js'
 import { publicOnlyCondition } from './visibility.js'
 import { parseSources, AP_PLATFORMS, type ApPlatform, type Platform } from './sources.js'
 import { osloDay, parsePartialDate } from './event-date.js'
@@ -100,24 +102,6 @@ export function parseIsoDuration(raw: unknown): number | null {
   return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : null
 }
 
-/**
- * An https URL out of an AP value that may be a string, an object with `url`/`href`,
- * or an array of either. Servers disagree on all three, and the shapes are cheap to
- * accept; what is not cheap is a poster silently missing because a peer wrapped it.
- */
-function firstUrl(raw: unknown): string | null {
-  const candidates = Array.isArray(raw) ? raw : [raw]
-  for (const c of candidates) {
-    if (typeof c === 'string' && /^https?:\/\//i.test(c)) return c
-    if (c && typeof c === 'object') {
-      const o = c as Record<string, unknown>
-      const nested = firstUrl(o.url ?? o.href)
-      if (nested) return nested
-    }
-  }
-  return null
-}
-
 /** Normalise the AP `attachment` array into what the views render. */
 export function toAttachments(raw: unknown): Attachment[] {
   if (!Array.isArray(raw)) return []
@@ -142,7 +126,7 @@ export function toAttachments(raw: unknown): Attachment[] {
       blurhash: typeof att.blurhash === 'string' ? att.blurhash : null,
       // A video's still frame. `icon` is where Rullen puts it; `preview` and `image`
       // are the other two spellings in the wild, and reading all three costs nothing.
-      posterUrl: firstUrl(att.icon) ?? firstUrl(att.preview) ?? firstUrl(att.image),
+      posterUrl: firstHttpUrl(att.icon) ?? firstHttpUrl(att.preview) ?? firstHttpUrl(att.image),
       durationSeconds: parseIsoDuration(att.duration),
     })
   }
@@ -163,7 +147,7 @@ export function toAttachments(raw: unknown): Attachment[] {
  * platform check is a thing to remember to edit for the next server that does it.
  */
 export function foldThread(
-  parts: Array<{ content: string | null; url: string | null; attachments: unknown }>,
+  parts: Array<{ content: string | null; url: string | null; attachments: unknown; tags?: unknown }>,
   rootAttachments: Attachment[],
 ): PostEntry['thread'] {
   const shown = new Set(rootAttachments.map((a) => a.url))
@@ -175,12 +159,13 @@ export function foldThread(
     // still earns it a place — a caption is something Markus wrote.
     if (!html.trim() && attachments.length === 0) continue
     for (const a of attachments) shown.add(a.url)
-    out.push({ html, attachments, originUrl: r.url })
+    out.push({ html, attachments, originUrl: r.url, emojis: toEmojis(r.tags) })
   }
   return out
 }
 
-/** Hashtag names from the raw AP `tag` array. Mentions and emoji are ignored. */
+/** Hashtag names from the raw AP `tag` array. Mentions are ignored; emoji have their
+ *  own reader in emoji.ts, which is what this used to drop on the floor. */
 export function toHashtags(raw: unknown): string[] {
   if (!Array.isArray(raw)) return []
   const out: string[] = []
@@ -241,7 +226,7 @@ async function hydratePosts(cands: Candidate[]): Promise<Map<string, Entry>> {
   const MAX_THREAD_DEPTH = 20
   type ThreadRow = {
     apId: string; actorApId: string; content: string | null; url: string | null
-    inReplyTo: string | null; attachments: unknown; publishedAt: Date | null
+    inReplyTo: string | null; attachments: unknown; tags: unknown; publishedAt: Date | null
   }
   const byParent = new Map<string, ThreadRow[]>()
   let frontier = rows.map((r) => ({ apId: r.apId, actorApId: r.actorApId }))
@@ -253,7 +238,7 @@ async function hydratePosts(cands: Candidate[]): Promise<Map<string, Entry>> {
       .select({
         apId: objects.apId, actorApId: objects.actorApId, content: objects.content,
         url: objects.url, inReplyTo: objects.inReplyTo,
-        attachments: objects.attachments, publishedAt: objects.publishedAt,
+        attachments: objects.attachments, tags: objects.tags, publishedAt: objects.publishedAt,
       })
       .from(objects)
       .where(and(
@@ -338,6 +323,7 @@ async function hydratePosts(cands: Candidate[]): Promise<Map<string, Entry>> {
       language: row.language,
       attachments,
       hashtags: toHashtags(row.tags),
+      emojis: toEmojis(row.tags),
       embedUrl: row.previewHref && /^https:\/\//i.test(row.previewHref) ? row.previewHref : null,
       thread: foldThread(threadOf(row.apId), attachments),
       trip: tripByApId.get(row.apId) ?? null,

@@ -245,6 +245,16 @@ a:hover { color: var(--ink); }
 .body pre { overflow-x: auto; background: var(--accent-soft); padding: .8rem; border-radius: 8px; }
 .body pre code { background: none; padding: 0; }
 
+/* A custom emoji sits on the text baseline and scales with its line, so a post
+   whose only content is one is not a full-width picture, and a shortcode inside a
+   heading grows with the heading. 1.35em rather than 1em because these are drawn
+   for a 20px line and read as smudges at the body size. */
+.emoji {
+  display: inline-block; height: 1.35em; width: auto; max-width: 100%;
+  vertical-align: -.25em; margin: 0 .05em; object-fit: contain;
+}
+.cw > summary .emoji { vertical-align: -.2em; }
+
 .cw { margin: 0; }
 .cw > summary {
   cursor: pointer; font-family: ui-sans-serif, system-ui, sans-serif; font-size: .87rem;
