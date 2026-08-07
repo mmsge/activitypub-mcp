@@ -11,7 +11,7 @@ const post = {
   refId: 'post:1', eventAt: at('2026-08-03T10:00:00Z'), archivedAt: at('2026-08-03T10:01:00Z'),
   source: 'mastodon' as const, originUrl: 'https://skvip.lol/@markus/1', kind: 'post' as const,
   html: '<p>Hei</p>', contentWarning: null, sensitive: false, language: 'nn',
-  attachments: [], hashtags: [], embedUrl: null, thread: [], trip: null,
+  attachments: [], hashtags: [], emojis: [], embedUrl: null, thread: [], trip: null,
 }
 
 // A film watched in 2016 but marked today: the case that motivates the whole
@@ -110,6 +110,28 @@ describe('renderAtom — escaping and content', () => {
     const xml = renderAtom([cw], opts)
     expect(xml).not.toContain('HEMMELEG')
     expect(xml).toContain('Innhaldsvarsel')
+  })
+
+  /**
+   * A subscriber's reader resolves a relative src against its own page, so the feed
+   * points at the origin CDN where the site points at its own proxy. The title is
+   * left alone: it is derived by stripping tags, and an emoji stripped out of a
+   * one-word post would leave the entry with no title at all.
+   */
+  it('draws custom emoji with their origin URLs, not this site\'s proxy paths', () => {
+    const emoji = { ...post, html: '<p>Vy :vy: her</p>', emojis: [{ shortcode: 'vy', url: 'https://cdn.masto.host/vy.png' }] }
+    const xml = renderAtom([emoji], opts)
+    expect(xml).toContain('https://cdn.masto.host/vy.png')
+    expect(xml).not.toContain('/bilete/')
+    expect(xml).toContain('&lt;img class=&quot;emoji&quot;')
+  })
+
+  it('keeps the shortcode out of a warned post\'s feed entry entirely', () => {
+    const cw = {
+      ...post, sensitive: true, contentWarning: 'Politikk', html: '<p>:vy:</p>',
+      emojis: [{ shortcode: 'vy', url: 'https://cdn.masto.host/vy.png' }],
+    }
+    expect(renderAtom([cw], opts)).not.toContain('cdn.masto.host')
   })
 
   it('caps the feed at 50 entries', () => {

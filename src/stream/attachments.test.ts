@@ -97,6 +97,21 @@ describe('foldThread', () => {
     expect(folded[0].attachments.map((a) => a.url)).toEqual(['https://x.test/9.mp4'])
   })
 
+  // A continuation is its own Note with its own `tag` array, so it carries its own
+  // emoji — a shortcode first used halfway down a thread has never been declared on
+  // the root, and reusing the root's map would silently leave it as text.
+  it('reads each part\'s own custom emoji', () => {
+    const folded = foldThread([{
+      ...part('<p>og :vy: her</p>', []),
+      tags: [{ type: 'Emoji', name: ':vy:', icon: { url: 'https://cdn.masto.host/vy.png' } }],
+    }], [])
+    expect(folded[0].emojis).toEqual([{ shortcode: 'vy', url: 'https://cdn.masto.host/vy.png' }])
+  })
+
+  it('leaves a part with no tags with no emoji', () => {
+    expect(foldThread([part('<p>berre tekst</p>', [])], [])[0].emojis).toEqual([])
+  })
+
   it('shows a repeated attachment once, not once per part', () => {
     const folded = foldThread([part(null, ['https://x.test/9.mp4']), part(null, ['https://x.test/9.mp4'])], [])
     expect(folded).toHaveLength(1)

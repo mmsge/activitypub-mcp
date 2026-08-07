@@ -20,7 +20,7 @@ function post(refId: string, when: string, body: string) {
     refId, eventAt: at(when), archivedAt: at(when), source: 'mastodon' as const,
     originUrl: `https://skvip.lol/@markus/${refId}`, kind: 'post' as const,
     html: `<p>${body}</p>`, contentWarning: null, sensitive: false, language: 'nn',
-    attachments: [], hashtags: [], embedUrl: null, thread: [],
+    attachments: [], hashtags: [], emojis: [], embedUrl: null, thread: [],
     trip: {
       relation: 'aboard' as const, fromStation: 'Malmö C', toStation: 'Göteborgs central',
       journey: 'NDC Copenhagen 2026', journeySlug: 'ndc-copenhagen-2026',
