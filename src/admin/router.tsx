@@ -5,7 +5,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { requireAuth } from './middleware.js'
 import { verifyAdminPassword, createSession, deleteSession } from './auth.js'
 import { getDb } from '../db/client.js'
-import { activities, objects, follows, activityLog, actors, neodbMarks } from '../db/schema.js'
+import { activities, objects, follows, activityLog, actors, neodbMarks, linkedinPosts, linkedinPostMetrics } from '../db/schema.js'
 import { and, desc, eq, gt, count, isNull, like, or, sql } from 'drizzle-orm'
 import { LoginPage } from './views/login.js'
 import { DashboardPage } from './views/dashboard.js'
@@ -29,9 +29,12 @@ import {
   ensureActor,
   reprocessActivitiesByType,
   importTrainTrips,
+  importLinkedinMetrics,
   BARE_OBJECT_TYPES,
 } from './import.js'
 import { repairNeodbIngest } from '../jobs/repair-neodb-ingest.js'
+import { parseLinkedinExport } from '../lib/parse-linkedin-export.js'
+import { deriveTokenStatus, getSourceHealth, LINKEDIN_SOURCE } from '../lib/source-health.js'
 import { parseTrainTripsCsv } from '../lib/parse-trips-csv.js'
 import { resolveActorByHandle } from '../lib/fetch-actor.js'
 import { logger } from '../lib/logger.js'
@@ -85,6 +88,10 @@ app.get('/', async (c) => {
     lastAct,
     delivErrors,
     media,
+    [{ cnt: liPosts }],
+    [{ cnt: liMetrics }],
+    liLatestExport,
+    liHealth,
   ] = await Promise.all([
     db.select({ cnt: count() }).from(activities),
     db.select({ cnt: count() }).from(activities).where(gt(activities.receivedAt, day24)),
@@ -96,7 +103,15 @@ app.get('/', async (c) => {
     db.select({ cnt: count() }).from(activityLog)
       .where(and(eq(activityLog.direction, 'outbound'), gt(activityLog.responseStatus, 299))),
     mediaCounts(),
+    db.select({ cnt: count() }).from(linkedinPosts),
+    db.select({ cnt: count() }).from(linkedinPostMetrics),
+    db.select({ latest: sql<string | null>`max(${linkedinPostMetrics.exportDate})` })
+      .from(linkedinPostMetrics),
+    getSourceHealth(LINKEDIN_SOURCE),
   ])
+
+  // Twice the poll interval before calling it stale: one missed run is a blip.
+  const linkedinStale = config.LINKEDIN_SYNC_INTERVAL_HOURS * 2 * 60 * 60_000
 
   return c.html(
     <DashboardPage data={{
@@ -110,6 +125,15 @@ app.get('/', async (c) => {
       lastReceivedAt: lastAct[0]?.receivedAt ?? null,
       deliveryErrors: Number(delivErrors[0]?.cnt ?? 0),
       media,
+      linkedin: {
+        enabled: Boolean(config.LINKEDIN_DMA_TOKEN),
+        status: deriveTokenStatus(liHealth, linkedinStale, now),
+        lastSuccessAt: liHealth?.lastSuccessAt ?? null,
+        lastError: liHealth?.lastError ?? null,
+        posts: Number(liPosts),
+        metricRows: Number(liMetrics),
+        latestExport: liLatestExport[0]?.latest ?? null,
+      },
     }} />
   )
 })
@@ -418,6 +442,50 @@ app.post(
 
     const params = new URLSearchParams({
       actor: 'train trips (CSV)',
+      total: String(result.total),
+      imported: String(result.inserted),
+      skipped: String(result.skipped),
+      errorCount: '0',
+    })
+    return c.redirect(`/admin/import/result?${params}`)
+  },
+)
+
+// LinkedIn monthly analytics export. An upload rather than a watched directory:
+// the file is produced by hand on Markus' laptop once a month, so the browser he
+// exported it in is where it already is, and docker-compose deliberately uses
+// named volumes with no bind mount for the app to watch. See ADR 0033.
+app.post(
+  '/import/linkedin',
+  bodyLimit({ maxSize: 25 * 1024 * 1024 }),
+  async (c) => {
+    const body = await c.req.parseBody()
+    const file = body['file']
+    if (!file || typeof file === 'string') {
+      return c.html(<ImportPage error="No file uploaded" />)
+    }
+
+    // arrayBuffer(), not text(): an .xlsx is a zip, and decoding it as UTF-8
+    // would corrupt it before the parser ever saw it.
+    let bytes: ArrayBuffer
+    try {
+      bytes = await (file as File).arrayBuffer()
+    } catch {
+      return c.html(<ImportPage error="Could not read file" />)
+    }
+
+    let parsed
+    try {
+      parsed = await parseLinkedinExport(bytes)
+    } catch (e) {
+      return c.html(<ImportPage error={e instanceof Error ? e.message : String(e)} />)
+    }
+
+    const result = await importLinkedinMetrics(parsed)
+    logger.info({ ...result }, 'LinkedIn metrics import complete')
+
+    const params = new URLSearchParams({
+      actor: `LinkedIn analytics — export dated ${result.exportDate}`,
       total: String(result.total),
       imported: String(result.inserted),
       skipped: String(result.skipped),

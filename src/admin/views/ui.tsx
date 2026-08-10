@@ -116,6 +116,38 @@ export const EnrichBadge: FC<{
 }
 
 /**
+ * Ingest health for a polled source, from `source_sync_state`.
+ *
+ * The sibling of EnrichBadge, and it splits the same way for the same reason: a
+ * source can hold perfectly good data *and* a failing refresh. That is "stale",
+ * not "failed" — the LinkedIn snapshot stays valid long after the hand-minted
+ * token that fetched it dies, so calling it failed would suggest the numbers are
+ * untrustworthy when the real problem is that they have stopped moving.
+ *
+ * This tile is the answer to "a stale or expired token must be visible without
+ * reading logs". See ADR 0033.
+ */
+export const SourceBadge: FC<{
+  status: 'ok' | 'stale' | 'unauthorized' | 'never_run'
+  lastError?: string | null
+  lastSuccessAt?: Date | null
+}> = ({ status, lastError, lastSuccessAt }) => {
+  const since = lastSuccessAt ? `Last success: ${lastSuccessAt.toISOString()}` : 'Never succeeded'
+  if (status === 'ok') return <span class="badge badge-green" title={since}>OK</span>
+  if (status === 'stale') {
+    return <span class="badge badge-yellow" title={`${since}${lastError ? ` · ${lastError}` : ''}`}>Stale</span>
+  }
+  if (status === 'unauthorized') {
+    return (
+      <span class="badge badge-red" title={`${since}${lastError ? ` · ${lastError}` : ''}`}>
+        Token refused
+      </span>
+    )
+  }
+  return <span class="badge badge-blue">Never run</span>
+}
+
+/**
  * Health for a book. `book_metadata` has no enrichment bookkeeping — a row is either
  * cached or it isn't — so this deliberately reports less than EnrichBadge rather than
  * faking a state model the table can't support.
