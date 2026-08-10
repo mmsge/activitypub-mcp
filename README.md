@@ -310,7 +310,7 @@ event-ordered stream. See ADR [0018](docs/decision-records/0018-publish-the-arch
 
 ```sh
 STREAM_DOMAIN=meg.msge.no
-STREAM_SOURCES=@markus@skvip.lol|mastodon,@mvrkws@bookwyrm.social|bookwyrm,@markus@pixelfed.babb.no|pixelfed,@markus@loops.video|loops,@markus@minreol.dk|neodb,@markus@rullen.no|rullen
+STREAM_SOURCES=@markus@skvip.lol|mastodon,@mvrkws@bookwyrm.social|bookwyrm,@markus@pixelfed.babb.no|pixelfed,@markus@loops.video|loops,@markus@minreol.dk|neodb,@markus@rullen.no|rullen,@markus@samklang.msge.no|samklang
 STREAM_INCLUDE_UNLISTED=          # unset = unlisted posts stay withheld
 STREAM_SCROBBLE_CUTOFF_MONTHS=12  # daily music digests only this far back
 STREAM_CACHE_TTL_SECONDS=180
@@ -324,7 +324,7 @@ anything becomes visible, and it takes the site down without touching Caddy.
 
 | Included | Excluded |
 |---|---|
-| Original posts from the five accounts in `STREAM_SOURCES` | Replies to other people |
+| Original posts from the accounts in `STREAM_SOURCES` | Replies to other people |
 | Markus' own threads, grouped into one entry | Boosts, and anything by anyone else |
 | BookWyrm starts, finishes, reviews and quotations | Bare ratings, automatic progress notes |
 | NeoDB marks with a status | Wishlist marks ("want to watch") |

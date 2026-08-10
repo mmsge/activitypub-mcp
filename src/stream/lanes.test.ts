@@ -6,6 +6,7 @@ import {
   mergedCandidateSql, type LaneContext,
 } from './lanes.js'
 import { EMPTY_FACETS, type Facets } from './facets.js'
+import { AP_PLATFORMS, platformInfo } from './sources.js'
 import { encodeCursor } from '../mcp/tools/pagination.js'
 
 const dialect = new PgDialect()
@@ -33,6 +34,7 @@ const ACTOR_IDS = {
   bookwyrm: ['https://bookwyrm.social/user/mvrkws'],
   neodb: ['https://minreol.dk/@markus@minreol.dk/'],
   rullen: ['https://rullen.no/users/markus'],
+  samklang: ['https://samklang.msge.no/brukar/markus'],
 }
 
 const ctx = (facets: Partial<Facets> = {}): LaneContext => ({
@@ -71,8 +73,10 @@ describe('postsLane', () => {
   })
 
   it('yields nothing at all when no account is configured', () => {
-    expect(postsLane({ ...ctx(), actorIds: { ...ACTOR_IDS, mastodon: [], pixelfed: [], loops: [], rullen: [] } }))
-      .toBeNull()
+    expect(postsLane({
+      ...ctx(),
+      actorIds: { ...ACTOR_IDS, mastodon: [], pixelfed: [], loops: [], rullen: [], samklang: [] },
+    })).toBeNull()
   })
 
   it('takes only thread roots as entries', () => {
@@ -100,12 +104,14 @@ describe('postsLane', () => {
     expect(sql).toContain('CASE WHEN o.actor_ap_id = ANY(')
   })
 
-  it('carries every posts-lane platform, including rullen', () => {
+  // Read off the registry, so a platform added to AP_PLATFORMS but left out of the
+  // lane fails here rather than silently serving nothing under its own badge.
+  it('carries every posts-lane platform', () => {
     const { params } = dialect.sqlToQuery(postsLane(ctx())!)
-    for (const p of ['mastodon', 'pixelfed', 'loops', 'rullen']) {
+    for (const p of AP_PLATFORMS.filter((x) => platformInfo(x).lane === 'posts')) {
       expect(params, p).toContain(p)
+      for (const id of ACTOR_IDS[p]) expect(params, id).toContain(id)
     }
-    expect(params).toContain('https://rullen.no/users/markus')
   })
 
   // Regression: four platforms share this lane, so selecting the lane is not the
@@ -378,7 +384,9 @@ describe('mergedCandidateSql', () => {
   it('is null when nothing can match, rather than an empty union', () => {
     expect(mergedCandidateSql({
       ...ctx({ platform: 'mastodon' }),
-      actorIds: { mastodon: [], pixelfed: [], loops: [], bookwyrm: [], neodb: [], rullen: [] },
+      actorIds: Object.fromEntries(
+        AP_PLATFORMS.map((p) => [p, [] as string[]]),
+      ) as LaneContext['actorIds'],
     })).toBeNull()
   })
 

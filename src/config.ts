@@ -138,7 +138,8 @@ const schema = z.object({
   // lets the code deploy and be verified before anything becomes visible.
   STREAM_DOMAIN: z.string().default(''),
   // Which accounts may appear, as `@user@domain|platform` entries separated by
-  // commas. Platform is one of mastodon, bookwyrm, pixelfed, loops, neodb.
+  // commas. Platform is one of mastodon, bookwyrm, pixelfed, loops, neodb, rullen,
+  // samklang.
   //
   // An allowlist, not a convenience: `objects` also holds posts by *other people*,
   // because the Announce handler files a boosted post under its original author.
