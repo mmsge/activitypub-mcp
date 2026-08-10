@@ -1,0 +1,36 @@
+-- When a source last actually returned a row, as distinct from when its job last ran.
+--
+-- `source_sync_state` could already say "the sync succeeded an hour ago". It could not
+-- say whether that success brought anything back, and for the LinkedIn snapshot those
+-- are different questions with the same answer at the HTTP layer.
+--
+-- The DMA endpoint signals "you have paged to the end" and "this domain has not been
+-- collated yet" with the *same* response: a 404 whose body reads "No data found for
+-- this domain and memberId". The crawl loop is required to treat that as the end
+-- (LinkedIn's docs say to loop until exactly that message, because `paging.total`
+-- under-reports), so a first-ever run against a domain that is not ready yet is
+-- indistinguishable from a completed crawl — it records a clean success and zero rows.
+--
+-- That is not hypothetical. Three hours after the token was minted, the snapshot's
+-- profile-shaped domains answered and its activity-shaped ones did not:
+--
+--   200: PROFILE, REGISTRATION, RICH_MEDIA
+--   404: MEMBER_SHARE_INFO, ARTICLES, ALL_LIKES, ALL_COMMENTS, INSTANT_REPOSTS
+--
+-- The dashboard showed a green OK badge throughout, because the poller genuinely was
+-- working. Establishing what was actually happening took a hand-written curl loop over
+-- eight domains.
+--
+-- So the distinction gets stored rather than inferred. NULL means "this source has
+-- never returned a row", which is the correct answer for every row that exists today,
+-- hence no default and no backfill. It cannot be derived from `items_last_run` — that
+-- holds only the most recent run, so a source that ingested 31 posts last week and none
+-- today would read as "never had data", which is precisely backwards.
+--
+-- Two things fall out of it: `awaiting_data` (succeeding, but never once any data), and
+-- the inverse anomaly — a run returning nothing when we already hold rows, which for a
+-- snapshot that is historical and complete on every call is suspicious rather than
+-- routine.
+--
+-- See ADR 0034, which amends 0033.
+ALTER TABLE "source_sync_state" ADD COLUMN "last_data_at" timestamp with time zone;
