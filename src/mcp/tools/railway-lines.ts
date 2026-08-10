@@ -43,7 +43,7 @@ const filterShape = {
     .describe('Include trips that have not departed yet. Off by default; they are reported separately under "upcoming".'),
 }
 
-type TripFilters = {
+export type TripFilters = {
   journey?: string
   operator?: string
   station?: string
@@ -61,7 +61,7 @@ type TripFilters = {
  * `train_trips t`. Shared by all three tools here so a line can be scoped to one
  * journey or one year exactly the way `get_train_stats` scopes a total.
  */
-function tripConditions(input: TripFilters): SQL[] {
+export function tripConditions(input: TripFilters): SQL[] {
   const conds: SQL[] = []
   if (!input.include_planned) conds.push(sql`t.departure_at <= now()`)
   if (input.journey) conds.push(sql`t.journey ILIKE ${`%${input.journey}%`}`)
@@ -73,12 +73,26 @@ function tripConditions(input: TripFilters): SQL[] {
   if (input.status) conds.push(sql`t.status = ${input.status}`)
   if (input.tag) conds.push(sql`${input.tag} = ANY(t.tags)`)
   if (input.year != null) {
-    conds.push(sql`t.departure_at >= ${new Date(`${input.year}-01-01T00:00:00Z`)}`)
-    conds.push(sql`t.departure_at < ${new Date(`${input.year + 1}-01-01T00:00:00Z`)}`)
+    conds.push(sql`t.departure_at >= ${isoOrThrow(`${input.year}-01-01T00:00:00Z`)}`)
+    conds.push(sql`t.departure_at < ${isoOrThrow(`${input.year + 1}-01-01T00:00:00Z`)}`)
   }
-  if (input.from) conds.push(sql`t.departure_at >= ${new Date(input.from)}`)
-  if (input.to) conds.push(sql`t.departure_at <= ${new Date(input.to)}`)
+  if (input.from) conds.push(sql`t.departure_at >= ${isoOrThrow(input.from)}`)
+  if (input.to) conds.push(sql`t.departure_at <= ${isoOrThrow(input.to)}`)
   return conds
+}
+
+/**
+ * Timestamps go into raw SQL as ISO strings, never as `Date`.
+ *
+ * `db.execute(sql\`…\`)` hands its parameters straight to postgres.js, which rejects a
+ * `Date` outright (`ERR_INVALID_ARG_TYPE`) — unlike Drizzle's query builder, which
+ * serialises them for you. Postgres infers timestamptz for the text parameter, so the
+ * comparison is unchanged.
+ */
+function isoOrThrow(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) throw new Error(`Invalid datetime: ${value}`)
+  return date.toISOString()
 }
 
 const whereOf = (conds: SQL[]): SQL =>

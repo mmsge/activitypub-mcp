@@ -66,12 +66,15 @@ export async function getTripWeather(input: z.infer<typeof getTripWeatherSchema>
     conds.push(sql`(t.from_station ILIKE ${`%${input.station}%`} OR t.to_station ILIKE ${`%${input.station}%`})`)
   }
   if (input.operator) conds.push(sql`t.operator ILIKE ${`%${input.operator}%`}`)
+  // ISO strings, never Date objects: db.execute hands its parameters straight to
+  // postgres.js, which rejects a Date with ERR_INVALID_ARG_TYPE. Drizzle's query
+  // builder serialises them, raw SQL does not — so year/from/to threw here.
   if (input.year != null) {
-    conds.push(sql`t.departure_at >= ${new Date(`${input.year}-01-01T00:00:00Z`)}`)
-    conds.push(sql`t.departure_at < ${new Date(`${input.year + 1}-01-01T00:00:00Z`)}`)
+    conds.push(sql`t.departure_at >= ${new Date(`${input.year}-01-01T00:00:00Z`).toISOString()}`)
+    conds.push(sql`t.departure_at < ${new Date(`${input.year + 1}-01-01T00:00:00Z`).toISOString()}`)
   }
-  if (input.from) conds.push(sql`t.departure_at >= ${new Date(input.from)}`)
-  if (input.to) conds.push(sql`t.departure_at <= ${new Date(input.to)}`)
+  if (input.from) conds.push(sql`t.departure_at >= ${new Date(input.from).toISOString()}`)
+  if (input.to) conds.push(sql`t.departure_at <= ${new Date(input.to).toISOString()}`)
   if (input.min_temp != null) conds.push(sql`dw.temp_max_c >= ${input.min_temp}`)
   if (input.max_temp != null) conds.push(sql`dw.temp_max_c <= ${input.max_temp}`)
   if (input.with_weather_only || input.condition) conds.push(sql`dw.id IS NOT NULL`)
