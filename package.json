@@ -13,6 +13,7 @@
     "repair-neodb-ingest": "tsx scripts/repair-neodb-ingest.ts",
     "link-trip-posts": "tsx scripts/link-trip-posts.ts",
     "sync-weather": "tsx scripts/sync-weather.ts",
+    "resolve-lines": "tsx scripts/resolve-trip-lines.ts",
     "sync-linkedin": "tsx scripts/sync-linkedin.ts",
     "visibility-audit": "tsx scripts/visibility-audit.ts",
     "scrobble-audit": "tsx scripts/scrobble-audit.ts",

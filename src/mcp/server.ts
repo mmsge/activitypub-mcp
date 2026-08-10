@@ -14,6 +14,11 @@ import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
 import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats } from './tools/train-trips.js'
 import { getTripPostsSchema, getTripPosts } from './tools/trip-posts.js'
 import { getTripWeatherSchema, getTripWeather } from './tools/trip-weather.js'
+import {
+  listRailwayLinesSchema, listRailwayLines,
+  getLineStatsSchema, getLineStats,
+  getLineTripsSchema, getLineTrips,
+} from './tools/railway-lines.js'
 import { getGardenPagesSchema, getGardenPages } from './tools/garden-pages.js'
 import { getGardenPageSchema, getGardenPage } from './tools/garden-page.js'
 import { getBookDetailsSchema, getBookDetails } from './tools/book-details.js'
@@ -207,6 +212,36 @@ export function createMcpServer(): McpServer {
     getTripWeatherSchema.shape,
     async (input) => {
       const result = await getTripWeather(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'list_railway_lines',
+    "Every named railway line and fixed link the archive knows about: canonical name, aliases, countries, registry length, and whether Markus has travelled it — with his trip count, on-line kilometres, crossing count and first/last traversal for the ones he has. Filter by kind (line/crossing), country code, travelled true/false, or a free-text name search. The registry is curated by hand rather than derived from OpenStreetMap (ADR 0035), so this is also the list of what get_line_stats can answer for.",
+    listRailwayLinesSchema.shape,
+    async (input) => {
+      const result = await listRailwayLines(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_line_stats',
+    "Aggregates for one named railway line or crossing: trips, on-line kilometres, time aboard, first and last traversal, and a breakdown by year, operator or journey. Answers \"how many kilometres have I done on Bergensbanen?\" in one call, and for a bridge or tunnel returns a crossing count — each traversal counted once, in either direction, so an out-and-back day trip counts two. Names resolve through aliases, case and diacritics: \"Bergensbanen\", \"Bergen Line\" and \"bergensbana\" are one line, as are \"Öresundsbron\", \"Øresundsbroen\" and \"Öresundsbroa\"; an unknown name comes back with the closest matches. Accepts the usual journey/operator/station/mode/status/tag filters and a year scope. Trips that have not departed are excluded from the totals and listed separately under \"upcoming\", so the trip currently under way counts but next month's does not. Every response states coverage and names any pinned routing behind the numbers.",
+    getLineStatsSchema.shape,
+    async (input) => {
+      const result = await getLineStats(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_line_trips',
+    "The individual legs that touched a named line or crossing, each with its prorated on-line distance and duration, its share of the whole trip, and how the routing was decided — so the totals from get_line_stats can be audited leg by leg. Rows carry the unscaled registry kilometres and the scale factor applied to reach the trip's recorded distance, plus the reason for any pinned routing. Same filters as get_line_stats.",
+    getLineTripsSchema.shape,
+    async (input) => {
+      const result = await getLineTrips(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

@@ -1366,6 +1366,299 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/railway-lines:
+    get:
+      tags: [REST API]
+      summary: The named railway lines and crossings
+      description: |
+        Every named railway line and fixed link the archive knows about: canonical
+        name, aliases, countries, registry length, and whether Markus has travelled
+        it — with trip count, on-line kilometres, crossing count and first/last
+        traversal for the ones he has.
+
+        The registry is curated by hand rather than derived from OpenStreetMap
+        tagging, so this is also the list of what `/line-stats` can answer for.
+      operationId: listRailwayLinesGet
+      parameters:
+        - {
+            name: kind,
+            in: query,
+            description: "Restrict to railway lines, or to named bridges and tunnels.",
+            schema: { type: string, enum: [line, crossing] },
+          }
+        - {
+            name: country,
+            in: query,
+            description: "ISO 3166-1 alpha-2 country code, e.g. NO, SE, GB.",
+            schema: { type: string },
+          }
+        - {
+            name: travelled,
+            in: query,
+            description: "true for entries Markus has been on, false for the rest. Omit for both.",
+            schema: { type: boolean },
+          }
+        - {
+            name: q,
+            in: query,
+            description: "Free-text filter over names and aliases.",
+            schema: { type: string },
+          }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 200, default: 100 },
+          }
+      responses:
+        "200":
+          description: The registry, with travel totals.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RailwayLinesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: The named railway lines and crossings (JSON body)
+      operationId: listRailwayLinesPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind: { type: string, enum: [line, crossing] }
+                country: { type: string }
+                travelled: { type: boolean }
+                q: { type: string }
+                limit: { type: integer, minimum: 1, maximum: 200, default: 100 }
+      responses:
+        "200":
+          description: The registry, with travel totals.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RailwayLinesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/line-stats:
+    get:
+      tags: [REST API]
+      summary: Travel statistics for one railway line or crossing
+      description: |
+        Trips, on-line kilometres, time aboard, first and last traversal, and a
+        breakdown by year, operator or journey — for a single named line.
+
+        For a bridge or tunnel it returns a **crossing count**: each traversal
+        counted once, in either direction, so an out-and-back day trip counts two.
+
+        Names resolve through aliases, case and diacritics — `Bergensbanen`,
+        `Bergen Line` and `bergensbana` are one line, as are `Öresundsbron`,
+        `Øresundsbroen` and `Öresundsbroa`. An unknown name returns `404` with the
+        closest registry matches rather than an empty result.
+
+        Trips that have not departed are excluded from the totals and listed
+        separately under `upcoming`, so the trip currently under way counts but next
+        month's does not. Every response states coverage and names any pinned routing
+        behind the numbers.
+      operationId: getLineStatsGet
+      parameters:
+        - {
+            name: line,
+            in: query,
+            required: true,
+            description: "Line or crossing name; aliases, case and diacritics all resolve.",
+            schema: { type: string },
+          }
+        - { name: journey, in: query, schema: { type: string } }
+        - { name: operator, in: query, schema: { type: string } }
+        - { name: station, in: query, schema: { type: string } }
+        - { name: mode, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: year, in: query, schema: { type: integer } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - {
+            name: include_planned,
+            in: query,
+            description: "Include trips that have not departed yet. Off by default.",
+            schema: { type: boolean, default: false },
+          }
+        - {
+            name: group_by,
+            in: query,
+            schema:
+              { type: string, enum: [year, operator, journey], default: year },
+          }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
+      responses:
+        "200":
+          description: Aggregates for the line.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LineStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No line of that name; the closest matches are returned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LineNotFoundResponse" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Travel statistics for one railway line or crossing (JSON body)
+      operationId: getLineStatsPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [line]
+              properties:
+                line: { type: string }
+                journey: { type: string }
+                operator: { type: string }
+                station: { type: string }
+                mode: { type: string }
+                status: { type: string }
+                tag: { type: string }
+                year: { type: integer }
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+                include_planned: { type: boolean, default: false }
+                group_by:
+                  {
+                    type: string,
+                    enum: [year, operator, journey],
+                    default: year,
+                  }
+                limit: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: Aggregates for the line.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LineStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No line of that name; the closest matches are returned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LineNotFoundResponse" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/line-trips:
+    get:
+      tags: [REST API]
+      summary: The legs that touched a railway line or crossing
+      description: |
+        The individual legs behind `/line-stats`, each with its prorated on-line
+        distance and duration, its share of the whole trip, and how the routing was
+        decided — so a total can be audited leg by leg.
+
+        Rows carry the unscaled registry kilometres (`raw_route_km`) and the
+        `scale_factor` applied to reach the trip's recorded `distance_km`, plus the
+        reason for any pinned routing. Crossing rows are marked `crossed` and sit
+        outside the distance partition, because their kilometres are already counted
+        inside their carrier line's.
+      operationId: getLineTripsGet
+      parameters:
+        - { name: line, in: query, required: true, schema: { type: string } }
+        - { name: journey, in: query, schema: { type: string } }
+        - { name: operator, in: query, schema: { type: string } }
+        - { name: station, in: query, schema: { type: string } }
+        - { name: mode, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: year, in: query, schema: { type: integer } }
+        - { name: from, in: query, schema: { type: string, format: date-time } }
+        - { name: to, in: query, schema: { type: string, format: date-time } }
+        - {
+            name: include_planned,
+            in: query,
+            schema: { type: boolean, default: false },
+          }
+        - {
+            name: sort_order,
+            in: query,
+            schema: { type: string, enum: [asc, desc], default: desc },
+          }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 200, default: 50 },
+          }
+        - {
+            name: page,
+            in: query,
+            schema: { type: integer, minimum: 1, default: 1 },
+          }
+      responses:
+        "200":
+          description: The legs that touched the line.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LineTripsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No line of that name; the closest matches are returned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LineNotFoundResponse" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: The legs that touched a railway line or crossing (JSON body)
+      operationId: getLineTripsPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [line]
+              properties:
+                line: { type: string }
+                journey: { type: string }
+                operator: { type: string }
+                station: { type: string }
+                mode: { type: string }
+                status: { type: string }
+                tag: { type: string }
+                year: { type: integer }
+                from: { type: string, format: date-time }
+                to: { type: string, format: date-time }
+                include_planned: { type: boolean, default: false }
+                sort_order: { type: string, enum: [asc, desc], default: desc }
+                limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+                page: { type: integer, minimum: 1, default: 1 }
+      responses:
+        "200":
+          description: The legs that touched the line.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LineTripsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: No line of that name; the closest matches are returned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LineNotFoundResponse" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/trip-posts:
     get:
       tags: [REST API]
@@ -3801,6 +4094,196 @@ components:
             date: { type: string }
             duration: { type: [string, "null"] }
         filters: { type: object }
+
+    LineCoverage:
+      type: object
+      description: |
+        How much of the archive has actually been placed on a line. Stated on every
+        line response so a thin answer reads as "not resolved yet" rather than "he
+        never went there".
+      properties:
+        trips: { type: integer }
+        resolved: { type: integer }
+        ambiguous:
+          type: integer
+          description: Two comparable routings; needs an override to choose between them.
+        unresolved:
+          type: integer
+          description: No route in the curated registry — a ferry, or an uncurated corner of Europe.
+        not_yet_resolved:
+          type: integer
+          description: Imported but the resolver has not reached them yet.
+        stale:
+          type: integer
+          description: Resolved against an older registry; the next resolver run redoes them.
+        unresolved_reasons:
+          type: array
+          items:
+            type: object
+            properties:
+              status: { type: string, enum: [ambiguous, unresolved] }
+              reason: { type: [string, "null"] }
+              trips: { type: integer }
+
+    RailwayLinesResponse:
+      type: object
+      properties:
+        count: { type: integer }
+        total_entries: { type: integer }
+        registry_version: { type: string }
+        coverage: { $ref: "#/components/schemas/LineCoverage" }
+        filters: { type: object }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              slug: { type: string }
+              name: { type: string }
+              kind: { type: string, enum: [line, crossing] }
+              aliases: { type: array, items: { type: string } }
+              countries: { type: array, items: { type: string } }
+              registry_length_km: { type: [number, "null"] }
+              travelled: { type: boolean }
+              trips: { type: integer }
+              km: { type: number }
+              seconds: { type: integer }
+              first_at: { type: [string, "null"], format: date-time }
+              last_at: { type: [string, "null"], format: date-time }
+              carrier:
+                type: [string, "null"]
+                description: For a crossing, the line whose kilometres its span is measured in.
+              notes: { type: [string, "null"] }
+
+    LineStatsResponse:
+      type: object
+      properties:
+        line:
+          type: object
+          properties:
+            slug: { type: string }
+            name: { type: string }
+            kind: { type: string, enum: [line, crossing] }
+            matched:
+              type: string
+              description: The spelling that resolved, so a surprising hit is visible.
+            registry_length_km: { type: [number, "null"] }
+        trips: { type: integer }
+        km: { type: number }
+        seconds: { type: integer }
+        hours: { type: integer }
+        minutes: { type: integer }
+        crossings:
+          type: integer
+          description: |
+            Traversals of a named crossing, counted once each in either direction, so an
+            out-and-back day trip counts two. Zero for a plain line.
+        first_at: { type: [string, "null"], format: date-time }
+        last_at: { type: [string, "null"], format: date-time }
+        group_by: { type: string, enum: [year, operator, journey] }
+        by:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: [string, "null"] }
+              trips: { type: integer }
+              km: { type: number }
+              seconds: { type: integer }
+              crossings: { type: integer }
+        overrides_applied:
+          type: array
+          description: Every pinned routing behind these numbers, with its stated reason.
+          items:
+            type: object
+            properties:
+              from: { type: string }
+              to: { type: string }
+              method: { type: string, enum: [override_pair, override_trip] }
+              reason: { type: [string, "null"] }
+        trips_by_override: { type: integer }
+        upcoming:
+          type: array
+          description: Trips still to come on this line, kept out of the totals above.
+          items:
+            type: object
+            properties:
+              from: { type: string }
+              to: { type: string }
+              journey: { type: [string, "null"] }
+              date: { type: string }
+              km: { type: number }
+        coverage: { $ref: "#/components/schemas/LineCoverage" }
+        filters: { type: object }
+
+    LineTripsResponse:
+      type: object
+      properties:
+        line:
+          type: object
+          properties:
+            slug: { type: string }
+            name: { type: string }
+            kind: { type: string, enum: [line, crossing] }
+            matched: { type: string }
+        count: { type: integer }
+        total: { type: integer }
+        page: { type: integer }
+        sort_order: { type: string, enum: [asc, desc] }
+        coverage: { $ref: "#/components/schemas/LineCoverage" }
+        filters: { type: object }
+        trips:
+          type: array
+          items:
+            type: object
+            properties:
+              from: { type: string }
+              to: { type: string }
+              journey: { type: [string, "null"] }
+              operator: { type: [string, "null"] }
+              mode: { type: [string, "null"] }
+              status: { type: [string, "null"] }
+              departure_at: { type: string, format: date-time }
+              arrival_at: { type: [string, "null"], format: date-time }
+              trip_distance_km: { type: [number, "null"] }
+              on_line_km: { type: number }
+              on_line_seconds:
+                type: [integer, "null"]
+                description: Prorated by distance share; the trip store holds no intermediate timings.
+              share_of_trip: { type: [number, "null"] }
+              crossed:
+                type: boolean
+                description: |
+                  True on a crossing row. Crossing rows sit outside the distance
+                  partition — their kilometres are already inside the carrier line's.
+              resolved_via:
+                {
+                  type: [string, "null"],
+                  enum: [kmposts, override_pair, override_trip, null],
+                }
+              override_reason: { type: [string, "null"] }
+              raw_route_km:
+                type: [number, "null"]
+                description: The registry kilometres before scaling.
+              scale_factor:
+                type: [number, "null"]
+                description: |
+                  `distance_km / raw_route_km`. Stored rather than applied silently — a
+                  split that needed a large nudge is one to distrust.
+
+    LineNotFoundResponse:
+      type: object
+      description: An unknown line name comes back with the closest registry matches, never empty.
+      properties:
+        error: { type: string }
+        did_you_mean:
+          type: array
+          items:
+            type: object
+            properties:
+              slug: { type: string }
+              name: { type: string }
+              kind: { type: string, enum: [line, crossing] }
 
     ReadingStatsResponse:
       type: object

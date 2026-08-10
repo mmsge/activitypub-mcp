@@ -643,6 +643,68 @@ export const stationWeather = pgTable('station_weather', {
   index('station_weather_date_idx').on(t.date),
 ])
 
+// Which named railway lines a trip ran on, and how far along each.
+//
+// Derived, never ingested — the same reasoning that kept `trip_posts` off both of
+// its parent tables (ADR 0023). The *curation* (which lines exist, where their
+// kilometre posts fall, which routings are pinned) lives in git as
+// `src/lib/railway-registry.ts`; only the arithmetic it produces is stored. That
+// keeps re-curating the registry from becoming indistinguishable from fact, and it
+// means a line's definition is reviewed as code rather than edited in place.
+//
+// Two tables because a trip that resolved to nothing and a trip that has not been
+// resolved yet are different answers, and only a per-trip row can tell them apart.
+// That distinction is the whole basis of the coverage reporting. See ADR 0035.
+export const tripRoutes = pgTable('trip_routes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tripId: uuid('trip_id').notNull().references(() => trainTrips.id, { onDelete: 'cascade' }),
+  /** 'resolved' | 'ambiguous' | 'unresolved'. */
+  status: text('status').notNull(),
+  /**
+   * The one explanation field. Why an unresolved trip could not be placed and which
+   * candidates tied for an ambiguous one — or, when curation placed it, the pinned
+   * routing's justification. A number that came from an override must say so.
+   */
+  reason: text('reason'),
+  /** 'kmposts' | 'override_pair' | 'override_trip'. */
+  method: text('method'),
+  /** Sum of the registry spans before scaling — the unscaled arithmetic. */
+  rawKm: numeric('raw_km'),
+  /**
+   * `distance_km / raw_km`. Stored rather than applied silently: the registry's
+   * kilometre posts and viaduct's recorded distance are two different measurements,
+   * and how far apart they are is exactly what says whether to trust the split.
+   */
+  scaleFactor: numeric('scale_factor'),
+  /** Hash of the registry + overrides this row was computed from; stale ⇒ recompute. */
+  registryVersion: text('registry_version').notNull(),
+  computedAt: timestamp('computed_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('trip_routes_trip_idx').on(t.tripId),
+  index('trip_routes_status_idx').on(t.status),
+  index('trip_routes_version_idx').on(t.registryVersion),
+])
+
+// One row per (trip, line): the portion of that trip which ran on that line.
+// `line_slug` is text rather than a foreign key because the registry is a code
+// module, not a table — a slug that disappears from the registry is a curation
+// change, and the resolver rewrites these rows wholesale when it does.
+export const tripLineLegs = pgTable('trip_line_legs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  tripId: uuid('trip_id').notNull().references(() => trainTrips.id, { onDelete: 'cascade' }),
+  lineSlug: text('line_slug').notNull(),
+  /** Scaled so the per-line sum equals the trip's recorded `distance_km`. */
+  onLineKm: numeric('on_line_km').notNull(),
+  /** Prorated by distance share — the trip store holds no intermediate timings. */
+  onLineSeconds: integer('on_line_seconds'),
+  /** True when this leg traversed a named crossing end to end. */
+  crossed: boolean('crossed').notNull().default(false),
+}, (t) => [
+  uniqueIndex('trip_line_legs_trip_line_idx').on(t.tripId, t.lineSlug),
+  index('trip_line_legs_line_idx').on(t.lineSlug),
+  index('trip_line_legs_crossed_idx').on(t.crossed),
+])
+
 // ---------------------------------------------------------------------------
 // LinkedIn. Two sources that never meet upstream: post *content* comes from the
 // DMA Member Snapshot API (polled), post *performance* from an .xlsx Markus

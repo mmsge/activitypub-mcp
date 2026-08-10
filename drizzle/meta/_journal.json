@@ -197,6 +197,13 @@
       "when": 1786351024353,
       "tag": "0027_source_last_data_at",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1786437424353,
+      "tag": "0028_trip_line_legs",
+      "breakpoints": true
     }
   ]
 }
