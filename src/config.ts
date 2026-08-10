@@ -98,6 +98,21 @@ const schema = z.object({
   // staleness window and re-enriches every referenced catalog item on its next run, so
   // newly-added fields/categories backfill immediately after a deploy. Unset once run.
   NEODB_BACKFILL: z.coerce.boolean().default(false),
+  // LinkedIn DMA access token, for the Member Snapshot API. Blank disables the
+  // poller entirely; the .xlsx import path keeps working without it.
+  //
+  // Minted BY HAND — there is no refresh flow here. LinkedIn's Member Data
+  // Portability (Member) product is a DMA compliance obligation, so only members
+  // in the EEA and Switzerland can consent and generate a token at all. See the
+  // LinkedIn section of the README for how to mint one; treat its expiry as
+  // unknown and possibly short, which is why the sync records its health in
+  // `source_sync_state` rather than logging a 401 and moving on.
+  LINKEDIN_DMA_TOKEN: z.string().default(''),
+  // How often to re-crawl the snapshot, in hours. The snapshot is historical and
+  // complete on every call rather than a feed of changes, so there is nothing to
+  // miss between runs and weekly (168h) is plenty. The floor of 1 is a courtesy
+  // to LinkedIn, not a rate limit we have been given.
+  LINKEDIN_SYNC_INTERVAL_HOURS: z.coerce.number().int().min(1).default(168),
   // Hostname (or URL) of your own Mastodon instance, e.g. "skvip.lol". Bare
   // numeric status ids in get_engagement resolve against it, and the optional
   // MASTODON_ACCESS_TOKEN is ONLY ever sent to this host — never to remote origins.

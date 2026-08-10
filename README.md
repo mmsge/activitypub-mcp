@@ -103,6 +103,8 @@ Here is what each variable means:
 | `LASTFM_API_KEY` | No | Last.fm API key ([create one](https://www.last.fm/api/account/create)). Enables scrobble ingestion. |
 | `LASTFM_USERNAME` | No | The Last.fm username whose scrobbles are ingested. Required alongside `LASTFM_API_KEY`. |
 | `LASTFM_SYNC_INTERVAL_SECONDS` | No | How often to poll Last.fm for new scrobbles, in seconds. Default `60`, minimum `15`. |
+| `LINKEDIN_DMA_TOKEN` | No | Access token for LinkedIn's Member Data Portability (Member) API ([how to mint one](#linkedin-posts-and-performance)). Enables the LinkedIn post poller; blank disables it. The `.xlsx` metrics import works without it. |
+| `LINKEDIN_SYNC_INTERVAL_HOURS` | No | How often to re-crawl the LinkedIn snapshot, in hours. Default `168` (weekly), minimum `1`. |
 | `LOG_LEVEL` | No | `info` is fine for production. Use `debug` to see more. |
 
 Generate a session secret:
@@ -537,11 +539,91 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_catalogue_details` | "Give me the full record for this NeoDB item — who developed it, its ISBN/publisher, the podcast feed URL — and where each field came from." |
 | `get_trip_posts` | "What did I post on Sjælland rundt? Show every togselfie with the train it was taken on. Which train was I on when I posted this?" |
 | `get_trip_weather` | "What was the weather on the Bergensbanen that day? How many trips have I taken in snow? Which was the coldest journey?" |
+| `get_linkedin_posts` | "What have I posted on LinkedIn this year, and how did each one do?" |
+| `get_linkedin_post` | "How did the KI-buzzwords post decay — what did its reach look like across exports?" |
+| `get_linkedin_stats` | "Which weekday actually earns me the best engagement rate? Is a 1.8% post good for me or bad? Is the LinkedIn token still working?" |
 
 Unlike the REST API, these MCP tools return **every** stored post, including followers-only
 ones — this is your own archive. See [ADR 0026](docs/decision-records/0026-rest-serves-public-posts-only.md).
 
 All tools are read-only queries against the local database — no requests go out to remote servers when you query the MCP server.
+
+### LinkedIn posts and performance
+
+LinkedIn is the one source here whose halves come from two different places, because no
+API Markus can reach has both:
+
+| Half | Where it comes from | How |
+|---|---|---|
+| Post content — date, URL, commentary, visibility, attached link, reshare flag | DMA **Member Snapshot API** (`MEMBER_SHARE_INFO`) | Automatic, weekly poller |
+| Performance — impressions, engagements | The analytics dashboard's **`.xlsx` Content export** | Manual, monthly, uploaded at `/admin/import` |
+
+The manual half is deliberate, not a stopgap. Impressions and engagement rate sit behind
+`r_member_postAnalytics`, inside the partner-gated Community Management product; the DMA
+product carries what you posted and nothing about how it did. There is no route from one
+to the other.
+
+Both halves carry the post URL — but **not the same spelling of it**. The API emits
+`/feed/update/urn:li:activity:<id>` and the export emits
+`/posts/<slug>-ugcPost-<id>-<hash>`. Both embed the same numeric id, so that id is the
+join key and each source's URL is stored as it arrived.
+
+Three tools read the result:
+
+- **`get_linkedin_posts`** — the archive, date-filterable, with each post's latest
+  metrics attached. Posts appear whether or not the other half has caught up: one posted
+  since the last export has `latest_metrics: null`, and one measured before the poller
+  reached it has `has_content: false`.
+- **`get_linkedin_post`** — one post with its full metric history. Because the export's
+  impressions are a *windowed accumulation* rather than a lifetime total, metrics are
+  stored append-only (one row per post per export) and this series is a reach-decay curve.
+  A later row with fewer impressions means the post stopped being served, not that the
+  earlier figure was wrong.
+- **`get_linkedin_stats`** — totals, the p25/p75 spread, and the **median engagement rate
+  per weekday**, bucketed in `Europe/Oslo`. Every weekday bucket carries `n` beside its
+  medians, because with an archive this size a weekday can rest on one or two posts.
+
+Re-running either ingest is safe. The poller upserts on the post id, and the import is
+keyed on `(post id, export date)` — where the export date is read from the file's own
+reporting window, not typed in, so the same file cannot land twice under two keys.
+
+#### Minting the DMA token
+
+The token is created **by hand** and there is no refresh flow. The product is a Digital
+Markets Act compliance obligation, so **only members located in the EEA or Switzerland
+can consent and generate one at all** — outside that region the flow is unavailable.
+
+1. Create an app on the [LinkedIn Developers Platform](https://www.linkedin.com/developers/apps/).
+   Use the **[Member Data Portability (Member) Default Company](https://www.linkedin.com/company/member-data-portability-member-default-company)**
+   page when it asks for a LinkedIn Company Page — creating a *new* page makes the
+   product un-requestable, and that is not reversible on the same app.
+2. On the app's **Products** tab, request access to **Member Data Portability API (Member)**
+   and accept the terms. Access is granted immediately.
+3. Open **Docs and tools → OAuth Token Tools → Create token**, select the app, tick the
+   **`r_dma_portability_self_serve`** scope, and consent.
+4. Put the token in `.env` as `LINKEDIN_DMA_TOKEN` and run `npm run sync-linkedin` to
+   confirm it works.
+
+**Treat its expiry as unknown and possibly short.** When it dies you do not have to read
+logs to find out: the admin dashboard shows a red *Token refused* badge, `get_linkedin_stats`
+reports `source_health.token_status: "unauthorized"`, and — if ntfy is configured — one
+push goes out on the transition (once per outage, not once per poll). Re-mint, update
+`.env`, and re-run `npm run sync-linkedin`; a success clears the state.
+
+The API version is pinned to `202312` in code and is deliberately not configurable: it is
+the only value this endpoint accepts, it does not track the monthly DMA version numbers,
+and anything else fails with `426 NONEXISTENT_VERSION`.
+
+#### Importing the monthly export
+
+On desktop, open your LinkedIn analytics/creator dashboard, choose **Export → Content**
+for a date range (last 90 days is a good default), then upload the `.xlsx` at
+`/admin/import`. Impressions and engagements are read from the **TOP POSTS** sheet, which
+is two independent rankings printed side by side — one by engagements (~14 rows), one by
+impressions (~50) — joined on the post URL rather than on row position. A post appearing
+only in the impressions block gets a null engagement count rather than a guessed one.
+
+See [ADR 0033](docs/decision-records/0033-linkedin-as-a-source-two-halves-joined-on-the-post-id.md).
 
 ### Last.fm scrobbles
 
@@ -718,7 +800,7 @@ apart has a station in the wrong place. That excess is stored per station and re
 `get_trip_weather`, and what the geocoder actually matched is stored beside it — so a bad
 placement is a number and a name, not a weather report nobody questions. Fix one with
 `source = 'manual'` and the geocoder will never overwrite it. See
-[ADR 0033](docs/decision-records/0033-drop-the-country-hint-and-check-geocodes-against-the-distances.md).
+[ADR 0034](docs/decision-records/0034-drop-the-country-hint-and-check-geocodes-against-the-distances.md).
 
 To find them:
 

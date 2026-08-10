@@ -1,10 +1,10 @@
-# 0033 — Drop the country hint, and check geocodes against the distances travelled
+# 0034 — Drop the country hint, and check geocodes against the distances travelled
 
 - **Status:** Accepted
 - **Supersedes:** the country-hint premise of [0028](0028-weather-at-the-stations-he-travelled-through.md); the rest of that record stands
 - **Date:** 2026-08-06
 - **Contributors:** Markus (ran the backfill, spotted the `Europe/Paris` timezones in the log and read them correctly as his own travels, then asked for all three fixes) + Claude (traced the wrong premise, measured the damage, proposed the distance check)
-- **Affects:** `drizzle/0026_station_geocode_check.sql`, `src/lib/geocode-station.ts`, `src/lib/geo-distance.ts`, `src/jobs/check-station-geocodes.ts`, `src/jobs/reset-geocodes.ts`, `src/jobs/sync-stations.ts`, `src/mcp/tools/trip-weather.ts`
+- **Affects:** `drizzle/0027_station_geocode_check.sql`, `src/lib/geocode-station.ts`, `src/lib/geo-distance.ts`, `src/jobs/check-station-geocodes.ts`, `src/jobs/reset-geocodes.ts`, `src/jobs/sync-stations.ts`, `src/mcp/tools/trip-weather.ts`
 - **Topics:** trains, weather, geocoding, data-quality, incident
 
 ## Context

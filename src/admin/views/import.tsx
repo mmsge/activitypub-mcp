@@ -57,6 +57,29 @@ export const ImportPage: FC<{ error?: string }> = ({ error }) => (
     </div>
 
     <div class="section">
+      <h2>LinkedIn Analytics (XLSX)</h2>
+      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
+        Upload a <strong>LinkedIn Content export</strong> (analytics dashboard → Export →
+        Content, last 90 days is a good default). Impressions and engagements per post are
+        read from the <strong>TOP POSTS</strong> sheet and stored append-only, one row per
+        post per export — successive exports build the reach-decay series rather than
+        overwriting each other. The export is dated from its own reporting window, so
+        re-uploading the same file is safe.
+      </p>
+      <form method="post" action="/admin/import/linkedin" enctype="multipart/form-data">
+        <div class="filters">
+          <input
+            type="file"
+            name="file"
+            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            required
+          />
+          <button type="submit">Import LinkedIn Metrics</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="section">
       <h2>Re-process Stored Bare Objects</h2>
       <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
         Re-runs processing on activities stored as bare Note/Review/etc. objects

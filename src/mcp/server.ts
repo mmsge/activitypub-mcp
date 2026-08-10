@@ -22,6 +22,8 @@ import { getWatchedSchema, getWatched, getCatalogueDetailsSchema, getCatalogueDe
 import { getHashtagStatsSchema, getHashtagStats, getHashtagTrendsSchema, getHashtagTrends } from './tools/hashtag-stats.js'
 import { getEngagementSchema, getEngagement, getEngagementTrendsSchema, getEngagementTrends } from './tools/engagement.js'
 import { getActorEngagementTrendsSchema, getActorEngagementTrends } from './tools/actor-engagement-trends.js'
+import { getLinkedinPostsSchema, getLinkedinPosts, getLinkedinPostSchema, getLinkedinPost } from './tools/linkedin-posts.js'
+import { getLinkedinStatsSchema, getLinkedinStats } from './tools/linkedin-stats.js'
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -315,6 +317,36 @@ export function createMcpServer(): McpServer {
     getActorEngagementTrendsSchema.shape,
     async (input) => {
       const result = await getActorEngagementTrends(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_linkedin_posts',
+    "List Markus' LinkedIn posts with their latest performance numbers attached. Two sources feed this and neither is a subset of the other: post text, visibility and attached link come from LinkedIn's DMA Member Snapshot API (polled weekly); impressions and engagements come from an .xlsx he exports by hand each month. So a post can have text but no numbers yet (posted since the last export, latest_metrics null) or numbers but no text (has_content false — the poller has not reached it); both are listed. latest_metrics carries the MOST RECENT export's figures, not a lifetime total: LinkedIn's impressions are a windowed accumulation, so use get_linkedin_post for the full observation series. engagement_rate is engagements/impressions, computed not stored, and null when impressions are 0 or engagements are unknown (the export's engagement block only covers the top ~14 posts, so lower-reach posts legitimately have impressions and no engagements). Filter with from/to on the publish date (calendar days, Europe/Oslo) and visibility. The archive is tens of posts, so page/limit offset paging is all there is — no cursor.",
+    getLinkedinPostsSchema.shape,
+    async (input) => {
+      const result = await getLinkedinPosts(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_linkedin_post',
+    "Fetch one LinkedIn post with its FULL metric history. Accepts either URL form LinkedIn uses — the /feed/update/urn:li:activity:<id> permalink or the /posts/<slug>-ugcPost-<id>-<hash> share link — or the bare numeric post_key; all reduce to the same post. metrics_history is one row per monthly export, oldest first. Because the export's impressions are a windowed accumulation rather than a lifetime total, successive rows are genuinely different observations and the series is a reach-decay curve, NOT a list of corrections to one number: a later row showing fewer impressions means the post stopped being served, not that the earlier figure was wrong. engagement_rate per row is engagements/impressions, null when either is missing.",
+    getLinkedinPostSchema.shape,
+    async (input) => {
+      const result = await getLinkedinPost(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_linkedin_stats',
+    "Aggregate LinkedIn performance, including the MEDIAN ENGAGEMENT RATE PER WEEKDAY — the number to use when advising on posting times, in place of any hardcoded weekday ranking. Medians rather than means, because one viral post otherwise decides the ranking; over each post's LATEST observation only, so a post that stayed in the top 50 for four months is counted once, not four times; bucketed by weekday in Europe/Oslo, so a post published at 00:30 CEST is not filed under the previous day. Every by_weekday bucket reports `n` (posts with a usable rate) beside its medians — with an archive this size a weekday can rest on one or two posts, so a ranking that ignores n will overstate what the data supports. totals also carry p25/p75 for impressions and rate, i.e. the middle half of his posts, which is what a single post's result should be judged against. source_health reports whether the DMA token is still working (ok / stale / unauthorized / never_run): if it is not `ok`, these numbers stopped moving at last_success_at and any conclusion about a recent trend is about the outage, not the audience.",
+    getLinkedinStatsSchema.shape,
+    async (input) => {
+      const result = await getLinkedinStats(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

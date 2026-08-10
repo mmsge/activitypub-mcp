@@ -1,9 +1,10 @@
 import { eq, inArray, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
-import { activities, actors, trainTrips } from '../db/schema.js'
+import { activities, actors, linkedinPostMetrics, trainTrips } from '../db/schema.js'
 import { processActivity } from '../activitypub/inbox.js'
 import { fetchActor } from '../lib/fetch-actor.js'
 import { logger } from '../lib/logger.js'
+import type { LinkedinExport } from '../lib/parse-linkedin-export.js'
 import type { TripRow } from '../lib/parse-trips-csv.js'
 import { linkTripPosts } from '../jobs/link-trip-posts.js'
 
@@ -258,6 +259,71 @@ export async function importTrainTrips(rows: TripRow[]): Promise<TripImportResul
   }
 
   return { total, inserted: inserted.length, skipped: total - inserted.length }
+}
+
+export interface LinkedinImportResult {
+  total: number
+  inserted: number
+  skipped: number
+  exportDate: string
+}
+
+/**
+ * Store one month's LinkedIn metrics. Append-only, and idempotent on
+ * (post key, export date).
+ *
+ * Nothing here updates: the export's impressions are a windowed accumulation
+ * rather than a lifetime total, so a later export of the same post is a genuinely
+ * different observation, not a correction of the earlier one. Overwriting would
+ * discard the difference between them, which is the whole reach-decay series.
+ * Successive exports therefore accumulate, and the unique index is what makes
+ * re-uploading the same file a no-op instead of a duplicate.
+ *
+ * Rows are stored even when no `linkedin_posts` row exists yet — a post the poller
+ * has not reached is still a real measurement, and the poller will backfill the
+ * content later. That is why there is no foreign key. See ADR 0033.
+ */
+export async function importLinkedinMetrics(
+  parsed: LinkedinExport,
+): Promise<LinkedinImportResult> {
+  const total = parsed.metrics.length
+  if (total === 0) {
+    return { total: 0, inserted: 0, skipped: 0, exportDate: parsed.exportDate }
+  }
+
+  // Drop in-file duplicates so the single INSERT has no repeated conflict targets.
+  const seen = new Set<string>()
+  const unique = parsed.metrics.filter(
+    (m) => (seen.has(m.postKey) ? false : (seen.add(m.postKey), true)),
+  )
+
+  const db = getDb()
+  const values = unique.map((m) => ({
+    postKey: m.postKey,
+    postUrl: m.postUrl,
+    exportDate: parsed.exportDate,
+    windowStart: parsed.windowStart,
+    windowEnd: parsed.windowEnd,
+    postedOn: m.postedOn,
+    impressions: m.impressions,
+    engagements: m.engagements,
+    raw: m.raw,
+  }))
+
+  const inserted = await db
+    .insert(linkedinPostMetrics)
+    .values(values as any)
+    .onConflictDoNothing({
+      target: [linkedinPostMetrics.postKey, linkedinPostMetrics.exportDate],
+    })
+    .returning({ id: linkedinPostMetrics.id })
+
+  return {
+    total,
+    inserted: inserted.length,
+    skipped: total - inserted.length,
+    exportDate: parsed.exportDate,
+  }
 }
 
 export async function ensureActor(actorUrl: string): Promise<void> {

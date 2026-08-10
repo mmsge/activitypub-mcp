@@ -58,7 +58,7 @@ export async function syncStations(): Promise<SyncStationsResult> {
 
   // No country hint. The trips' `from_tz` looks like one and is not: viaduct.world
   // records the UTC offset zone, so Norway reads as `Europe/Paris`. Biasing on it
-  // made wrong searches succeed and put six stations in France (ADR 0033).
+  // made wrong searches succeed and put six stations in France (ADR 0034).
   const pendingRows = (await db.execute(sql`
     SELECT s.id::text AS id, s.name
     FROM stations s
