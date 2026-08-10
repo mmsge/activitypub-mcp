@@ -731,6 +731,13 @@ export const sourceSyncState = pgTable('source_sync_state', {
   lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
   /** Last run that actually completed. Stays put while a broken token retries. */
   lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+  // Last run that actually returned a row — a different question from whether the
+  // run completed, because the DMA endpoint spells "you have reached the end" and
+  // "this domain is not collated yet" with the same 404 body. NULL means this source
+  // has never once returned data, which is what separates "waiting for upstream"
+  // from "working". Not derivable from `itemsLastRun`, which holds only the most
+  // recent run. See ADR 0034.
+  lastDataAt: timestamp('last_data_at', { withTimezone: true }),
   lastError: text('last_error'),
   /** HTTP status of the last failure — 401/403 is what makes a token "expired". */
   lastStatus: integer('last_status'),

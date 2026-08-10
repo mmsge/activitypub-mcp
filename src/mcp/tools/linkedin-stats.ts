@@ -186,10 +186,15 @@ export async function getLinkedinStats(
       median_engagements: num(r.median_engagements),
     })),
     // Ingest health, so a consumer can tell "he stopped posting" from "the token
-    // died three weeks ago and these numbers have been frozen since".
+    // died three weeks ago and these numbers have been frozen since" — and from
+    // "the poller works but LinkedIn has not handed over the posts yet", which
+    // looks identical in the data and is not the same conclusion at all.
     source_health: {
       token_status: deriveTokenStatus(health, staleAfterMs),
       last_success_at: health?.lastSuccessAt?.toISOString() ?? null,
+      // When posts last actually arrived, which is a different question from when
+      // the job last ran — null means the poller has never once been given data.
+      last_data_at: health?.lastDataAt?.toISOString() ?? null,
       last_attempt_at: health?.lastAttemptAt?.toISOString() ?? null,
       last_error: health?.lastError ?? null,
       last_status: health?.lastStatus ?? null,

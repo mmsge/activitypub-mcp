@@ -1,5 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import type { FC } from 'hono/jsx'
+import type { TokenStatus } from '../../lib/source-health.js'
 
 // Shared building blocks for the admin tables. Every list page hand-rolled its own
 // pager, empty row and badge logic; the Media page would have made that a seventh
@@ -124,16 +125,34 @@ export const EnrichBadge: FC<{
  * token that fetched it dies, so calling it failed would suggest the numbers are
  * untrustworthy when the real problem is that they have stopped moving.
  *
+ * "Awaiting data" is the fifth state and the one that is easiest to get wrong: the
+ * poller is succeeding and has simply never been given anything, because LinkedIn
+ * collates the snapshot's activity domains after its profile ones. Showing that as
+ * green OK is what sent someone to a curl loop to find out why the archive was
+ * empty. It is deliberately NOT yellow — yellow is Stale, which means the opposite
+ * (the job has stopped) — and blue already reads as "nothing yet" on EnrichBadge.
+ *
  * This tile is the answer to "a stale or expired token must be visible without
- * reading logs". See ADR 0033.
+ * reading logs". See ADR 0033, amended by 0034.
  */
 export const SourceBadge: FC<{
-  status: 'ok' | 'stale' | 'unauthorized' | 'never_run'
+  status: TokenStatus
   lastError?: string | null
   lastSuccessAt?: Date | null
-}> = ({ status, lastError, lastSuccessAt }) => {
+  lastDataAt?: Date | null
+}> = ({ status, lastError, lastSuccessAt, lastDataAt }) => {
   const since = lastSuccessAt ? `Last success: ${lastSuccessAt.toISOString()}` : 'Never succeeded'
-  if (status === 'ok') return <span class="badge badge-green" title={since}>OK</span>
+  if (status === 'ok') {
+    const data = lastDataAt ? ` · Data last arrived: ${lastDataAt.toISOString()}` : ''
+    return <span class="badge badge-green" title={`${since}${data}`}>OK</span>
+  }
+  if (status === 'awaiting_data') {
+    return (
+      <span class="badge badge-blue" title={`${since} · no rows returned yet`}>
+        Awaiting data
+      </span>
+    )
+  }
   if (status === 'stale') {
     return <span class="badge badge-yellow" title={`${since}${lastError ? ` · ${lastError}` : ''}`}>Stale</span>
   }

@@ -22,7 +22,7 @@ import { publishNtfy } from './ntfy.js'
 
 export const LINKEDIN_SOURCE = 'linkedin'
 
-export type TokenStatus = 'ok' | 'stale' | 'unauthorized' | 'never_run'
+export type TokenStatus = 'ok' | 'stale' | 'unauthorized' | 'never_run' | 'awaiting_data'
 
 export interface SourceHealth {
   source: string
@@ -32,17 +32,26 @@ export interface SourceHealth {
   lastStatus: number | null
   consecutiveFailures: number
   itemsLastRun: number | null
+  lastDataAt: Date | null
   notifiedAt: Date | null
 }
 
 /**
- * Classify a source's credential from its sync history.
+ * Classify a source's ingest from its sync history.
  *
- * Pure, and separated from the query so the four states can be tested without a
- * database. The four combinations are all meaningful and none collapses into
- * another — in particular a source can hold perfectly good data *and* a failing
- * refresh, which is `stale`, not `unauthorized`. The stored snapshot stays valid
- * long after the token that fetched it dies.
+ * Pure, and separated from the query so the states can be tested without a
+ * database. All five are meaningful and none collapses into another:
+ *
+ *  - a source can hold perfectly good data *and* a failing refresh, which is
+ *    `stale`, not `unauthorized` — the stored snapshot stays valid long after the
+ *    token that fetched it dies;
+ *  - and a source can be succeeding perfectly while producing nothing, which is
+ *    `awaiting_data`, not `ok`. LinkedIn collates the snapshot's activity domains
+ *    after its profile ones, and signals "not collated yet" with the very same 404
+ *    body it uses for "you have reached the end of the data". The crawl must treat
+ *    that as the end, so a completed-and-empty run is indistinguishable from a
+ *    healthy one at the HTTP layer. `lastDataAt` is what tells them apart, and it
+ *    has to be stored because nothing in the response can carry it. See ADR 0034.
  *
  * `stale` is derived from how long it has been since a success, never from an
  * assumed token lifetime: LinkedIn documents no expiry for a self-serve DMA
@@ -57,7 +66,10 @@ export function deriveTokenStatus(
   // 401/403 is the token itself being refused — the one state a human must act on.
   if (health.lastStatus === 401 || health.lastStatus === 403) return 'unauthorized'
   if (!health.lastSuccessAt) return 'unauthorized'
+  // Checked before `awaiting_data`: if the job has stopped running as well, that is
+  // the more actionable fact, and "waiting" would imply something is still trying.
   if (now.getTime() - health.lastSuccessAt.getTime() > staleAfterMs) return 'stale'
+  if (!health.lastDataAt) return 'awaiting_data'
   return 'ok'
 }
 
@@ -80,11 +92,20 @@ export async function recordAttempt(source: string): Promise<void> {
     })
 }
 
-/** A run that completed. Clears the error state and the notification latch. */
-export async function recordSuccess(source: string, items: number): Promise<void> {
-  const db = getDb()
-  const now = new Date()
-  const set = {
+/**
+ * The columns a successful run writes.
+ *
+ * `lastDataAt` is present ONLY when the run actually brought rows back. It must be
+ * absent from the object rather than set to null on an empty run: the update does
+ * `set: successSet(...)`, so any key present here is rewritten every time, and
+ * including it unconditionally would erase the record that this source has ever
+ * produced data — turning a working source into a permanent `awaiting_data` the
+ * first time a run legitimately returned nothing. Same trap ADR 0013 records for
+ * `hiddenAt`, and ADR 0033 for `firstSeenAt`. Extracted and exported so a test can
+ * assert the absence.
+ */
+export function successSet(items: number, now: Date) {
+  return {
     lastSuccessAt: now,
     lastError: null,
     lastStatus: null,
@@ -94,11 +115,34 @@ export async function recordSuccess(source: string, items: number): Promise<void
     // silenced forever by one push months ago.
     notifiedAt: null,
     updatedAt: now,
+    ...(items > 0 ? { lastDataAt: now } : {}),
   }
+}
+
+/** A run that completed. Clears the error state and the notification latch. */
+export async function recordSuccess(source: string, items: number): Promise<void> {
+  const db = getDb()
+  const now = new Date()
+  const prior = await getSourceHealth(source)
+  const set = successSet(items, now)
+
   await db
     .insert(sourceSyncState)
     .values({ source, lastAttemptAt: now, ...set })
     .onConflictDoUpdate({ target: sourceSyncState.source, set })
+
+  // The inverse of `awaiting_data`, and the more worrying one. The snapshot is
+  // historical and complete on every call — it is not a feed of changes — so a run
+  // that returns nothing when we already hold rows means the upstream stopped
+  // serving data we know it once had, not that nothing happened since last time.
+  // Logged rather than alerted: it is rare, ambiguous, and the stored rows are
+  // untouched either way, so it does not warrant waking anyone.
+  if (items === 0 && prior?.lastDataAt) {
+    logger.warn(
+      { source, lastDataAt: prior.lastDataAt, itemsPreviously: prior.itemsLastRun },
+      'Source sync returned no rows although it has returned data before',
+    )
+  }
 }
 
 /**

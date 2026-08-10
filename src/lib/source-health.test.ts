@@ -11,7 +11,7 @@ const getDb = vi.fn(() => {
 })
 vi.mock('../db/client.js', () => ({ getDb }))
 
-const { deriveTokenStatus } = await import('./source-health.js')
+const { deriveTokenStatus, successSet } = await import('./source-health.js')
 
 const NOW = new Date('2026-08-10T12:00:00Z')
 const WEEK = 7 * 24 * 60 * 60_000
@@ -25,6 +25,7 @@ const health = (over: Record<string, unknown> = {}) => ({
   lastStatus: null,
   consecutiveFailures: 0,
   itemsLastRun: 12,
+  lastDataAt: NOW,
   notifiedAt: null,
   ...over,
 }) as any
@@ -71,5 +72,67 @@ describe('deriveTokenStatus', () => {
   it('reports attempts that have never once succeeded as unauthorized', () => {
     const row = health({ lastSuccessAt: null, lastStatus: 0, consecutiveFailures: 4 })
     expect(deriveTokenStatus(row, STALE_AFTER, NOW)).toBe('unauthorized')
+  })
+})
+
+// The fifth state, and the one the four above could not express. LinkedIn signals
+// "this domain is not collated yet" with the SAME 404 body it uses for "you have
+// reached the end of the data" — and the crawl is required to treat that as the end,
+// because paging.total under-reports. So a first run against a not-yet-ready domain
+// records a clean success with zero rows and is indistinguishable, at the HTTP layer,
+// from a healthy one. It showed as a green OK badge on a source that had never
+// produced a single post. See ADR 0034.
+describe('deriveTokenStatus — awaiting_data', () => {
+  it('reports a succeeding source that has never returned a row as awaiting_data', () => {
+    expect(deriveTokenStatus(health({ lastDataAt: null, itemsLastRun: 0 }), STALE_AFTER, NOW))
+      .toBe('awaiting_data')
+  })
+
+  it('reports ok once data has arrived, even if the latest run brought nothing new', () => {
+    const row = health({ lastDataAt: new Date(NOW.getTime() - WEEK), itemsLastRun: 0 })
+    expect(deriveTokenStatus(row, STALE_AFTER, NOW)).toBe('ok')
+  })
+
+  it('lets a refused token win over awaiting_data — the credential is the real problem', () => {
+    const row = health({ lastDataAt: null, lastStatus: 401, consecutiveFailures: 1 })
+    expect(deriveTokenStatus(row, STALE_AFTER, NOW)).toBe('unauthorized')
+  })
+
+  it('reports a stalled poller as stale, not as awaiting_data', () => {
+    // Both are true — it has never had data AND it has stopped running. "Stale" is
+    // the more actionable of the two, and "waiting" would imply something is trying.
+    const row = health({ lastDataAt: null, lastSuccessAt: new Date(NOW.getTime() - 3 * WEEK) })
+    expect(deriveTokenStatus(row, STALE_AFTER, NOW)).toBe('stale')
+  })
+
+  it('still reports never_run before the first attempt, not awaiting_data', () => {
+    const row = health({ lastAttemptAt: null, lastSuccessAt: null, lastDataAt: null })
+    expect(deriveTokenStatus(row, STALE_AFTER, NOW)).toBe('never_run')
+  })
+})
+
+// The update does `set: successSet(...)`, so every key present is rewritten on every
+// run. Including lastDataAt unconditionally would erase the record that this source
+// has ever produced data the first time a run legitimately returned nothing —
+// flipping a working source to a permanent awaiting_data. Same shape as ADR 0013's
+// hiddenAt and ADR 0033's firstSeenAt.
+describe('successSet', () => {
+  it('omits lastDataAt entirely on an empty run', () => {
+    const set = successSet(0, NOW)
+    expect(set).not.toHaveProperty('lastDataAt')
+    expect(set.itemsLastRun).toBe(0)
+    expect(set.lastSuccessAt).toBe(NOW)
+  })
+
+  it('sets lastDataAt when the run actually brought rows back', () => {
+    expect(successSet(31, NOW)).toMatchObject({ lastDataAt: NOW, itemsLastRun: 31 })
+  })
+
+  it('clears the failure state either way', () => {
+    for (const items of [0, 31]) {
+      expect(successSet(items, NOW)).toMatchObject({
+        lastError: null, lastStatus: null, consecutiveFailures: 0, notifiedAt: null,
+      })
+    }
   })
 })

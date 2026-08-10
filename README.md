@@ -610,6 +610,21 @@ reports `source_health.token_status: "unauthorized"`, and — if ntfy is configu
 push goes out on the transition (once per outage, not once per poll). Re-mint, update
 `.env`, and re-run `npm run sync-linkedin`; a success clears the state.
 
+**A freshly-minted token will show *Awaiting data* for a while, and that is normal.**
+LinkedIn builds the snapshot as a batch job when you consent, and the activity domains
+(`MEMBER_SHARE_INFO`, `ARTICLES`, `ALL_LIKES`, `ALL_COMMENTS`, `INSTANT_REPOSTS`) land
+after the profile-shaped ones (`PROFILE`, `REGISTRATION`, `RICH_MEDIA`) — three hours in,
+the first group can still be returning `404 No data found for this domain and memberId`
+while the second answers fine. There is no published timing. Nothing is wrong and there
+is nothing to fix; the state clears itself, and `last_data_at` records when the posts
+actually arrived.
+
+**Do not re-mint the token to try to hurry it along.** LinkedIn creates the snapshot at
+the moment of consent, so a fresh consent plausibly restarts the collation rather than
+skipping ahead. If the activity domains are still 404 after a day while the others are
+200, that is a stuck job rather than a slow one — use
+[LinkedIn's DMA support form](https://www.linkedin.com/help/linkedin/ask/dsapi).
+
 The API version is pinned to `202312` in code and is deliberately not configurable: it is
 the only value this endpoint accepts, it does not track the monthly DMA version numbers,
 and anything else fails with `426 NONEXISTENT_VERSION`.
