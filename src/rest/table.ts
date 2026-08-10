@@ -37,6 +37,11 @@ import {
   getEngagementSchema, getEngagement,
   getEngagementTrendsSchema, getEngagementTrends,
 } from '../mcp/tools/engagement.js'
+import {
+  getLinkedinPostsSchema, getLinkedinPosts,
+  getLinkedinPostSchema, getLinkedinPost,
+} from '../mcp/tools/linkedin-posts.js'
+import { getLinkedinStatsSchema, getLinkedinStats } from '../mcp/tools/linkedin-stats.js'
 
 /**
  * One row per MCP tool. Each REST endpoint reuses the same (schema, handler) pair
@@ -344,6 +349,41 @@ export const endpoints: RestEndpoint[] = [
     schema: getEngagementTrendsSchema,
     handler: getEngagementTrends,
     numbers: ['limit'],
+    booleans: [],
+    arrays: [],
+  },
+  // LinkedIn. `publicOnly` here means LinkedIn's own visibility field, not the
+  // ActivityPub addressing `scopeCondition` reads — same rule as ADR 0026, applied
+  // to the vocabulary this source actually uses. A post whose visibility could not
+  // be read is withheld rather than assumed public, so metric rows that arrived
+  // before the poller ingested the post stay off this surface until it has.
+  {
+    path: '/linkedin-posts',
+    name: 'get_linkedin_posts',
+    description: "Markus' LinkedIn posts with their latest performance numbers attached. Post text comes from LinkedIn's DMA snapshot API, impressions/engagements from a monthly .xlsx export, joined on the post id. latest_metrics is the most recent export's figures, not a lifetime total. Filter with from/to on publish date (calendar days, Europe/Oslo), visibility, and has_metrics. Offset paging via page/limit. REST serves publicly-visible posts only.",
+    schema: getLinkedinPostsSchema,
+    handler: publicOnly(getLinkedinPosts),
+    numbers: ['limit', 'page'],
+    booleans: ['has_metrics'],
+    arrays: [],
+  },
+  {
+    path: '/linkedin-post',
+    name: 'get_linkedin_post',
+    description: "One LinkedIn post with its full metric history. Accepts either URL form (the /feed/update/urn:li:activity: permalink or the /posts/…-ugcPost-<id>-<hash> share link) or the bare numeric post_key. metrics_history is one row per monthly export, oldest first — a reach-decay series, since the export's impressions are a windowed accumulation rather than a running total. REST serves publicly-visible posts only.",
+    schema: getLinkedinPostSchema,
+    handler: publicOnly(getLinkedinPost),
+    numbers: [],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/linkedin-stats',
+    name: 'get_linkedin_stats',
+    description: "Aggregate LinkedIn performance, including the median engagement rate per weekday (Europe/Oslo, over each post's latest observation). Every by_weekday bucket carries `n` so thin buckets are visible. totals carry p25/p75 for impressions and rate. source_health reports whether the DMA token is still working. REST aggregates publicly-visible posts only, so its figures can differ from MCP's.",
+    schema: getLinkedinStatsSchema,
+    handler: publicOnly(getLinkedinStats),
+    numbers: [],
     booleans: [],
     arrays: [],
   },

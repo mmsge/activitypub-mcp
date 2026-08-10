@@ -2191,6 +2191,251 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/linkedin-posts:
+    get:
+      tags: [REST API]
+      summary: Query LinkedIn posts with their latest performance numbers
+      description: |
+        Markus' LinkedIn archive. Post text, visibility and attached link come
+        from LinkedIn's DMA Member Snapshot API (polled); impressions and
+        engagements come from a monthly `.xlsx` export, joined on the post id.
+        Neither source is a subset of the other, so a post may have text and no
+        numbers yet (`latest_metrics: null`) or numbers and no text
+        (`has_content: false`).
+
+        `latest_metrics` carries the MOST RECENT export's figures, not a lifetime
+        total — the export's impressions are a windowed accumulation. Use
+        `/api/v1/linkedin-post` for the full observation series.
+        `engagement_rate` is computed, not stored, and is null when impressions
+        are 0 or engagements are unknown.
+
+        Filter by publish date with `from`/`to` (calendar days, Europe/Oslo),
+        by `visibility`, and by `has_metrics`. The archive is small, so paging is
+        plain `page`/`limit` offsets with no cursor. REST serves publicly-visible
+        posts only (ADR 0026); MCP sees the whole archive.
+      operationId: getLinkedinPostsGet
+      parameters:
+        - {
+            name: from,
+            in: query,
+            description: Published on or after this date.,
+            schema: { type: string, format: date },
+          }
+        - {
+            name: to,
+            in: query,
+            description: Published on or before this date.,
+            schema: { type: string, format: date },
+          }
+        - {
+            name: since,
+            in: query,
+            description: Alias for from.,
+            schema: { type: string, format: date },
+          }
+        - {
+            name: visibility,
+            in: query,
+            description: "LinkedIn's own visibility string, e.g. PUBLIC.",
+            schema: { type: string },
+          }
+        - {
+            name: has_metrics,
+            in: query,
+            description: true for posts with imported numbers; false for those still awaiting an export.,
+            schema: { type: boolean },
+          }
+        - $ref: "#/components/parameters/SortOrder"
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 200, default: 50 },
+          }
+        - {
+            name: page,
+            in: query,
+            schema: { type: integer, minimum: 1, default: 1 },
+          }
+      responses:
+        "200":
+          description: Matching posts with their latest metrics attached.
+          content:
+            application/json:
+              schema: { type: object }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Query LinkedIn posts (JSON body)
+      operationId: getLinkedinPostsPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from: { type: string, format: date }
+                to: { type: string, format: date }
+                since: { type: string, format: date }
+                visibility: { type: string }
+                has_metrics: { type: boolean }
+                sort_order: { type: string, enum: [asc, desc], default: desc }
+                limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+                page: { type: integer, minimum: 1, default: 1 }
+      responses:
+        "200":
+          description: Matching posts with their latest metrics attached.
+          content:
+            application/json:
+              schema: { type: object }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/linkedin-post:
+    get:
+      tags: [REST API]
+      summary: Get one LinkedIn post with its full metric history
+      description: |
+        One post, resolved by `url` in either form LinkedIn uses — the
+        `/feed/update/urn:li:activity:<id>` permalink or the
+        `/posts/<slug>-ugcPost-<id>-<hash>` share link — or by the bare numeric
+        `post_key`. All reduce to the same post.
+
+        `metrics_history` is one row per monthly export, oldest first. Because the
+        export's impressions are a windowed accumulation rather than a lifetime
+        total, successive rows are genuinely different observations and the series
+        is a reach-decay curve: a later row with fewer impressions means the post
+        stopped being served, not that the earlier figure was wrong.
+
+        Provide at least one of url or post_key. REST serves publicly-visible
+        posts only.
+      operationId: getLinkedinPostGet
+      parameters:
+        - {
+            name: url,
+            in: query,
+            description: "The post URL, in either LinkedIn form.",
+            schema: { type: string },
+          }
+        - {
+            name: post_key,
+            in: query,
+            description: The numeric activity id.,
+            schema: { type: string },
+          }
+      responses:
+        "200":
+          description: The post with its metric history, or an error object when not found.
+          content:
+            application/json:
+              schema: { type: object }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Get one LinkedIn post (JSON body)
+      operationId: getLinkedinPostPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url: { type: string }
+                post_key: { type: string }
+      responses:
+        "200":
+          description: The post with its metric history, or an error object when not found.
+          content:
+            application/json:
+              schema: { type: object }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/linkedin-stats:
+    get:
+      tags: [REST API]
+      summary: Aggregate LinkedIn performance, including median engagement rate per weekday
+      description: |
+        Totals, the p25/p75 spread for impressions and engagement rate, and
+        `by_weekday` — the median engagement rate per weekday, which is the figure
+        to use when reasoning about posting times.
+
+        Medians rather than means, because one viral post otherwise decides the
+        ranking; computed over each post's LATEST observation only, so a post that
+        stayed in the top 50 for four months counts once rather than four times;
+        bucketed by weekday in `Europe/Oslo`, so a post published at 00:30 CEST is
+        not filed under the previous day.
+
+        Every `by_weekday` bucket reports `n` (posts with a usable rate) beside its
+        medians — a weekday can rest on one or two posts, and a ranking that
+        ignores `n` will overstate what the data supports.
+
+        `source_health` reports whether the DMA token still works
+        (`ok` / `stale` / `unauthorized` / `never_run`). If it is not `ok`, these
+        numbers stopped moving at `last_success_at`.
+
+        REST aggregates publicly-visible posts only, so its figures can differ
+        from the MCP tool's.
+      operationId: getLinkedinStatsGet
+      parameters:
+        - {
+            name: from,
+            in: query,
+            description: Published on or after this date.,
+            schema: { type: string, format: date },
+          }
+        - {
+            name: to,
+            in: query,
+            description: Published on or before this date.,
+            schema: { type: string, format: date },
+          }
+        - {
+            name: since,
+            in: query,
+            description: Alias for from.,
+            schema: { type: string, format: date },
+          }
+      responses:
+        "200":
+          description: Totals, per-weekday medians, and ingest health.
+          content:
+            application/json:
+              schema: { type: object }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Aggregate LinkedIn performance (JSON body)
+      operationId: getLinkedinStatsPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from: { type: string, format: date }
+                to: { type: string, format: date }
+                since: { type: string, format: date }
+      responses:
+        "200":
+          description: Totals, per-weekday medians, and ingest health.
+          content:
+            application/json:
+              schema: { type: object }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   # ------------------------------------------------------------- Discovery
   /.well-known/webfinger:
     get:

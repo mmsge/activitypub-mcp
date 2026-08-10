@@ -13,6 +13,7 @@ import { publishStatusNote } from './publish-status-note.js'
 import { linkTripPosts } from './link-trip-posts.js'
 import { syncStations } from './sync-stations.js'
 import { syncStationWeather } from './sync-station-weather.js'
+import { syncLinkedinPosts } from './sync-linkedin-posts.js'
 import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
 
@@ -109,6 +110,20 @@ export function startScheduler(): void {
       await syncStationWeather()
     } catch (e) { logger.error(e, 'Station/weather sync error') }
   }, SIX_HOURS_MS)
+
+  // LinkedIn posts from the DMA snapshot — weekly by default. The snapshot is
+  // historical and complete on every call rather than a feed of changes, so a long
+  // interval misses nothing; there is no cursor to fall behind. Gated on the token
+  // so an unconfigured deploy does not tick a job that only logs its own absence.
+  //
+  // index.ts also runs this once at startup: setInterval's first fire is a full
+  // interval away, which at 168 hours means a fresh deploy would ingest nothing
+  // for a week.
+  if (config.LINKEDIN_DMA_TOKEN) {
+    setInterval(async () => {
+      try { await syncLinkedinPosts() } catch (e) { logger.error(e, 'LinkedIn sync error') }
+    }, config.LINKEDIN_SYNC_INTERVAL_HOURS * 60 * 60_000)
+  }
 
   logger.info({ scrobbleIntervalSeconds: config.LASTFM_SYNC_INTERVAL_SECONDS }, 'Scheduler started')
 }

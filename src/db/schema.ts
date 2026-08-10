@@ -644,6 +644,104 @@ export const stationWeather = pgTable('station_weather', {
 ])
 
 // ---------------------------------------------------------------------------
+// LinkedIn. Two sources that never meet upstream: post *content* comes from the
+// DMA Member Snapshot API (polled), post *performance* from an .xlsx Markus
+// exports by hand each month (uploaded via /admin). Impressions and engagement
+// rate sit behind `r_member_postAnalytics` in the partner-gated Community
+// Management product, which he has no access to — the manual export is the
+// design, not a stopgap. See ADR 0033.
+// ---------------------------------------------------------------------------
+
+// One row per post, upserted by the poller from MEMBER_SHARE_INFO.
+export const linkedinPosts = pgTable('linkedin_posts', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // The join key between the two sources: the numeric activity/ugcPost id, pulled
+  // out of whatever URL form the source used. The API emits
+  // `/feed/update/urn:li:activity:<id>` and the export emits
+  // `/posts/<slug>-ugcPost-<id>-<hash>` — different strings, same post. Joining on
+  // the raw URL would silently match nothing. See src/lib/linkedin-url.ts.
+  postKey: text('post_key').notNull(),
+  /** Exactly as the poller received it; the export's form is kept on the metric row. */
+  postUrl: text('post_url').notNull(),
+  postedAt: timestamp('posted_at', { withTimezone: true }),
+  commentary: text('commentary'),
+  /** LinkedIn's own visibility string (PUBLIC, CONNECTIONS, …). Gates the REST surface. */
+  visibility: text('visibility'),
+  /** The link attached to the post, if any — not the post's own URL. */
+  sharedUrl: text('shared_url'),
+  isReshare: boolean('is_reshare').notNull().default(false),
+  // The untouched snapshotData entry. LinkedIn does not document the key names for
+  // MEMBER_SHARE_INFO (only PROFILE is sampled) and can rename them without an
+  // endpoint version bump, so keeping the original makes a rename a re-parse over
+  // stored rows instead of a re-fetch behind a token that may have expired.
+  raw: jsonb('raw').notNull(),
+  firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('linkedin_posts_key_idx').on(t.postKey),
+  index('linkedin_posts_posted_idx').on(t.postedAt),
+  index('linkedin_posts_visibility_idx').on(t.visibility),
+])
+
+// Performance numbers, one row per post per export. APPEND-ONLY, never updated.
+//
+// The export's impressions are a windowed accumulation, not a lifetime total, so
+// two exports of the same post are two genuinely different observations rather
+// than an old and a corrected value. Overwriting would throw away the difference;
+// keeping both yields the reach-decay series for free.
+//
+// Deliberately NOT a foreign key to linkedin_posts: a metric row may arrive for a
+// post the poller has not seen yet, and a FK would reject exactly those rows.
+// `postedOn` is carried here as well so such a post still has a weekday before the
+// poller backfills it.
+export const linkedinPostMetrics = pgTable('linkedin_post_metrics', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  postKey: text('post_key').notNull(),
+  /** The URL as the .xlsx spelled it — usually a different form to the poller's. */
+  postUrl: text('post_url').notNull(),
+  // Derived from the export's own daily series (its last day), never supplied by
+  // the uploader: a form field would let one file import twice under two keys.
+  exportDate: date('export_date').notNull(),
+  windowStart: date('window_start'),
+  windowEnd: date('window_end'),
+  /** Publish date from the sheet. Date-only — the export carries no publish time. */
+  postedOn: date('posted_on'),
+  impressions: integer('impressions'),
+  /** Null when the post appeared only in the impressions block. Never a guess. */
+  engagements: integer('engagements'),
+  raw: jsonb('raw').notNull(),
+  importedAt: timestamp('imported_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  // Re-importing the same file must be a no-op; this is that guarantee.
+  uniqueIndex('linkedin_post_metrics_dedupe_idx').on(t.postKey, t.exportDate),
+  index('linkedin_post_metrics_posted_idx').on(t.postedOn),
+])
+
+// Per-source ingest health, so "is this source still working" is answerable
+// without reading logs.
+//
+// Every other source in this repo answers that question as `max(data timestamp)`,
+// which cannot tell "the poller is broken" from "nothing happened" — fine for
+// Last.fm, where a dead key shows up as silence within the hour, but not for a
+// weekly poller behind a hand-minted token of unknown lifetime. Keyed by source
+// slug rather than being a LinkedIn singleton so the other jobs can adopt it
+// later without a migration; only 'linkedin' writes to it today.
+export const sourceSyncState = pgTable('source_sync_state', {
+  source: text('source').primaryKey(),
+  lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+  /** Last run that actually completed. Stays put while a broken token retries. */
+  lastSuccessAt: timestamp('last_success_at', { withTimezone: true }),
+  lastError: text('last_error'),
+  /** HTTP status of the last failure — 401/403 is what makes a token "expired". */
+  lastStatus: integer('last_status'),
+  consecutiveFailures: integer('consecutive_failures').notNull().default(0),
+  itemsLastRun: integer('items_last_run'),
+  /** Latch for the failure push, so a weekly poller alerts once and not forever. */
+  notifiedAt: timestamp('notified_at', { withTimezone: true }),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+})
+
+// ---------------------------------------------------------------------------
 // OAuth 2.1 (MCP authorization). These back the OAuth flow that lets browser /
 // mobile MCP clients (e.g. claude.ai connectors, which only speak OAuth, not a
 // static bearer header) authenticate against /mcp. The "user" login step reuses

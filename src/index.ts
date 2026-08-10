@@ -20,6 +20,7 @@ import { syncBookMetadata } from './jobs/sync-book-metadata.js'
 import { syncNeodbMetadata } from './jobs/sync-neodb-metadata.js'
 import { syncReadingHistory } from './jobs/sync-reading-history.js'
 import { syncGardenContent } from './jobs/sync-garden-content.js'
+import { syncLinkedinPosts } from './jobs/sync-linkedin-posts.js'
 import { backfillContentText } from './jobs/backfill-content-text.js'
 import { backfillTags } from './jobs/backfill-tags.js'
 import { backfillMarkTitles } from './jobs/backfill-mark-titles.js'
@@ -127,6 +128,18 @@ async function main() {
       await syncGardenContent()
     } catch (e) {
       logger.error(e, 'Garden content sync failed on startup')
+    }
+  })()
+
+  // Pull the LinkedIn snapshot in the background. Runs on startup as well as on
+  // its weekly tick because setInterval's first fire is a full interval away — at
+  // 168 hours a fresh deploy would otherwise ingest nothing for a week, and a
+  // token that was already dead would not be reported until then either.
+  void (async () => {
+    try {
+      await syncLinkedinPosts()
+    } catch (e) {
+      logger.error(e, 'LinkedIn sync failed on startup')
     }
   })()
 

@@ -1,5 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { Layout } from './layout.js'
+import { SourceBadge } from './ui.js'
+import type { TokenStatus } from '../../lib/source-health.js'
 
 interface DashboardData {
   totalActivities: number
@@ -24,6 +26,15 @@ interface DashboardData {
     tv: number
     failedEnrichment: number
     hidden: number
+  }
+  linkedin: {
+    enabled: boolean
+    status: TokenStatus
+    lastSuccessAt: Date | null
+    lastError: string | null
+    posts: number
+    metricRows: number
+    latestExport: string | null
   }
 }
 
@@ -83,6 +94,52 @@ export function DashboardPage({ data }: { data: DashboardData }) {
           <div class="label">Hidden</div>
         </a>
       </div>
+
+      {/* LinkedIn ingest health. Shown whenever there is LinkedIn data OR a token
+          configured, so a token that dies after the data landed stays visible
+          rather than the tile disappearing with it. */}
+      {(data.linkedin.enabled || data.linkedin.posts > 0 || data.linkedin.metricRows > 0) && (
+        <div class="section">
+          <h2>
+            LinkedIn{' '}
+            <SourceBadge
+              status={data.linkedin.status}
+              lastError={data.linkedin.lastError}
+              lastSuccessAt={data.linkedin.lastSuccessAt}
+            />
+          </h2>
+          <div class="grid">
+            <div class="card">
+              <div class="num">{data.linkedin.posts}</div>
+              <div class="label">Posts (from DMA API)</div>
+            </div>
+            <div class="card">
+              <div class="num">{data.linkedin.metricRows}</div>
+              <div class="label">Metric rows (from XLSX)</div>
+            </div>
+            <a class="card" href="/admin/import">
+              <div class="num" style="font-size: 20px;">
+                {data.linkedin.latestExport ?? '—'}
+              </div>
+              <div class="label">Latest export imported</div>
+            </a>
+          </div>
+          <p style="color: #888; margin-top: 8px; font-size: 12px;">
+            {data.linkedin.status === 'unauthorized' && (
+              <>
+                The DMA token is being refused — re-mint it (see the LinkedIn section of
+                the README) and run <code>npm run sync-linkedin</code>.{' '}
+              </>
+            )}
+            {data.linkedin.status === 'stale' && (
+              <>The poller has not completed in a while; post content is frozen. </>
+            )}
+            {!data.linkedin.enabled && <>LINKEDIN_DMA_TOKEN is unset, so the poller is off. </>}
+            Last successful sync:{' '}
+            {data.linkedin.lastSuccessAt ? data.linkedin.lastSuccessAt.toISOString() : 'never'}
+          </p>
+        </div>
+      )}
 
       {data.lastReceivedAt && (
         <p style="color: #888; margin-bottom: 20px; font-size: 12px;">
