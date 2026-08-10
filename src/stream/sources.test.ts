@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseSources, platformInfo, isPlatform, isApPlatform,
-  lanesForPlatform, SourceConfigError, AP_PLATFORMS, KINDS,
+  lanesForPlatform, SourceConfigError, AP_PLATFORMS, LOCAL_PLATFORMS, KINDS,
 } from './sources.js'
 
 const REAL = [
@@ -11,12 +11,13 @@ const REAL = [
   '@markus@loops.video|loops',
   '@markus@minreol.dk|neodb',
   '@markus@rullen.no|rullen',
+  '@markus@samklang.msge.no|samklang',
 ].join(',')
 
 describe('parseSources', () => {
-  it('parses the six real accounts', () => {
+  it('parses the seven real accounts', () => {
     const sources = parseSources(REAL)
-    expect(sources).toHaveLength(6)
+    expect(sources).toHaveLength(7)
     expect(sources.map((s) => s.platform)).toEqual([...AP_PLATFORMS])
     expect(sources[0]).toEqual({ handle: '@markus@skvip.lol', platform: 'mastodon', apId: null })
   })
@@ -62,8 +63,11 @@ describe('parseSources', () => {
 })
 
 describe('platform registry', () => {
+  // Read off the registry rather than a hand-kept list: a platform added to
+  // AP_PLATFORMS without an entry in PLATFORM_INFO renders as undefined and takes
+  // the page down, and a list repeated here would be the thing left un-updated.
   it('gives every platform a lane and a Nynorsk label', () => {
-    for (const p of ['mastodon', 'bookwyrm', 'pixelfed', 'loops', 'neodb', 'rullen', 'lastfm', 'tog', 'hage'] as const) {
+    for (const p of [...AP_PLATFORMS, ...LOCAL_PLATFORMS]) {
       const info = platformInfo(p)
       expect(info.lane).toBeTruthy()
       expect(info.label).toBeTruthy()
@@ -71,13 +75,15 @@ describe('platform registry', () => {
     }
   })
 
-  it('keeps the three post platforms in one lane and the rest apart', () => {
+  it('keeps the post platforms in one lane and the rest apart', () => {
     // Lanes must be disjoint by actor or a post is counted twice in the merge.
     expect(platformInfo('mastodon').lane).toBe('posts')
     expect(platformInfo('pixelfed').lane).toBe('posts')
     expect(platformInfo('loops').lane).toBe('posts')
     // Markus' own server, for railway clips — posts, like the others.
     expect(platformInfo('rullen').lane).toBe('posts')
+    // His concert log federates an attendance note per gig — also an ordinary post.
+    expect(platformInfo('samklang').lane).toBe('posts')
     expect(platformInfo('bookwyrm').lane).toBe('reading')
     expect(platformInfo('neodb').lane).toBe('marks')
   })

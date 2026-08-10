@@ -3,7 +3,7 @@
  *
  * Two kinds of source feed meg.msge.no:
  *
- *  - The five ActivityPub accounts Markus owns, listed explicitly in STREAM_SOURCES.
+ *  - The ActivityPub accounts Markus owns, listed explicitly in STREAM_SOURCES.
  *    They are an allowlist, not a convenience. `objects` is NOT "Markus' posts": the
  *    Announce handler unwraps a boost and files the inner object under its *original
  *    author*, so the archive contains strangers' posts too. Deriving the set from
@@ -14,8 +14,8 @@
  *    allowlist there; they are only ever Markus'.
  */
 
-/** The five federated platforms. A closed set — an unrecognised slug is a config error. */
-export const AP_PLATFORMS = ['mastodon', 'bookwyrm', 'pixelfed', 'loops', 'neodb', 'rullen'] as const
+/** The federated platforms. A closed set — an unrecognised slug is a config error. */
+export const AP_PLATFORMS = ['mastodon', 'bookwyrm', 'pixelfed', 'loops', 'neodb', 'rullen', 'samklang'] as const
 export type ApPlatform = (typeof AP_PLATFORMS)[number]
 
 /** Local, non-federated sources. Always present; not configurable. */
@@ -55,6 +55,9 @@ const PLATFORM_INFO: Record<Platform, Omit<PlatformInfo, 'platform'>> = {
   loops: { lane: 'posts', label: 'Loops', linkLabel: 'Loops' },
   // Markus' own ActivityPub server (software name "rullen"), for railway clips.
   rullen: { lane: 'posts', label: 'Rullen', linkLabel: 'Rullen' },
+  // Markus' own concert log (software name "samklang"): an attendance note per gig,
+  // federated as an ordinary public Note. Posts, like the others.
+  samklang: { lane: 'posts', label: 'Samklang', linkLabel: 'Samklang' },
   bookwyrm: { lane: 'reading', label: 'BookWyrm', linkLabel: 'BookWyrm' },
   neodb: { lane: 'marks', label: 'NeoDB', linkLabel: 'NeoDB' },
   lastfm: { lane: 'music', label: 'Musikk', linkLabel: 'Last.fm' },
