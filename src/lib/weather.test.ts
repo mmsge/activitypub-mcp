@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { weatherLabel, weatherSummary } from './weather-code.js'
-import { countryForTimezone, parseNominatim } from './geocode-station.js'
+import { parseNominatim } from './geocode-station.js'
+import { haversineKm, excessKm, isImplausible, IMPLAUSIBLE_EXCESS_KM } from './geo-distance.js'
 import { parseArchive, isoDate, latestArchivedDate, ARCHIVE_LAG_DAYS } from './fetch-weather.js'
 
 describe('weatherLabel', () => {
@@ -54,28 +55,6 @@ describe('weatherSummary', () => {
   it('does not lose a genuine zero degrees', () => {
     // 0°C is a real reading on these trips, and must not fall to the null branch.
     expect(weatherSummary(73, 0)).toBe('🌨️ snø · 0°')
-  })
-})
-
-describe('countryForTimezone', () => {
-  it('maps the zones the trips actually carry', () => {
-    expect(countryForTimezone('Europe/Oslo')).toBe('no')
-    expect(countryForTimezone('Europe/Stockholm')).toBe('se')
-    expect(countryForTimezone('Europe/Copenhagen')).toBe('dk')
-    expect(countryForTimezone('Europe/London')).toBe('gb')
-  })
-
-  it('treats UTC as unknown, not as a country', () => {
-    // 'UTC' is parse-trips-csv's fallback when the export carried no zone. Biasing
-    // a search on it would be inventing information.
-    expect(countryForTimezone('UTC')).toBeNull()
-  })
-
-  it('falls back to an unqualified search for anything unmapped', () => {
-    expect(countryForTimezone('America/New_York')).toBeNull()
-    expect(countryForTimezone(null)).toBeNull()
-    expect(countryForTimezone(undefined)).toBeNull()
-    expect(countryForTimezone('')).toBeNull()
   })
 })
 
@@ -194,5 +173,56 @@ describe('the archive horizon', () => {
     const now = new Date('2026-08-05T12:00:00Z')
     expect(latestArchivedDate(now)).toBe('2026-07-29')
     expect(ARCHIVE_LAG_DAYS).toBe(7)
+  })
+})
+
+describe('haversineKm', () => {
+  it('measures a known distance', () => {
+    // Oslo S to Bergen: about 305 km of air under 484 km of track.
+    const d = haversineKm(59.9106, 10.7529, 60.3894, 5.3327)
+    expect(d).toBeGreaterThan(295)
+    expect(d).toBeLessThan(315)
+  })
+
+  it('is zero for a point against itself, and symmetric', () => {
+    expect(haversineKm(60, 5, 60, 5)).toBe(0)
+    expect(haversineKm(59.9, 10.7, 60.4, 5.3)).toBeCloseTo(haversineKm(60.4, 5.3, 59.9, 10.7), 9)
+  })
+
+  it('handles the antipodes without NaN from a rounding overshoot', () => {
+    // sqrt(a) can drift just past 1 and asin would return NaN; the clamp stops it.
+    const d = haversineKm(0, 0, 0, 180)
+    expect(Number.isFinite(d)).toBe(true)
+    expect(d).toBeGreaterThan(20000)
+  })
+})
+
+describe('the geocode plausibility check', () => {
+  it('flags the real failure: Arna geocoded above Nice', () => {
+    // Recorded 9 km of track; Vestland to Alpes-Maritimes is about 1,900 km.
+    const straight = haversineKm(60.3894, 5.3327, 43.7466, 7.3200)
+    expect(isImplausible(straight, 9)).toBe(true)
+    expect(excessKm(straight, 9)).toBeGreaterThan(1500)
+  })
+
+  it('accepts a correctly placed pair', () => {
+    // Track is always longer than the straight line, so a real leg scores negative.
+    const straight = haversineKm(59.9106, 10.7529, 60.3894, 5.3327)
+    expect(isImplausible(straight, 484)).toBe(false)
+    expect(excessKm(straight, 484)).toBeLessThan(0)
+  })
+
+  it('accepts a short correctly placed leg', () => {
+    // Arna to Bergen, both right: 9 km recorded, ~8 km of air.
+    const straight = haversineKm(60.4212, 5.4643, 60.3894, 5.3327)
+    expect(isImplausible(straight, 9)).toBe(false)
+  })
+
+  it('tolerates ordinary geocoding slop rather than crying wolf', () => {
+    // A station placed a few km off must not be flagged — ERA5 reads the same
+    // ~25 km cell either way.
+    expect(isImplausible(12, 9)).toBe(false)
+    expect(isImplausible(9 + IMPLAUSIBLE_EXCESS_KM, 9)).toBe(false)
+    expect(isImplausible(9 + IMPLAUSIBLE_EXCESS_KM + 0.1, 9)).toBe(true)
   })
 })

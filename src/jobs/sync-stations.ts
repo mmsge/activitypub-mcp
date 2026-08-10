@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { logger } from '../lib/logger.js'
 import { geocodeStation } from '../lib/geocode-station.js'
+import { checkStationGeocodes } from './check-station-geocodes.js'
 
 /**
  * Give every station in the trip history a coordinate.
@@ -33,6 +34,8 @@ export interface SyncStationsResult {
   missed: number
   /** Stations still without coordinates and still worth retrying. */
   pending: number
+  /** Stations whose coordinates disagree with the distances travelled. */
+  suspect: number
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -40,10 +43,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 export async function syncStations(): Promise<SyncStationsResult> {
   const db = getDb()
 
-  // Every distinct station name across both ends of every trip, with the timezone
-  // recorded for it — the country hint the geocoder uses. A station that appears as
-  // both an origin and a destination yields one row; where the two disagree on a
-  // timezone, the most common one wins, then the alphabetically first for stability.
+  // Every distinct station name across both ends of every trip. A station that
+  // appears as both an origin and a destination yields one row.
   const registered = await db.execute(sql`
     INSERT INTO stations (name, country_code)
     SELECT s.name, NULL
@@ -55,23 +56,17 @@ export async function syncStations(): Promise<SyncStationsResult> {
     ON CONFLICT (name) DO NOTHING
     RETURNING id`)
 
+  // No country hint. The trips' `from_tz` looks like one and is not: viaduct.world
+  // records the UTC offset zone, so Norway reads as `Europe/Paris`. Biasing on it
+  // made wrong searches succeed and put six stations in France (ADR 0035).
   const pendingRows = (await db.execute(sql`
-    SELECT s.id::text AS id, s.name, (
-      SELECT tz FROM (
-        SELECT from_tz AS tz FROM train_trips WHERE from_station = s.name AND from_tz IS NOT NULL
-        UNION ALL
-        SELECT to_tz AS tz FROM train_trips WHERE to_station = s.name AND to_tz IS NOT NULL
-      ) z
-      GROUP BY tz
-      ORDER BY count(*) DESC, tz ASC
-      LIMIT 1
-    ) AS timezone
+    SELECT s.id::text AS id, s.name
     FROM stations s
     WHERE s.latitude IS NULL
       AND s.source <> 'manual'
       AND s.attempts < ${MAX_ATTEMPTS}
     ORDER BY s.attempts ASC, s.name ASC
-    LIMIT ${PER_RUN}`)) as unknown as Array<{ id: string; name: string; timezone: string | null }>
+    LIMIT ${PER_RUN}`)) as unknown as Array<{ id: string; name: string }>
 
   let geocoded = 0
   let missed = 0
@@ -80,7 +75,7 @@ export async function syncStations(): Promise<SyncStationsResult> {
     // Spacing between requests, not around them: the first needs no wait.
     if (i > 0) await sleep(SPACING_MS)
 
-    const hit = await geocodeStation(station.name, station.timezone)
+    const hit = await geocodeStation(station.name)
     if (hit) {
       await db.execute(sql`
         UPDATE stations
@@ -104,11 +99,20 @@ export async function syncStations(): Promise<SyncStationsResult> {
     WHERE latitude IS NULL AND source <> 'manual' AND attempts < ${MAX_ATTEMPTS}`)) as unknown as
       Array<{ pending: number }>
 
+  // Score the placements against the distances the trips record, so a station in
+  // the wrong country is a number in the log rather than a weather report nobody
+  // questions. Only worth doing when something moved.
+  let suspect = 0
+  if (geocoded > 0) {
+    suspect = (await checkStationGeocodes()).suspect
+  }
+
   const result: SyncStationsResult = {
     registered: (registered as unknown as unknown[]).length,
     geocoded,
     missed,
     pending: counts?.pending ?? 0,
+    suspect,
   }
   logger.info(result, 'Stations synced')
   return result

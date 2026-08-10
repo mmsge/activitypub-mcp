@@ -804,10 +804,26 @@ or station. Trip entries on the public stream gain a line like *"🌧️ regn ·
 
 The dates are **local** calendar days (`departure_local` / `arrival_local`), so a night
 train reports the morning it arrived. Precision is not chased: ERA5 is a ~25 km
-reanalysis, so a station name resolving to the right town is as good as the right
-platform — which is why a bare lookup, biased by the country the trip's timezone implies,
-is enough. What the geocoder matched is stored and surfaced, so a wrong hit is visible;
-`source = 'manual'` pins a hand-corrected row.
+reanalysis, so a station resolving to the right town is as good as the right platform.
+
+Getting the right *country*, though, is genuinely hard — "Bergen" is Norwegian and Dutch,
+and Nominatim will fuzzy-match "Falkenberg" to Faulquemont in Moselle. There is no query
+form that gets every station right, so rather than pretend otherwise, **the coordinates
+are checked against the distances the trips record**: a straight line cannot be longer
+than the distance travelled along it, so a leg logged as 9 km whose endpoints are 1,846 km
+apart has a station in the wrong place. That excess is stored per station and returned by
+`get_trip_weather`, and what the geocoder actually matched is stored beside it — so a bad
+placement is a number and a name, not a weather report nobody questions. Fix one with
+`source = 'manual'` and the geocoder will never overwrite it. See
+[ADR 0035](docs/decision-records/0035-drop-the-country-hint-and-check-geocodes-against-the-distances.md).
+
+To find them:
+
+```bash
+docker compose exec db psql -U apuser -d activitypub -c \
+  "SELECT name, round(geocode_error_km) AS error_km, left(display_name, 60) AS matched
+     FROM stations WHERE geocode_error_km > 100 ORDER BY geocode_error_km DESC;"
+```
 
 The backfill is bounded (Nominatim allows one request a second), so it completes over a
 few scheduler ticks. To push it along:

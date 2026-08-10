@@ -613,6 +613,13 @@ export const stations = pgTable('stations', {
   /** 'nominatim' | 'manual'. A manual row is never re-geocoded. */
   source: text('source').notNull().default('nominatim'),
   geocodedAt: timestamp('geocoded_at', { withTimezone: true }),
+  /**
+   * The worst disagreement, in km, between this station's coordinates and the
+   * `distance_km` of the legs it appears on. Null when unchecked; near zero or
+   * negative when the placement is sane; large when it is not. See ADR 0035.
+   */
+  geocodeErrorKm: numeric('geocode_error_km'),
+  geocodeCheckedAt: timestamp('geocode_checked_at', { withTimezone: true }),
   lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
   attempts: integer('attempts').notNull().default(0),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -620,6 +627,7 @@ export const stations = pgTable('stations', {
 }, (t) => [
   uniqueIndex('stations_name_idx').on(t.name),
   index('stations_geocoded_idx').on(t.geocodedAt),
+  index('stations_geocode_error_idx').on(t.geocodeErrorKm),
 ])
 
 // Daily weather at one station on one date, from Open-Meteo's ERA5 archive.
