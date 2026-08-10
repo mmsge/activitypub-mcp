@@ -2,7 +2,7 @@
 // work, and drop the weather that was fetched at those (possibly wrong) places.
 // Hand-corrected rows (source = 'manual') are left alone.
 //
-// Run once after deploying the fix in ADR 0034, then `npm run sync-weather`
+// Run once after deploying the fix in ADR 0035, then `npm run sync-weather`
 // repeatedly until nothing is pending.
 //
 //   npm run reset-geocodes

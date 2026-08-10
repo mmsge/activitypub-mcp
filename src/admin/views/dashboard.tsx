@@ -31,6 +31,7 @@ interface DashboardData {
     enabled: boolean
     status: TokenStatus
     lastSuccessAt: Date | null
+    lastDataAt: Date | null
     lastError: string | null
     posts: number
     metricRows: number
@@ -106,6 +107,7 @@ export function DashboardPage({ data }: { data: DashboardData }) {
               status={data.linkedin.status}
               lastError={data.linkedin.lastError}
               lastSuccessAt={data.linkedin.lastSuccessAt}
+              lastDataAt={data.linkedin.lastDataAt}
             />
           </h2>
           <div class="grid">
@@ -134,9 +136,20 @@ export function DashboardPage({ data }: { data: DashboardData }) {
             {data.linkedin.status === 'stale' && (
               <>The poller has not completed in a while; post content is frozen. </>
             )}
+            {data.linkedin.status === 'awaiting_data' && (
+              <>
+                The poller is working, but LinkedIn has not produced{' '}
+                <code>MEMBER_SHARE_INFO</code> yet — it collates the snapshot's activity
+                domains after the profile ones, and publishes no timing for it. Nothing to
+                fix, and re-minting the token would restart the wait rather than shorten
+                it. This clears itself.{' '}
+              </>
+            )}
             {!data.linkedin.enabled && <>LINKEDIN_DMA_TOKEN is unset, so the poller is off. </>}
             Last successful sync:{' '}
             {data.linkedin.lastSuccessAt ? data.linkedin.lastSuccessAt.toISOString() : 'never'}
+            {' · '}Posts last arrived:{' '}
+            {data.linkedin.lastDataAt ? data.linkedin.lastDataAt.toISOString() : 'never'}
           </p>
         </div>
       )}

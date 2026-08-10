@@ -9,7 +9,7 @@ import { logger } from '../lib/logger.js'
  * premise was wrong — viaduct.world records the UTC offset zone, so Norway reads
  * as `Europe/Paris` — and the bias did not fail loudly: it made wrong searches
  * *succeed*. Six stations were placed in France, and their weather was fetched
- * from there. See ADR 0034.
+ * from there. See ADR 0035.
  *
  * Nothing distinguishes a station geocoded under the old rule from one geocoded
  * under the new one, so this clears them all and lets the corrected geocoder redo

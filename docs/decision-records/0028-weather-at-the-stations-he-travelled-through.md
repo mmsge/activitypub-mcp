@@ -1,7 +1,7 @@
 # 0028 — The weather at the stations he travelled through
 
 - **Status:** Accepted, partly amended
-- **Amended by:** [0034](0034-drop-the-country-hint-and-check-geocodes-against-the-distances.md) — the country-hint premise below is wrong (viaduct.world records the UTC *offset* zone, not the station's), and the hint has been removed. Everything else here stands.
+- **Amended by:** [0035](0035-drop-the-country-hint-and-check-geocodes-against-the-distances.md) — the country-hint premise below is wrong (viaduct.world records the UTC *offset* zone, not the station's), and the hint has been removed. Everything else here stands.
 - **Date:** 2026-08-05
 - **Contributors:** Markus (asked for the weather join, deferred through three earlier records, and chose to do it now) + Claude (proposed the two-table split, implemented the geocoding and the archive fetch)
 - **Affects:** `drizzle/0025_station_weather.sql`, `src/db/schema.ts`, `src/lib/geocode-station.ts`, `src/lib/fetch-weather.ts`, `src/lib/weather-code.ts`, `src/jobs/sync-stations.ts`, `src/jobs/sync-station-weather.ts`, `src/mcp/tools/trip-weather.ts`, `src/stream/query.ts`, `src/rest/table.ts`

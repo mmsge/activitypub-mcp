@@ -129,6 +129,7 @@ app.get('/', async (c) => {
         enabled: Boolean(config.LINKEDIN_DMA_TOKEN),
         status: deriveTokenStatus(liHealth, linkedinStale, now),
         lastSuccessAt: liHealth?.lastSuccessAt ?? null,
+        lastDataAt: liHealth?.lastDataAt ?? null,
         lastError: liHealth?.lastError ?? null,
         posts: Number(liPosts),
         metricRows: Number(liMetrics),

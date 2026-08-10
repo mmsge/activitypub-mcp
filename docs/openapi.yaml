@@ -2377,9 +2377,14 @@ paths:
         medians — a weekday can rest on one or two posts, and a ranking that
         ignores `n` will overstate what the data supports.
 
-        `source_health` reports whether the DMA token still works
-        (`ok` / `stale` / `unauthorized` / `never_run`). If it is not `ok`, these
-        numbers stopped moving at `last_success_at`.
+        `source_health` reports the state of the ingest. `ok` — data is flowing.
+        `stale` / `unauthorized` — the numbers STOPPED moving at `last_success_at`,
+        so a recent dip describes the outage rather than the audience.
+        `awaiting_data` — the poller works but LinkedIn has never yet handed over
+        the posts, so the numbers never STARTED: a thin result means the ingest has
+        not begun. `never_run` — the poller is not configured. `last_data_at` is
+        when posts actually last arrived, a different question from when the job
+        last ran.
 
         REST aggregates publicly-visible posts only, so its figures can differ
         from the MCP tool's.
