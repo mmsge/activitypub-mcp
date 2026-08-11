@@ -91,7 +91,7 @@ export async function runPostBreakout(
   for (const actor of watched) {
     const baseline = await loadBreakoutBaseline(actor.apId, actor.label)
 
-    // Not enough history for a percentile to mean anything. Write nothing at all —
+    // Nothing about this account can meaningfully fire. Write nothing at all —
     // seeding here would spend the ladder on posts judged against a bar we don't
     // believe in, and they would then never announce once the account does establish.
     const gate = breakoutThresholds(baseline, {
@@ -99,8 +99,17 @@ export async function runPostBreakout(
       minScore: config.BREAKOUT_MIN_SCORE,
     })
     if (!gate.established) {
+      // `needed` only when more posts would actually help. Reporting "19, needed 20"
+      // for an origin that reports no counts at all reads as "nearly there" and sends
+      // you looking for posts rather than for the counts — the same misdirection the
+      // reason split exists to end, so the log must not reintroduce it.
       logger.debug(
-        { actor: actor.label, posts: baseline.n, needed: config.BREAKOUT_MIN_POSTS },
+        {
+          actor: actor.label,
+          reason: gate.reason,
+          posts: baseline.n,
+          ...(gate.reason === 'too_few_posts' ? { needed: config.BREAKOUT_MIN_POSTS } : {}),
+        },
         'Breakout baseline not established, skipping actor',
       )
       continue

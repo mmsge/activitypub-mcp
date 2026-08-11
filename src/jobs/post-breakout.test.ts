@@ -119,6 +119,20 @@ describe('runPostBreakout — the guards', () => {
     expect(saveBreakoutState).not.toHaveBeenCalled()
     expect(loadBreakoutCandidates).not.toHaveBeenCalled()
   })
+
+  it('writes nothing for a busy account whose origin reports no counts', () => {
+    // BookWyrm: plenty of posts, every one scoring zero for ever. Without the
+    // all-time-record check this clears the min-posts gate and arms against a bar of
+    // zero — every post would instantly clear the floor-lifted p90 and fire.
+    loadBreakoutBaseline.mockResolvedValue(baseline({ n: 200, best: 0, secondBest: 0 }))
+    const notify = notifier(true)
+
+    return runPostBreakout(notify).then(() => {
+      expect(notify).not.toHaveBeenCalled()
+      expect(saveBreakoutState).not.toHaveBeenCalled()
+      expect(loadBreakoutCandidates).not.toHaveBeenCalled()
+    })
+  })
 })
 
 describe('runPostBreakout — delivery', () => {
