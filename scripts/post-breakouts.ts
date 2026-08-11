@@ -8,16 +8,30 @@
 // It works with the feature switched off — baselines and thresholds are computed live
 // from `objects` + `engagement_snapshots`, never from the notifier's state.
 //
-//   npm run post-breakouts
+// Run it INSIDE the container. DATABASE_URL is injected by Compose and is deliberately
+// not in .env, so on the host this exits with every required variable undefined:
 //
-// Pass --notify to actually run the ladder and send whatever it decides. That is the
-// end-to-end check of the ntfy path; it obeys BREAKOUT_ENABLED and NTFY_PASSWORD like
-// the scheduled job does, and it will latch the rungs it announces.
+//   docker compose exec app npm run post-breakouts
+//
+// Requires `npm run db:migrate` to have been run — `make deploy` does not run
+// migrations, and this reads post_breakout_state whether or not the feature is armed.
+//
+// Pass `-- --notify` to actually run the ladder and send whatever it decides. That is
+// the end-to-end check of the ntfy path; it obeys BREAKOUT_ENABLED and NTFY_PASSWORD
+// like the scheduled job does, and it will latch the rungs it announces.
 import { getPostBreakouts } from '../src/mcp/tools/post-breakouts.js'
 import { runPostBreakout } from '../src/jobs/post-breakout.js'
 import { logger } from '../src/lib/logger.js'
 
 const notify = process.argv.includes('--notify')
+
+// Each of these points at a different place to go looking, which is the whole reason
+// they are not one label.
+const UNARMED: Record<string, string> = {
+  no_posts: 'nothing sampled (ingest/sampler, not this feature)',
+  no_engagement_data: 'origin reports no counts — will never fire',
+  too_few_posts: 'too little history yet',
+}
 
 try {
   if (notify) {
@@ -45,8 +59,9 @@ try {
     p99: `${Math.round(a.baseline.p99)} → ${a.thresholds.p99}`,
     record: `${a.baseline.best} → ${a.thresholds.best}`,
     // The single most useful column: an account that is not established fires nothing
-    // at all, and that is a completely different silence from "nothing qualifies".
-    established: a.baseline.established ? 'yes' : `NO (${a.baseline.reason})`,
+    // at all, and that is a completely different silence from "nothing qualifies" —
+    // as are the three reasons it can be unestablished for.
+    established: a.baseline.established ? 'yes' : `NO — ${UNARMED[a.baseline.reason ?? ''] ?? a.baseline.reason}`,
   })))
 
   const armed = report.actors.flatMap(a => a.armed.map(p => ({

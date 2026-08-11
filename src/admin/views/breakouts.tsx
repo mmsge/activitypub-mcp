@@ -44,6 +44,34 @@ function Rung({ rung }: { rung: string }) {
   return <span class={`badge ${RUNG_BADGE[rung] ?? 'badge-blue'}`}>{RUNG_LABEL[rung] ?? rung}</span>
 }
 
+/**
+ * Why an account is not armed — three different problems, and the fix for each is in a
+ * different place, so they must not share a label. `no_engagement_data` in particular
+ * is red rather than yellow: it will never resolve on its own, unlike a young account
+ * that just needs to keep posting.
+ */
+function Unarmed({ reason, n, need }: { reason: string | null; n: number; need: number }) {
+  if (reason === 'no_posts') {
+    return (
+      <span class="badge badge-red" title="Nothing scored in the window. Not a breakout problem — look at whether this account is being ingested and sampled at all.">
+        nothing sampled
+      </span>
+    )
+  }
+  if (reason === 'no_engagement_data') {
+    return (
+      <span class="badge badge-red" title="Posts are being sampled, but every one scores zero and always has — this origin does not report favourite/boost/reply counts back to us. No threshold can fix that; the account will never fire.">
+        origin reports no counts ({n} posts, all zero)
+      </span>
+    )
+  }
+  return (
+    <span class="badge badge-yellow" title="The ordinary case: real engagement, just not enough history yet for a percentile to mean anything.">
+      too few posts ({n}/{need})
+    </span>
+  )
+}
+
 export function BreakoutsPage({ report }: Props) {
   const armedTotal = report.actors.reduce((n, a) => n + a.armed.length, 0)
 
@@ -120,11 +148,7 @@ export function BreakoutsPage({ report }: Props) {
               <td>
                 {a.baseline.established
                   ? <span class="badge badge-green">established</span>
-                  : (
-                    <span class="badge badge-yellow" title="Nothing fires for this account">
-                      too few posts ({a.baseline.posts_in_window}/{report.min_posts})
-                    </span>
-                  )}
+                  : <Unarmed reason={a.baseline.reason} n={a.baseline.posts_in_window} need={report.min_posts} />}
               </td>
             </tr>
           ))}

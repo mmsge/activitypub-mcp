@@ -95,6 +95,32 @@ describe('breakoutThresholds', () => {
     expect(t.established).toBe(false)
     expect(t.reason).toBe('too_few_posts')
   })
+
+  it('tells an unsampled account apart from a merely quiet one', () => {
+    // Nothing scored at all: the account is not being ingested, or has not posted.
+    // Saying "too few posts" would send you hunting for more posts rather than for
+    // the sampler — which is exactly what it cost the first time this shipped.
+    const t = breakoutThresholds(baseline({ n: 0, best: 0, secondBest: 0 }),
+      { minPosts: 20, minScore: 10 })
+    expect(t.reason).toBe('no_posts')
+  })
+
+  it('tells an origin that reports no counts apart from a young account', () => {
+    // 19 BookWyrm posts sampled, every one of them scoring zero, all-time. No amount
+    // of extra posts fixes that — the origin does not report counts back to us.
+    const t = breakoutThresholds(baseline({ n: 19, best: 0, secondBest: 0 }),
+      { minPosts: 20, minScore: 10 })
+    expect(t.reason).toBe('no_engagement_data')
+  })
+
+  it('still calls it no_engagement_data when the population is large enough', () => {
+    // Otherwise a busy but uncountable account would report as established and sit
+    // there armed against a bar of zero.
+    const t = breakoutThresholds(baseline({ n: 200, best: 0, secondBest: 0 }),
+      { minPosts: 20, minScore: 10 })
+    expect(t.established).toBe(false)
+    expect(t.reason).toBe('no_engagement_data')
+  })
 })
 
 describe('furthestRung', () => {

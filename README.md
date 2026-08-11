@@ -734,10 +734,32 @@ Plus one low-priority digest in the evening (`BREAKOUT_DIGEST_HOUR`, Europe/Oslo
 what crossed a rung and what came in across everything else. **A day with nothing to report
 sends no push at all** — a nightly "nothing happened" would just train you to mute the topic.
 
+**Switching it on**, in order. Both scripts run **inside the container** — `DATABASE_URL`
+is injected by Compose and is deliberately not in `.env`, so running them on the host
+fails with every required variable undefined:
+
+```bash
+cd /srv/bot
+make deploy
+docker compose exec app npm run db:migrate     # make deploy does NOT run migrations
+docker compose exec app npm run post-breakouts # dry run: prints the bars, pushes nothing
+```
+
+Run the migration even if you are not arming the feature yet. The jobs all return at
+their first guard while `BREAKOUT_ENABLED` is unset, so they never touch the table — but
+`/admin/breakouts`, `get_post_breakouts` and `/api/v1/post-breakouts` read it regardless
+and will error until `post_breakout_state` exists.
+
+The dry run is the point of the exercise: it prints each account's median, p90, p99 and
+record, the thresholds those become, and anything armed to fire — against the real
+archive, pushing nothing. If a p90 comes out at 3 somewhere, you want to find that here
+rather than at four in the morning. Only then set `BREAKOUT_ENABLED=1` in
+`/srv/bot/.env` and restart. Add `-- --notify` to send for real once you are happy.
+
 Four things worth knowing before you arm it:
 
-- **It is off by default, and the first run is silent.** Deploy, open `/admin/breakouts`,
-  and look at where each account's bar actually sits before setting `BREAKOUT_ENABLED=1`.
+- **It is off by default, and the first run is silent.** Deploy, look at where each
+  account's bar actually sits, and only then set `BREAKOUT_ENABLED=1`.
   The first pass after you do records where every post already stands and announces
   nothing, so switching it on never replays your history into your phone.
 - **The score is a high-water mark.** Engagement counts go down — un-favourites and undone
@@ -748,8 +770,15 @@ Four things worth knowing before you arm it:
 - **Two guards stop a quiet fortnight lying to you.** `BREAKOUT_MIN_SCORE` is an absolute
   floor every rung must clear (a p90 of 2 is arithmetic, not a compliment), and
   `BREAKOUT_MIN_POSTS` refuses to arm an account at all below that many sampled posts —
-  a p99 over eight posts is "best of eight". An account below the threshold shows
-  `established: false` with a reason rather than just going quiet.
+  a p99 over eight posts is "best of eight".
+- **An unarmed account says which of three things is wrong**, because the fix for each is
+  somewhere different: `no_posts` (nothing is being sampled at all — an ingest problem,
+  not a breakout one), `no_engagement_data` (posts *are* sampled but every one scores
+  zero and always has, because that origin does not report favourite/boost/reply counts
+  back to us — it will never fire, whatever you set the thresholds to), and
+  `too_few_posts` (the ordinary case: real engagement, not enough history yet). In
+  practice only some fediverse software reports counts; expect at least one account to
+  sit permanently on `no_engagement_data`.
 - **Only the fast lane costs anything.** The hourly pass is chained to the sampler and
   spends zero API calls. `BREAKOUT_FAST_LANE_MINUTES` re-reads only posts from the last
   `BREAKOUT_FAST_LANE_HOURS`, capped at `BREAKOUT_FAST_LANE_MAX_POSTS` per account per
