@@ -7,6 +7,9 @@ import { queueBookMetadataEnrichment } from '../../jobs/sync-book-metadata.js'
 import { queueNeodbEnrichment, syncMarkTitles, collectNeodbTagHrefs, isNeodbBookUrl } from '../../jobs/sync-neodb-metadata.js'
 import { isNeodbMark, parseNeodbMark } from '../../lib/neodb-mark.js'
 import { upsertNeodbMark } from '../../jobs/sync-neodb-marks.js'
+import { collectConcertUrls, isGigAttendance, parseGigAttendance } from '../../lib/gig-attendance.js'
+import { upsertGigAttendance } from '../../jobs/sync-gig-attendances.js'
+import { queueGigEnrichment } from '../../jobs/sync-gig-metadata.js'
 import { objectApId, resolveRef } from '../../lib/ap-object.js'
 import { logger } from '../../lib/logger.js'
 
@@ -140,6 +143,28 @@ export async function ingestObject(
         logger.debug({ apId, itemUrl: mark.itemUrl, status: mark.status, source }, 'Ingested NeoDB mark')
       } catch (e) {
         logger.warn({ apId, itemUrl: mark.itemUrl, error: e }, 'Failed to upsert NeoDB mark')
+      }
+    }
+  }
+
+  // Same, for a Gigowl gig attendance — a Note whose tags carry a `Link` named "Konsert"
+  // pointing at the concert. An ordinary Note has no such tag and falls straight through.
+  // The upsert enqueues enrichment, which dereferences the concert (and its venue and
+  // artists) into the catalogue the gig tools read.
+  for (const concertUrl of collectConcertUrls(obj)) {
+    queueGigEnrichment(concertUrl)
+  }
+  if (isGigAttendance(obj)) {
+    const attendance = parseGigAttendance(obj, actorApId)
+    if (attendance) {
+      try {
+        await upsertGigAttendance(attendance)
+        logger.debug(
+          { apId, concertUrl: attendance.concertUrl, status: attendance.status, statusSource: attendance.statusSource, source },
+          'Ingested gig attendance',
+        )
+      } catch (e) {
+        logger.warn({ apId, concertUrl: attendance.concertUrl, error: e }, 'Failed to upsert gig attendance')
       }
     }
   }

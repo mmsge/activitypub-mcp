@@ -7,7 +7,7 @@ import { renderEmojis } from '../emoji.js'
 import { escapeHtml } from '../../lib/html.js'
 import type { Emoji } from '../emoji.js'
 import type {
-  Attachment, Entry, PostEntry, BookEntry, MarkEntry,
+  Attachment, Entry, PostEntry, BookEntry, MarkEntry, GigEntry,
   ScrobbleDayEntry, TripEntry, GardenEntry, UndatedGardenNote, PostTrip,
 } from '../entries.js'
 
@@ -402,6 +402,62 @@ const Mark: FC<{ entry: MarkEntry }> = ({ entry }) => (
   </article>
 )
 
+/**
+ * The verb the card leads with.
+ *
+ * 'attended' is the overwhelming majority and reads as the plain past tense. A gig only
+ * planned says so, because a timeline that renders "var på" for a concert that has not
+ * happened is simply wrong. A gig whose state nothing on the wire recorded gets the
+ * neutral verb rather than a guess.
+ */
+function gigVerb(status: string | null): string {
+  if (status === 'attended') return 'var på'
+  if (status === 'going') return 'skal på'
+  return 'var på ein konsert'
+}
+
+const Gig: FC<{ entry: GigEntry }> = ({ entry }) => {
+  const who = entry.artists.length > 0 ? entry.artists.join(', ') : entry.title
+  const where = [entry.venue, entry.city].filter(Boolean).join(', ')
+  return (
+    <article class="entry" id={`e-${entry.refId}`}>
+      <Meta entry={entry} verb={gigVerb(entry.status)} />
+      <div class="about">
+        <h3>
+          {entry.concertUrl ? (
+            <a href={entry.concertUrl} rel="noreferrer noopener">{who ?? 'Ein konsert'}</a>
+          ) : (who ?? 'Ein konsert')}
+        </h3>
+        <p class="facts">
+          {[
+            where || null,
+            entry.festivalName,
+            entry.tourName,
+          ].filter(Boolean).map((f, i) => <>{i > 0 ? ' · ' : ''}{f}</>)}
+        </p>
+      </div>
+      {/* The write-up, verbatim. */}
+      {entry.review ? <p class="note">{entry.review}</p> : null}
+      {entry.photos.length > 0 ? (
+        <div class="photos">
+          {entry.photos.map((p) => (
+            <img src={imageSrc(p.url)} alt={p.altText ?? ''} loading="lazy" referrerpolicy="no-referrer" />
+          ))}
+        </div>
+      ) : null}
+      {/* A setlist is a list to go and read; the card shows the opening and links on. */}
+      {entry.setlistPreview.length > 0 ? (
+        <p class="facts">
+          {entry.setlistPreview.join(' · ')}
+          {entry.songCount && entry.songCount > entry.setlistPreview.length
+            ? <> · <span style="opacity:.6">og {entry.songCount - entry.setlistPreview.length} til</span></>
+            : null}
+        </p>
+      ) : null}
+    </article>
+  )
+}
+
 const ScrobbleDay: FC<{ entry: ScrobbleDayEntry }> = ({ entry }) => (
   <article class="entry" id={`e-${entry.refId}`}>
     <Meta entry={entry} verb={`høyrde på ${entry.playCount} spor`} />
@@ -508,6 +564,8 @@ export const EntryView: FC<{ entry: Entry; briefTrip?: boolean }> = ({ entry, br
     case 'read_neodb':
     case 'mark':
       return <Mark entry={entry} />
+    case 'gig':
+      return <Gig entry={entry} />
     case 'scrobble_day':
       return <ScrobbleDay entry={entry} />
     case 'trip':

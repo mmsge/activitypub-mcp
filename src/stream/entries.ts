@@ -144,6 +144,28 @@ export interface MarkEntry extends Base {
   itemUrl: string | null
 }
 
+export interface GigEntry extends Base {
+  kind: 'gig'
+  /** The composite title the origin renders: "Artist, Venue, City, DATE". */
+  title: string | null
+  artists: string[]
+  venue: string | null
+  city: string | null
+  country: string | null
+  tourName: string | null
+  festivalName: string | null
+  /** interested | going | attended. Null when nothing on the wire said. */
+  status: string | null
+  /** The write-up, verbatim — never parsed or translated. */
+  review: string | null
+  photos: Array<{ url: string; altText: string | null }>
+  /** How many songs are on record. Null means nobody wrote a setlist down. */
+  songCount: number | null
+  /** The first few songs, for a taste of the night without the whole list. */
+  setlistPreview: string[]
+  concertUrl: string | null
+}
+
 export interface ScrobbleDayEntry extends Base {
   kind: 'scrobble_day'
   /** The Oslo day, YYYY-MM-DD. */
@@ -197,7 +219,7 @@ export interface UndatedGardenNote {
   url: string
 }
 
-export type Entry = PostEntry | BookEntry | MarkEntry | ScrobbleDayEntry | TripEntry | GardenEntry
+export type Entry = PostEntry | BookEntry | MarkEntry | GigEntry | ScrobbleDayEntry | TripEntry | GardenEntry
 
 /** One page of the stream. */
 export interface StreamPage {

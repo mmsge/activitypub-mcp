@@ -2433,6 +2433,317 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/gigs:
+    get:
+      tags: [REST API]
+      summary: Browse the concert log
+      description: |
+        The concert log as a paginated list — every gig behind this server's stored
+        Gigowl (samklang.msge.no) attendances, enriched from the concert record the
+        federated Note only links to.
+
+        **Two dates, never interchangeable.** `gig_date` is the night of the gig and is
+        what you almost always want; `logged_at` is when the attendance was posted, which
+        for an imported archive is only the order the import ran in. A 2022 gig entered
+        in 2026 has `gig_date` 2022 and `logged_at` 2026. `sort_by` defaults to
+        `gig_date`, newest first.
+
+        **RSVP state.** `rsvp_status` is interested/going/attended and `status_source`
+        says where it came from: `tag` or `property` means the origin published it as
+        data, `template` means it was read off the generated Nynorsk opening sentence —
+        all that attendances logged before the origin published it as data carry. A state
+        the parser did not recognise is null rather than a guess.
+
+        **Setlists** are only ever as complete as the origin serves them: `song_count` is
+        null for a gig nobody recorded one for, which is not the same as a gig with no
+        songs. Filter with `has_setlist` and search within them with `song`.
+
+        Each response carries `total` and a `next_cursor`. Use /gig-details for one gig's
+        full record including its setlist, and /gig-stats for aggregates.
+      operationId: getGigsGet
+      parameters:
+        - name: artist
+          in: query
+          description: Case-insensitive partial match against any name in the line-up, support acts included.
+          schema: { type: string }
+        - name: venue
+          in: query
+          description: Case-insensitive partial venue-name match.
+          schema: { type: string }
+        - name: city
+          in: query
+          description: Case-insensitive partial city match.
+          schema: { type: string }
+        - name: country
+          in: query
+          description: ISO 3166-1 alpha-2 country code, case-insensitive exact.
+          schema: { type: string }
+        - name: festival
+          in: query
+          description: Case-insensitive partial festival-name match. A festival day is an ordinary gig with many artists.
+          schema: { type: string }
+        - name: tour
+          in: query
+          description: Case-insensitive partial tour-name match.
+          schema: { type: string }
+        - name: song
+          in: query
+          description: Only gigs whose setlist contains this song (case-insensitive partial). A gig with no setlist can never match.
+          schema: { type: string }
+        - name: q
+          in: query
+          description: Free-text search over the gig title, its notes and any write-up about it.
+          schema: { type: string }
+        - name: status
+          in: query
+          description: RSVP state. Check `status_source` on the results before treating it as stated fact.
+          schema: { type: string, enum: [interested, going, attended] }
+        - name: concert_status
+          in: query
+          description: The concert's own status, which is about the event and not about attending it.
+          schema:
+            { type: string, enum: [scheduled, cancelled, postponed, completed] }
+        - name: year
+          in: query
+          description: Sugar for from/to spanning one calendar year, on the NIGHT of the gig.
+          schema: { type: integer, minimum: 1000, maximum: 9999 }
+        - name: from
+          in: query
+          description: Only gigs on or after this date (YYYY-MM-DD), by the night of the gig.
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          description: Only gigs on or before this date (YYYY-MM-DD), by the night of the gig.
+          schema: { type: string, format: date }
+        - name: has_review
+          in: query
+          description: Only gigs somebody wrote up.
+          schema: { type: boolean, default: false }
+        - name: has_setlist
+          in: query
+          description: Only gigs with at least one song recorded.
+          schema: { type: boolean, default: false }
+        - name: include_unenriched
+          in: query
+          description: Include rows whose concert record has not been fetched successfully yet. Such a row has no title, date or line-up.
+          schema: { type: boolean, default: false }
+        - name: include_hidden
+          in: query
+          description: Include gigs an admin has hidden from the served catalogue.
+          schema: { type: boolean, default: false }
+        - name: sort_by
+          in: query
+          description: >
+            Which date to order by. `gig_date` (default) is the night of the gig;
+            `logged_at` is when the attendance was posted. Gigs with no date sort last in
+            both directions.
+          schema:
+            { type: string, enum: [gig_date, logged_at], default: gig_date }
+        - $ref: "#/components/parameters/SortOrder"
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: page
+          in: query
+          description: Offset-based page (legacy). Ignored when `cursor` is supplied.
+          schema: { type: integer, minimum: 1, default: 1 }
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Page of gigs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GigsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Browse the concert log (JSON body)
+      operationId: getGigsPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                artist: { type: string }
+                venue: { type: string }
+                city: { type: string }
+                country: { type: string }
+                festival: { type: string }
+                tour: { type: string }
+                song: { type: string }
+                q: { type: string }
+                status: { type: string, enum: [interested, going, attended] }
+                concert_status:
+                  {
+                    type: string,
+                    enum: [scheduled, cancelled, postponed, completed],
+                  }
+                year: { type: integer, minimum: 1000, maximum: 9999 }
+                from: { type: string, format: date }
+                to: { type: string, format: date }
+                has_review: { type: boolean, default: false }
+                has_setlist: { type: boolean, default: false }
+                include_unenriched: { type: boolean, default: false }
+                include_hidden: { type: boolean, default: false }
+                sort_by:
+                  {
+                    type: string,
+                    enum: [gig_date, logged_at],
+                    default: gig_date,
+                  }
+                sort_order: { type: string, enum: [asc, desc], default: desc }
+                limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+                page: { type: integer, minimum: 1, default: 1 }
+                cursor: { type: string }
+      responses:
+        "200":
+          description: Page of gigs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GigsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/gig-details:
+    get:
+      tags: [REST API]
+      summary: Get one gig's full record
+      description: |
+        One gig, resolved by `concert_url` (exact) or a partial `title` (the most recent
+        match wins). Everything /gigs returns, plus the complete `setlists` array (per
+        artist; each entry with position, setNumber, isEncore, songTitle, isCover,
+        coverOfArtist and note — encores and covers are the two things a setlist is read
+        for), the venue's own catalogue record when it has been fetched (aka names,
+        coordinates, capacity, timezone, wikidata_qid, is_placeholder — a placeholder
+        venue means the venue was genuinely not announced, not that data is missing),
+        `source_map` (per-field provenance: `samklang-ap` or `samklang-jsonld`; the
+        ActivityPub representation is the more complete of the two and wins wherever it
+        spoke), and enrichment status.
+      operationId: getGigDetailsGet
+      parameters:
+        - name: concert_url
+          in: query
+          description: The gig's canonical URL, exactly as /gigs returns it.
+          schema: { type: string }
+        - name: title
+          in: query
+          description: Alternatively, a case-insensitive partial title match.
+          schema: { type: string }
+        - name: include_hidden
+          in: query
+          description: Allow resolving a gig an admin has hidden.
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: The gig's full record, or an `error` field when nothing matched.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GigDetails" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Get one gig's full record (JSON body)
+      operationId: getGigDetailsPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                concert_url: { type: string }
+                title: { type: string }
+                include_hidden: { type: boolean, default: false }
+      responses:
+        "200":
+          description: The gig's full record, or an `error` field when nothing matched.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GigDetails" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/gig-stats:
+    get:
+      tags: [REST API]
+      summary: Aggregate the concert log
+      description: |
+        Totals (gigs, distinct artists/venues/cities/countries, first and last gig, gigs
+        carrying a setlist or a write-up, songs on record) plus breakdowns `by_status`,
+        `by_year` (by the night of the gig), `top_artists`, `top_venues`, `top_cities`
+        and `top_songs`.
+
+        `top_songs` and `songs_played` count only what a setlist records, so they are
+        "songs I have a record of", never "songs I heard" — a gig nobody wrote a setlist
+        for contributes nothing. Artist and venue totals are keyed on NAME, so two
+        artists sharing a name count once.
+      operationId: getGigStatsGet
+      parameters:
+        - name: status
+          in: query
+          description: Count only gigs with this RSVP state.
+          schema: { type: string, enum: [interested, going, attended] }
+        - name: from
+          in: query
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          schema: { type: string, format: date }
+        - name: year
+          in: query
+          description: Sugar for from/to spanning one calendar year.
+          schema: { type: integer, minimum: 1000, maximum: 9999 }
+        - name: top
+          in: query
+          description: How many entries in each of the top-N breakdowns.
+          schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
+        - name: include_hidden
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Aggregate view of the concert log.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GigStats" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Aggregate the concert log (JSON body)
+      operationId: getGigStatsPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string, enum: [interested, going, attended] }
+                from: { type: string, format: date }
+                to: { type: string, format: date }
+                year: { type: integer, minimum: 1000, maximum: 9999 }
+                top: { type: integer, minimum: 1, maximum: 50, default: 10 }
+                include_hidden: { type: boolean, default: false }
+      responses:
+        "200":
+          description: Aggregate view of the concert log.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GigStats" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/catalogue-details:
     get:
       tags: [REST API]
@@ -3553,6 +3864,252 @@ components:
         titles:
           type: array
           items: { $ref: "#/components/schemas/WatchedTitle" }
+
+    Gig:
+      type: object
+      description: One gig from the concert log.
+      properties:
+        concert_url: { type: string }
+        title:
+          {
+            type: [string, "null"],
+            description: 'The composite title the origin renders: "Artist, Venue, City, DATE".',
+          }
+        gig_date:
+          type: [string, "null"]
+          format: date
+          description: The night of the gig. The date to use for anything historical.
+        start_at:
+          type: [string, "null"]
+          format: date-time
+          description: >
+            The instant the music started, when the origin knows the venue's timezone and
+            the concert's start time. Absent for most of a backfilled archive, which is
+            why `gig_date` exists separately and is what sorts.
+        doors_time:
+          {
+            type: [string, "null"],
+            description: Local wall clock in the venue's zone.,
+          }
+        concert_status:
+          type: [string, "null"]
+          enum: [scheduled, cancelled, postponed, completed, null]
+        tour_name: { type: [string, "null"] }
+        festival_name: { type: [string, "null"] }
+        notes: { type: [string, "null"] }
+        venue:
+          type: object
+          properties:
+            url: { type: [string, "null"] }
+            name: { type: [string, "null"] }
+            city: { type: [string, "null"] }
+            country: { type: [string, "null"] }
+        lineup:
+          type: array
+          description: role is headliner | opener | guest, or null when the origin served no roles.
+          items:
+            type: object
+            properties:
+              artistUrl: { type: [string, "null"] }
+              name: { type: [string, "null"] }
+              role: { type: [string, "null"] }
+              position: { type: [integer, "null"] }
+        artist_names: { type: array, items: { type: string } }
+        rsvp_status:
+          type: [string, "null"]
+          enum: [interested, going, attended, null]
+          description: The newest live attendance's RSVP state. null when nothing on the wire said.
+        status_source:
+          type: [string, "null"]
+          enum: [tag, property, template, null]
+          description: >
+            Where `rsvp_status` came from. `tag`/`property` means the origin published it
+            as data; `template` means it was read off the generated opening sentence and
+            should be treated as derived.
+        reviews:
+          type: array
+          description: The write-up(s), verbatim, newest first, duplicates collapsed. [] when none.
+          items: { type: string }
+        photos:
+          type: array
+          items:
+            type: object
+            properties:
+              url: { type: string }
+              altText: { type: [string, "null"] }
+              mediaType: { type: [string, "null"] }
+              width: { type: [integer, "null"] }
+              height: { type: [integer, "null"] }
+        song_count:
+          type: [integer, "null"]
+          description: null means nobody recorded a setlist, which is not the same as a gig with no songs.
+        logged_at:
+          type: [string, "null"]
+          format: date-time
+          description: When the attendance was posted. The paperwork, not the night.
+        fetched_at: { type: [string, "null"], format: date-time }
+        fetch_error:
+          {
+            type: [string, "null"],
+            description: Only present with include_unenriched=true.,
+          }
+        fetch_attempts:
+          {
+            type: [integer, "null"],
+            description: Only present with include_unenriched=true.,
+          }
+
+    GigsResponse:
+      type: object
+      properties:
+        count: { type: integer }
+        total:
+          type: integer
+          description: Total gigs matching the filters across all pages.
+        page: { type: [integer, "null"] }
+        next_cursor: { type: [string, "null"] }
+        sort_by: { type: string, enum: [gig_date, logged_at] }
+        sort_order: { type: string, enum: [asc, desc] }
+        filters:
+          type: object
+          additionalProperties: true
+        gigs:
+          type: array
+          items: { $ref: "#/components/schemas/Gig" }
+
+    GigDetails:
+      type: object
+      description: One gig's full record, incl. its setlist, its venue and per-field provenance.
+      properties:
+        error:
+          {
+            type: string,
+            description: Present instead of the record when nothing matched.,
+          }
+        concert_url: { type: string }
+        title: { type: [string, "null"] }
+        gig_date: { type: [string, "null"], format: date }
+        start_at: { type: [string, "null"], format: date-time }
+        doors_time: { type: [string, "null"] }
+        concert_status: { type: [string, "null"] }
+        tour_name: { type: [string, "null"] }
+        festival_name: { type: [string, "null"] }
+        notes: { type: [string, "null"] }
+        venue:
+          type: object
+          description: The venue's own catalogue record when it has been fetched; otherwise the denormalised subset carried on the gig.
+          additionalProperties: true
+        lineup:
+          { type: array, items: { type: object, additionalProperties: true } }
+        artist_names: { type: array, items: { type: string } }
+        setlists:
+          type: array
+          description: One entry per artist with a recorded setlist. [] when the origin serves none.
+          items:
+            type: object
+            properties:
+              id: { type: [string, "null"] }
+              artistUrl: { type: [string, "null"] }
+              entries:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    position: { type: [integer, "null"] }
+                    setNumber: { type: [integer, "null"] }
+                    isEncore: { type: boolean }
+                    songTitle: { type: string }
+                    isCover: { type: boolean }
+                    coverOfArtist: { type: [string, "null"] }
+                    note: { type: [string, "null"] }
+        song_count: { type: [integer, "null"] }
+        rsvp_status: { type: [string, "null"] }
+        status_source: { type: [string, "null"] }
+        reviews: { type: array, items: { type: string } }
+        photos:
+          { type: array, items: { type: object, additionalProperties: true } }
+        logged_at: { type: [string, "null"], format: date-time }
+        details: { type: object, additionalProperties: true }
+        source_map:
+          type: object
+          description: "Per-field provenance: samklang-ap or samklang-jsonld."
+          additionalProperties: { type: string }
+        enrichment:
+          type: object
+          properties:
+            fetched_at: { type: [string, "null"], format: date-time }
+            enriched_at: { type: [string, "null"], format: date-time }
+            fetch_error: { type: [string, "null"] }
+            fetch_attempts: { type: integer }
+        hidden: { type: boolean }
+
+    GigStats:
+      type: object
+      properties:
+        filters:
+          type: object
+          additionalProperties: true
+        totals:
+          type: object
+          properties:
+            gigs: { type: integer }
+            artists:
+              type: integer
+              description: Distinct artist NAMES across every line-up in range, so two artists sharing a name count once.
+            venues: { type: integer }
+            cities: { type: integer }
+            countries: { type: integer }
+            songs_played:
+              type: integer
+              description: Songs on record. Only ever as complete as the setlists are.
+            gigs_with_setlist: { type: integer }
+            gigs_with_review: { type: integer }
+            first_gig: { type: [string, "null"], format: date }
+            last_gig: { type: [string, "null"], format: date }
+        by_status:
+          type: array
+          items:
+            type: object
+            properties:
+              status: { type: [string, "null"] }
+              gigs: { type: integer }
+        by_year:
+          type: array
+          items:
+            type: object
+            properties:
+              year: { type: string }
+              gigs: { type: integer }
+        top_artists:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              gigs: { type: integer }
+        top_venues:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              city: { type: [string, "null"] }
+              gigs: { type: integer }
+        top_cities:
+          type: array
+          items:
+            type: object
+            properties:
+              city: { type: string }
+              gigs: { type: integer }
+        top_songs:
+          type: array
+          description: Songs heard most often across recorded setlists — never a complete picture of what was played.
+          items:
+            type: object
+            properties:
+              song: { type: string }
+              plays: { type: integer }
 
     CatalogueDetails:
       type: object

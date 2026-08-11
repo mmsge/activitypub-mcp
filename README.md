@@ -550,6 +550,9 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_book_details` | "What's the page count and publisher for The Radleys?" |
 | `get_watched` | "What have I marked on NeoDB? What did I watch in 2016 — watched_year=2016? Show my games from 2024, or every album by category=music. What's the IMDb link for Conflict? Everything tagged thriller. Which films did I see at the cinema — mark_comment=kino?" |
 | `get_catalogue_details` | "Give me the full record for this NeoDB item — who developed it, its ISBN/publisher, the podcast feed URL — and where each field came from." |
+| `get_gigs` | "Which gigs did I go to in 2023? How many times have I seen Motorpsycho? Every concert in Bergen, or at a festival. Which gigs did I write up? Which ones have a setlist with Vortex Surfer on it?" |
+| `get_gig_details` | "Give me that concert in full — the line-up with roles, the setlist including encores and covers, the venue's capacity, and what I wrote about it." |
+| `get_gig_stats` | "How many gigs have I been to, in how many cities? Which artist have I seen most? What's my busiest year? Which songs do I keep hearing live?" |
 | `get_trip_posts` | "What did I post on Sjælland rundt? Show every togselfie with the train it was taken on. Which train was I on when I posted this?" |
 | `get_trip_weather` | "What was the weather on the Bergensbanen that day? How many trips have I taken in snow? Which was the coldest journey?" |
 | `get_linkedin_posts` | "What have I posted on LinkedIn this year, and how did each one do?" |

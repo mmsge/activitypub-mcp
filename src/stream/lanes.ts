@@ -298,6 +298,53 @@ export function marksLane(ctx: LaneContext): SQL | null {
 }
 
 /**
+ * One gig per attendance, dated by the night it happened.
+ *
+ * `event_at` is the concert's own date, NOT the attendance Note's `published`. Gigowl
+ * stamps a Note with the attendance's updatedAt, so an archive entered in one afternoon
+ * would otherwise land as a wall of gigs on that afternoon — burying a decade of concerts
+ * under the day they were typed up. The gig date is midnight in the venue's local sense;
+ * that is the resolution a gig log has, and pretending to more would be a lie.
+ *
+ * INNER join to `objects`: a gig whose attendance Note we do not hold is a gig we cannot
+ * prove was public, exactly as `marksLane` requires for a mark. `hidden_at IS NULL`
+ * respects the admin hide (ADR 0013), and a gig nobody has enriched yet has no date and
+ * so cannot be placed on a timeline at all.
+ */
+export function gigsLane(ctx: LaneContext): SQL | null {
+  const { facets } = ctx
+  const actors = ctx.actorIds.samklang
+  if (actors.length === 0) return null
+  if (facets.kind && facets.kind !== 'gig') return null
+  if (facets.tag) return null // the gig's own hashtags live on the attendance, not here
+
+  const eventAt = sql`(g.gig_date::timestamptz)`
+  const refId = sql`('gig:' || a.id::text)`
+
+  return sql`
+    SELECT ${eventAt} AS event_at, 'gig' AS kind, ${refId} AS ref_id, 'samklang' AS source
+    FROM gig_attendances a
+    JOIN gig_catalog g ON g.concert_url = a.concert_url
+    JOIN objects o ON o.ap_id = a.note_ap_id
+    WHERE ${allOf([
+      sql`a.actor_ap_id = ANY(${idArray(actors)})`,
+      sql`a.deleted_at IS NULL`,
+      sql`o.deleted_at IS NULL`,
+      publicOnlyOn('o', config.STREAM_INCLUDE_UNLISTED),
+      sql`g.hidden_at IS NULL`, // ADR 0013
+      sql`g.gig_date IS NOT NULL`,
+      // A gig somebody only fancied is not something that happened, so it does not go on
+      // a timeline of things that did. Mirrors the wishlist exclusion in marksLane.
+      sql`a.status IS DISTINCT FROM 'interested'`,
+      notFuture(eventAt),
+      archiveBound(facets, eventAt),
+      keyset(facets, eventAt, refId),
+    ])}
+    ${laneOrder(eventAt, refId)}
+    LIMIT ${ctx.limit}`
+}
+
+/**
  * One digest per day of listening, in Markus' own timezone.
  *
  * Bounded by STREAM_SCROBBLE_CUTOFF_MONTHS: 51k scrobbles since 2016 is more daily
@@ -417,6 +464,7 @@ const BUILDERS: Record<Lane, (ctx: LaneContext) => SQL | null> = {
   marks: marksLane,
   music: musicLane,
   trips: tripsLane,
+  gigs: gigsLane,
   garden: gardenLane,
 }
 

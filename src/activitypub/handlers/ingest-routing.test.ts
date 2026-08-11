@@ -77,6 +77,42 @@ describe('handleAnnounce', () => {
   })
 })
 
+const GIGOWL_ACTOR = 'https://samklang.msge.no/brukar/markus'
+const GIG_NOTE_ID = 'https://samklang.msge.no/oppmote/01KZRJ3RV4PVMV17KJ7P567V1C'
+
+const GIG_NOTE = {
+  id: GIG_NOTE_ID,
+  type: 'Note',
+  attributedTo: GIGOWL_ACTOR,
+  published: '2026-08-11T14:02:37.795Z',
+  content: '<p>Eg var på Queen + Adam Lambert på Unity Arena i Fornebu, 2022-07-21.</p>',
+  tag: [
+    {
+      type: 'Link',
+      href: 'https://samklang.msge.no/konsert/01KZRJ3NKDAEF25EWQKCEAP8D2',
+      mediaType: 'application/activity+json',
+      name: 'Konsert',
+    },
+  ],
+}
+
+describe('a gig attendance takes the same three routes', () => {
+  it('is ingested as its own author when it arrives as a boost', async () => {
+    fetchApObject.mockResolvedValue(GIG_NOTE)
+    await handleAnnounce({ type: 'Announce', actor: MASTODON_ACTOR, object: GIG_NOTE_ID })
+    // The gig belongs to the account that went to it, not to whoever boosted the post —
+    // the attendance store is keyed on (concert, actor), so this decides whose gig it is.
+    expect(ingestObject).toHaveBeenCalledWith(GIG_NOTE, GIGOWL_ACTOR, { source: 'announce' })
+  })
+
+  it('is upserted when an edit arrives for an attendance we never saw', async () => {
+    // Adding a write-up to a gig logged months ago re-publishes the same Note id as an
+    // Update. If that path did not create, the write-up would never land.
+    await handleUpdate({ type: 'Update', actor: GIGOWL_ACTOR, object: GIG_NOTE })
+    expect(ingestObject).toHaveBeenCalledWith(GIG_NOTE, GIGOWL_ACTOR, { source: 'update' })
+  })
+})
+
 describe('handleUpdate', () => {
   it('upserts the edited object, so an edit to a post we never saw creates it', async () => {
     await handleUpdate({ type: 'Update', actor: NEODB_ACTOR, object: MARK_NOTE })

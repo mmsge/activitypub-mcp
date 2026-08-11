@@ -18,6 +18,8 @@ import { syncScrobbles } from './jobs/sync-scrobbles.js'
 import { runScrobbleRace } from './jobs/scrobble-race.js'
 import { syncBookMetadata } from './jobs/sync-book-metadata.js'
 import { syncNeodbMetadata } from './jobs/sync-neodb-metadata.js'
+import { syncGigMetadata } from './jobs/sync-gig-metadata.js'
+import { backfillGigs } from './jobs/backfill-gigs.js'
 import { syncReadingHistory } from './jobs/sync-reading-history.js'
 import { syncGardenContent } from './jobs/sync-garden-content.js'
 import { syncLinkedinPosts } from './jobs/sync-linkedin-posts.js'
@@ -119,6 +121,28 @@ async function main() {
       await syncNeodbMetadata()
     } catch (e) {
       logger.error(e, 'NeoDB metadata sync failed on startup')
+    }
+  })()
+
+  // Enrich the gig catalogue in the background (no-op until an attendance has been
+  // ingested). Runs after the backfill below has had a chance to create the rows.
+  void (async () => {
+    try {
+      await syncGigMetadata()
+    } catch (e) {
+      logger.error(e, 'Gig metadata sync failed on startup')
+    }
+  })()
+
+  // One-time build of the gig store out of attendance Notes already stored as ordinary
+  // posts — they have been arriving since the follow was accepted and were never read.
+  // Local-first; only reaches the origin for a concert it has no record of. No-ops once
+  // the marker is set.
+  void (async () => {
+    try {
+      await backfillGigs()
+    } catch (e) {
+      logger.error(e, 'Gig backfill failed on startup')
     }
   })()
 

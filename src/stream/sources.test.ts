@@ -82,10 +82,12 @@ describe('platform registry', () => {
     expect(platformInfo('loops').lane).toBe('posts')
     // Markus' own server, for railway clips — posts, like the others.
     expect(platformInfo('rullen').lane).toBe('posts')
-    // His concert log federates an attendance note per gig — also an ordinary post.
-    expect(platformInfo('samklang').lane).toBe('posts')
     expect(platformInfo('bookwyrm').lane).toBe('reading')
     expect(platformInfo('neodb').lane).toBe('marks')
+    // His concert log federates an attendance note per gig, but the gig behind it is a
+    // structured record we cache, so it reads as a gig rather than as a sentence with a
+    // link in it — and the lane must be its own or the note would be counted twice.
+    expect(platformInfo('samklang').lane).toBe('gigs')
   })
 
   it('separates federated platforms from local ones', () => {
@@ -98,12 +100,13 @@ describe('platform registry', () => {
 
 describe('lanesForPlatform', () => {
   it('runs every lane when unfiltered', () => {
-    expect(lanesForPlatform(null)).toHaveLength(6)
+    expect(lanesForPlatform(null)).toHaveLength(7)
   })
 
   it('runs exactly one lane when filtered', () => {
     expect(lanesForPlatform('bookwyrm')).toEqual(['reading'])
     expect(lanesForPlatform('lastfm')).toEqual(['music'])
+    expect(lanesForPlatform('samklang')).toEqual(['gigs'])
   })
 })
 

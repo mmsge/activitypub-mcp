@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { SQL } from 'drizzle-orm'
 import {
-  postsLane, readingLane, marksLane, musicLane, tripsLane, gardenLane,
+  postsLane, readingLane, marksLane, gigsLane, musicLane, tripsLane, gardenLane,
   mergedCandidateSql, type LaneContext,
 } from './lanes.js'
 import { EMPTY_FACETS, type Facets } from './facets.js'
@@ -48,6 +48,7 @@ const VISIBILITY_LANES: Array<[string, (c: LaneContext) => SQL | null]> = [
   ['posts', postsLane],
   ['reading', readingLane],
   ['marks', marksLane],
+  ['gigs', gigsLane],
 ]
 
 describe('every lane that touches objects filters on visibility', () => {
@@ -127,7 +128,10 @@ describe('postsLane', () => {
   it('carries every posts-lane account when unfiltered', () => {
     const { params } = dialect.sqlToQuery(postsLane(ctx())!)
     for (const id of Object.values(ACTOR_IDS).flat()) {
-      if (id.includes('bookwyrm') || id.includes('minreol')) continue
+      // The three accounts that own a lane of their own: BookWyrm reads as reading,
+      // NeoDB as marks, and Gigowl as gigs. A posts lane that swept any of them in
+      // would publish the same event twice in the merge.
+      if (id.includes('bookwyrm') || id.includes('minreol') || id.includes('samklang')) continue
       expect(params, id).toContain(id)
     }
   })
@@ -217,6 +221,41 @@ describe('marksLane', () => {
 
   it('prefers the shelf date over the post date (ADR 0012)', () => {
     expect(render(marksLane(ctx()))).toContain('coalesce(m.watched_at, m.published_at)')
+  })
+})
+
+describe('gigsLane', () => {
+  it('dates a gig by the night it happened, not by when it was logged', () => {
+    // The whole reason this lane exists. Gigowl stamps an attendance Note with the
+    // attendance's updatedAt, so ordering on the post date would bury a decade of
+    // concerts under the afternoon the archive was typed up.
+    const sql = render(gigsLane(ctx()))
+    expect(sql).toContain('g.gig_date::timestamptz')
+    expect(sql).not.toContain('a.published_at AS event_at')
+  })
+
+  it('joins objects with an INNER join, not a LEFT join', () => {
+    // Same rule as marksLane: the attendance's visibility lives on the Note it
+    // federated with, and without the Note there is no proof it was public.
+    const sql = render(gigsLane(ctx()))
+    expect(sql).toMatch(/JOIN objects o ON o\.ap_id = a\.note_ap_id/)
+    expect(sql).not.toMatch(/LEFT JOIN objects/)
+  })
+
+  it('excludes hidden gigs (ADR 0013)', () => {
+    expect(render(gigsLane(ctx()))).toContain('g.hidden_at IS NULL')
+  })
+
+  it('excludes gigs only fancied — intent is not activity', () => {
+    expect(render(gigsLane(ctx()))).toContain("a.status IS DISTINCT FROM 'interested'")
+  })
+
+  it('skips a gig with no date rather than placing it at the epoch', () => {
+    expect(render(gigsLane(ctx()))).toContain('g.gig_date IS NOT NULL')
+  })
+
+  it('yields nothing when the concert log is not configured', () => {
+    expect(gigsLane({ ...ctx(), actorIds: { ...ACTOR_IDS, samklang: [] } })).toBeNull()
   })
 })
 
@@ -350,7 +389,7 @@ describe('every lane', () => {
 describe('mergedCandidateSql', () => {
   it('unions every lane when unfiltered', () => {
     const sql = render(mergedCandidateSql(ctx()))
-    expect(sql.match(/UNION ALL/g)?.length).toBe(5) // six lanes, five joins
+    expect(sql.match(/UNION ALL/g)?.length).toBe(6) // seven lanes, six joins
   })
 
   // Regression: a lane carries its own ORDER BY and LIMIT — that is the whole point
@@ -358,7 +397,7 @@ describe('mergedCandidateSql', () => {
   // reads the ORDER BY as belonging to the union and fails at the next SELECT.
   it('parenthesises every union branch', () => {
     const sql = render(mergedCandidateSql(ctx()))
-    expect(sql.match(/\) UNION ALL \(/g)?.length).toBe(5)
+    expect(sql.match(/\) UNION ALL \(/g)?.length).toBe(6)
     expect(sql).not.toMatch(/LIMIT \$\d+\s+UNION ALL/)
   })
 

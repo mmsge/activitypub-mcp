@@ -2,7 +2,7 @@
 import type { FC, PropsWithChildren } from 'hono/jsx'
 import { Layout } from './layout.js'
 import { Pager, EmptyRow, Cover, Tabs, EnrichBadge, BookBadge, fmtDate, type MediaTab, type QueryParams } from './ui.js'
-import type { BookRow, WatchedRow, OtherRow, ScrobbleRow, Page } from '../media-query.js'
+import type { BookRow, WatchedRow, OtherRow, GigRow, ScrobbleRow, Page } from '../media-query.js'
 
 // --- shell -------------------------------------------------------------------
 
@@ -10,6 +10,7 @@ const SYNC_JOBS: Array<[string, string]> = [
   ['neodb', 'Sync NeoDB metadata'],
   ['books', 'Sync book metadata'],
   ['reading', 'Sync reading history'],
+  ['gigs', 'Sync gigs'],
   ['lastfm', 'Sync Last.fm'],
 ]
 
@@ -40,7 +41,7 @@ const Shell: FC<PropsWithChildren<{
   </Layout>
 )
 
-const ReenrichButton: FC<{ kind: 'book' | 'catalog'; id: string; returnTo: string }> = ({ kind, id, returnTo }) => (
+const ReenrichButton: FC<{ kind: 'book' | 'catalog' | 'gig'; id: string; returnTo: string }> = ({ kind, id, returnTo }) => (
   <form method="post" action="/admin/media/reenrich" style="display:inline">
     <input type="hidden" name="kind" value={kind} />
     <input type="hidden" name="id" value={id} />
@@ -69,7 +70,7 @@ const HiddenFilter: FC<{ value?: string }> = ({ value }) => (
  * and `id` is the catalogue URL — hiding acts on the catalogue entry, not one viewing.
  */
 const HideButton: FC<{
-  kind: 'book' | 'catalog' | 'catalogUrl'
+  kind: 'book' | 'catalog' | 'catalogUrl' | 'gig'
   id: string
   hidden: boolean
   returnTo: string
@@ -352,6 +353,107 @@ export const OtherTab: FC<{
       </tbody>
     </table>
     <Pager base="/admin/media" page={data.page} hasMore={data.hasMore} params={{ ...filters, tab: 'other' } as QueryParams} />
+  </Shell>
+)
+
+// --- gigs --------------------------------------------------------------------
+
+/**
+ * Where the RSVP state came from. 'template' means it was read off the generated Nynorsk
+ * opening sentence rather than published as data by the origin, which is worth seeing at
+ * a glance: those are the rows that would go wrong first if the origin reworded its
+ * template, and the ones that turn into stated facts once the origin is redeployed.
+ */
+const StatusBadge: FC<{ status: string | null; source: string | null }> = ({ status, source }) => {
+  if (!status) return <span class="muted">unknown</span>
+  return (
+    <>
+      {status}
+      {source === 'template' && (
+        <span class="badge" style="margin-left:6px" title="Derived from the generated opening sentence, not published as data">
+          derived
+        </span>
+      )}
+    </>
+  )
+}
+
+export const GigsTab: FC<{
+  data: Page<GigRow>
+  filters: Record<string, string | undefined>
+  cities: string[]
+  notice?: string
+  returnTo: string
+}> = ({ data, filters, cities, notice, returnTo }) => (
+  <Shell tab="gigs" total={data.total} notice={notice} returnTo={returnTo}>
+    <form class="filters" method="get" action="/admin/media">
+      <input type="hidden" name="tab" value="gigs" />
+      <input name="q" placeholder="Artist, venue or title" value={filters.q ?? ''} style="width:220px" />
+      <select name="city">
+        <option value="" selected={!filters.city}>Anywhere</option>
+        {cities.map(city => (
+          <option value={city} selected={filters.city === city}>{city}</option>
+        ))}
+      </select>
+      <HealthFilter value={filters.health} />
+      <HiddenFilter value={filters.hidden} />
+      <select name="sort">
+        <option value="gig_date" selected={filters.sort !== 'enriched'}>By gig date</option>
+        <option value="enriched" selected={filters.sort === 'enriched'}>Recently enriched</option>
+      </select>
+      <button type="submit">Filter</button>
+      <a href="/admin/media?tab=gigs" class="btn btn-ghost">Clear</a>
+    </form>
+
+    <form method="post" action="/admin/media/retry-failed-gigs" style="margin-bottom:16px">
+      <input type="hidden" name="return" value={returnTo} />
+      <button type="submit" class="btn-ghost">Retry all failed gig enrichments</button>
+    </form>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Gig</th>
+          <th>Date</th>
+          <th>Venue</th>
+          <th>City</th>
+          <th>RSVP</th>
+          <th>Songs</th>
+          <th>Enrichment</th>
+          <th />
+        </tr>
+      </thead>
+      <tbody>
+        {data.rows.map(r => (
+          <tr key={r.id} class={r.hiddenAt ? 'hidden-row' : ''}>
+            <td>
+              <a href={r.concertUrl} target="_blank" rel="noreferrer noopener">
+                {r.title ?? r.concertUrl}
+              </a>
+              {r.concertStatus && r.concertStatus !== 'scheduled' && r.concertStatus !== 'completed' && (
+                <span class="badge badge-red" style="margin-left:6px">{r.concertStatus}</span>
+              )}
+            </td>
+            <td class="mono">{r.gigDate ?? '—'}</td>
+            <td>{r.venueName ?? '—'}</td>
+            <td>{r.venueCity ?? '—'}</td>
+            <td><StatusBadge status={r.rsvpStatus} source={r.statusSource} /></td>
+            {/* null means nobody recorded a setlist, which is not the same as no songs. */}
+            <td class="mono">{r.songCount ?? '—'}</td>
+            <td>
+              <EnrichBadge enrichedAt={r.enrichedAt} fetchError={r.fetchError} fetchAttempts={r.fetchAttempts} />
+              {r.hiddenAt && <span class="badge badge-red" style="margin-left:4px">Hidden</span>}
+            </td>
+            <td class="row-actions">
+              <ReenrichButton kind="gig" id={r.id} returnTo={returnTo} />
+              <HideButton kind="gig" id={r.id} hidden={Boolean(r.hiddenAt)} returnTo={returnTo} />
+            </td>
+          </tr>
+        ))}
+        {data.rows.length === 0 && <EmptyRow colspan={8} text="No gigs found" />}
+      </tbody>
+    </table>
+    <Pager base="/admin/media" page={data.page} hasMore={data.hasMore} params={{ ...filters, tab: 'gigs' } as QueryParams} />
   </Shell>
 )
 
