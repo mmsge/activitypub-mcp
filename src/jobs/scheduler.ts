@@ -13,6 +13,7 @@ import { publishStatusNote } from './publish-status-note.js'
 import { linkTripPosts } from './link-trip-posts.js'
 import { syncStations } from './sync-stations.js'
 import { syncStationWeather } from './sync-station-weather.js'
+import { resolveTripLines } from './resolve-trip-lines.js'
 import { syncLinkedinPosts } from './sync-linkedin-posts.js'
 import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
@@ -110,6 +111,14 @@ export function startScheduler(): void {
       await syncStationWeather()
     } catch (e) { logger.error(e, 'Station/weather sync error') }
   }, SIX_HOURS_MS)
+
+  // Attribute trips to the named lines they ran on — hourly, alongside the trip/post
+  // join for the same reason: a re-imported CSV can change a leg's stations or
+  // distance. No external call and no bounded bite here, so a tick either finds
+  // stale trips and recomputes them outright or writes nothing (ADR 0035).
+  setInterval(async () => {
+    try { await resolveTripLines() } catch (e) { logger.error(e, 'Line resolution error') }
+  }, 60 * 60_000)
 
   // LinkedIn posts from the DMA snapshot — weekly by default. The snapshot is
   // historical and complete on every call rather than a feed of changes, so a long

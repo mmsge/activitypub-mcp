@@ -45,3 +45,4 @@ These are pooled into the cross-service view at `adr.msge.no` (see
 | [0032](0032-draw-the-custom-emoji-that-were-already-in-the-database.md) | Draw the custom emoji that were already in the database — they federate in the `tag` array — and drop the ones we cannot serve back to text |
 | [0033](0033-linkedin-as-a-source-two-halves-joined-on-the-post-id.md) | LinkedIn as a source: two halves joined on the post id, metrics kept append-only because the export's impressions are a window, not a total |
 | [0034](0034-a-successful-empty-crawl-is-not-a-healthy-one.md) | A successful empty crawl is not a healthy one — LinkedIn spells "not collated yet" and "end of data" the same way, so store when data last arrived |
+| [0035](0035-a-curated-kilometre-post-beats-a-geometry.md) | A curated kilometre post beats a geometry — attribute trips to named lines by hand-curated kilometrering rather than PostGIS over station coordinates that are already demonstrably wrong |

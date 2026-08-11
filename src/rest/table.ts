@@ -22,6 +22,11 @@ import {
 } from '../mcp/tools/train-trips.js'
 import { getTripPostsSchema, getTripPosts } from '../mcp/tools/trip-posts.js'
 import { getTripWeatherSchema, getTripWeather } from '../mcp/tools/trip-weather.js'
+import {
+  listRailwayLinesSchema, listRailwayLines,
+  getLineStatsSchema, getLineStats,
+  getLineTripsSchema, getLineTrips,
+} from '../mcp/tools/railway-lines.js'
 import { publicOnly } from '../mcp/tools/scope.js'
 import { getGardenPagesSchema, getGardenPages } from '../mcp/tools/garden-pages.js'
 import { getGardenPageSchema, getGardenPage } from '../mcp/tools/garden-page.js'
@@ -250,6 +255,36 @@ export const endpoints: RestEndpoint[] = [
     handler: getTripWeather,
     numbers: ['limit', 'page', 'year', 'min_temp', 'max_temp'],
     booleans: ['with_weather_only'],
+    arrays: [],
+  },
+  {
+    path: '/railway-lines',
+    name: 'list_railway_lines',
+    description: 'Every named railway line and fixed link the archive knows about: canonical name, aliases, countries, registry length, and whether Markus has travelled it — with trip count, on-line kilometres, crossing count and first/last traversal for the ones he has. Filter by kind (line/crossing), country code, travelled true/false, or a free-text name search. The registry is curated by hand rather than derived from OpenStreetMap.',
+    schema: listRailwayLinesSchema,
+    handler: listRailwayLines,
+    numbers: ['limit'],
+    booleans: ['travelled'],
+    arrays: [],
+  },
+  {
+    path: '/line-stats',
+    name: 'get_line_stats',
+    description: 'Aggregates for one named railway line or crossing: trips, on-line kilometres, time aboard, first and last traversal, and a breakdown by year, operator or journey. For a bridge or tunnel it returns a crossing count — each traversal counted once, in either direction. Names resolve through aliases, case and diacritics, and an unknown name comes back with the closest matches. Trips that have not departed are excluded from the totals and listed separately under "upcoming". Every response states coverage and names any pinned routing behind the numbers.',
+    schema: getLineStatsSchema,
+    handler: getLineStats,
+    numbers: ['limit', 'year'],
+    booleans: ['include_planned'],
+    arrays: [],
+  },
+  {
+    path: '/line-trips',
+    name: 'get_line_trips',
+    description: "The individual legs that touched a named line or crossing, each with its prorated on-line distance and duration, its share of the whole trip, and how the routing was decided — so the totals from /line-stats can be audited leg by leg. Rows carry the unscaled registry kilometres and the scale factor applied to reach the trip's recorded distance, plus the reason for any pinned routing.",
+    schema: getLineTripsSchema,
+    handler: getLineTrips,
+    numbers: ['limit', 'page', 'year'],
+    booleans: ['include_planned'],
     arrays: [],
   },
   {
