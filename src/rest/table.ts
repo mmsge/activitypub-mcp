@@ -33,6 +33,7 @@ import { getGardenPageSchema, getGardenPage } from '../mcp/tools/garden-page.js'
 import { getBookDetailsSchema, getBookDetails } from '../mcp/tools/book-details.js'
 import { getBooksSchema, getBooks } from '../mcp/tools/books.js'
 import { getWatchedSchema, getWatched, getCatalogueDetailsSchema, getCatalogueDetails } from '../mcp/tools/watched.js'
+import { getGigsSchema, getGigs, getGigDetailsSchema, getGigDetails, getGigStatsSchema, getGigStats } from '../mcp/tools/gigs.js'
 import {
   getHashtagStatsSchema, getHashtagStats,
   getHashtagTrendsSchema, getHashtagTrends,
@@ -357,6 +358,36 @@ export const endpoints: RestEndpoint[] = [
     schema: getCatalogueDetailsSchema,
     handler: getCatalogueDetails,
     numbers: [],
+    booleans: ['include_hidden'],
+    arrays: [],
+  },
+  {
+    path: '/gigs',
+    name: 'get_gigs',
+    description: "Browse the concert log as a paginated table — every gig behind this server's stored Gigowl (samklang.msge.no) attendances, enriched from the linked concert record. Each row: concert_url, title, gig_date, start_at, doors_time, concert_status, tour_name, festival_name, notes, a venue object (url/name/city/country), lineup (artistUrl, name, role — headliner/opener/guest — position), artist_names, rsvp_status + status_source, reviews (write-ups, verbatim, newest first), photos with alt text, song_count, logged_at, fetched_at. TWO DATES, NEVER INTERCHANGEABLE: gig_date is the night of the gig (the default sort, newest first); logged_at is when the attendance was posted, which for an imported archive says nothing about when anything happened. status_source tells you whether the RSVP state was published as data by the origin ('tag'/'property') or read off the generated opening sentence ('template'). Filter by artist/venue/city/country/festival/tour/song/q (partial), status, concert_status, from/to or year (all on the night of the gig), has_review, has_setlist; include_unenriched=true also returns pending/failed rows. Carries `total` and `next_cursor` (or legacy offset `page`). Use /gig-details for one gig's full record including its setlist.",
+    schema: getGigsSchema,
+    handler: getGigs,
+    numbers: ['limit', 'page', 'year'],
+    booleans: ['has_review', 'has_setlist', 'include_unenriched', 'include_hidden'],
+    arrays: [],
+  },
+  {
+    path: '/gig-details',
+    name: 'get_gig_details',
+    description: "Get one gig's full record, resolved by concert_url (exact) or a partial title. Returns everything /gigs returns plus the complete setlists array (per artist; each entry with position, setNumber, isEncore, songTitle, isCover, coverOfArtist, note), the venue's own catalogue record when fetched (aka, coordinates, capacity, timezone, wikidata_qid, is_placeholder), the `details` object, source_map (per-field 'samklang-ap'|'samklang-jsonld' provenance), and enrichment status. The gig sibling of /catalogue-details.",
+    schema: getGigDetailsSchema,
+    handler: getGigDetails,
+    numbers: [],
+    booleans: ['include_hidden'],
+    arrays: [],
+  },
+  {
+    path: '/gig-stats',
+    name: 'get_gig_stats',
+    description: "Aggregate the concert log: totals (gigs, distinct artists/venues/cities/countries, first and last gig, gigs with a setlist or a write-up, songs on record) plus breakdowns by_status, by_year, top_artists, top_venues, top_cities and top_songs. Bound with from/to or year, narrow with status, size the breakdowns with `top` (default 10). top_songs and songs_played count only what a setlist records — \"songs I have a record of\", not \"songs I heard\". The gig sibling of /reading-stats.",
+    schema: getGigStatsSchema,
+    handler: getGigStats,
+    numbers: ['top', 'year'],
     booleans: ['include_hidden'],
     arrays: [],
   },

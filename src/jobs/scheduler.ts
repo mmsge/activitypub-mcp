@@ -5,6 +5,7 @@ import { runScrobbleRace } from './scrobble-race.js'
 import { checkRaceNowPlaying } from './scrobble-race-nowplaying.js'
 import { syncBookMetadata } from './sync-book-metadata.js'
 import { syncNeodbMetadata } from './sync-neodb-metadata.js'
+import { syncGigMetadata } from './sync-gig-metadata.js'
 import { syncReadingHistory } from './sync-reading-history.js'
 import { syncGardenContent } from './sync-garden-content.js'
 import { sampleEngagement } from './sample-engagement.js'
@@ -68,6 +69,13 @@ export function startScheduler(): void {
   // and independent of the BookWyrm reading chain.
   setInterval(async () => {
     try { await syncNeodbMetadata() } catch (e) { logger.error(e, 'NeoDB metadata sync error') }
+  }, SIX_HOURS_MS)
+
+  // Gig catalogue enrichment — every 6 hours, its own interval alongside NeoDB's. A
+  // gig's own facts do not move, but a setlist is typically filled in days after the
+  // night, so the cache genuinely does need re-reading.
+  setInterval(async () => {
+    try { await syncGigMetadata() } catch (e) { logger.error(e, 'Gig metadata sync error') }
   }, SIX_HOURS_MS)
 
   // Garden note-body crawl — every 6 hours, its own interval so a slow or

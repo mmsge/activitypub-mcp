@@ -62,6 +62,23 @@ The one rule not to "simplify" back: every score is the post's **peak** across i
 snapshot history, never the latest snapshot. Engagement counts go down, and reading the
 latest one would let an un-favourite lower the record every other post is measured against.
 
+## Gigs
+
+Concert attendances federate from **Gigowl** (`samklang.msge.no`, software name `samklang`)
+as ordinary public Notes whose `tag` carries a `Link` named `Konsert` pointing at the
+concert. That link is the discriminator; the concert URL dereferences as an AS2 `Event`
+and is the join key. `get_gigs` / `get_gig_details` / `get_gig_stats`, `/api/v1/gigs`,
+**Admin → Media → Gigs**, and its own lane on the public stream. See ADR 0037.
+
+Two rules not to "simplify" back:
+
+- **`gig_date` is the night of the gig; `published_at` is when it was logged.** The origin
+  stamps a Note with the attendance's `updatedAt`, so a decade of concerts imported in one
+  afternoon all publish that afternoon. Every gig surface sorts on `gig_date`.
+- **Never fetch the origin with an `Accept` header mentioning `text/html`.** Gigowl answers
+  HTML for anything ambiguous, so a browser-ish header silently returns a web page and
+  looks exactly like a missing ActivityPub representation.
+
 ## Stack
 
 Hono + TypeScript, PostgreSQL. The `db` service (postgres) is internal-only and not exposed to the host. The `app` service exposes port 3000 to the host so central Caddy can reach it.

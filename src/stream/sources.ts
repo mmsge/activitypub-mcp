@@ -29,13 +29,14 @@ export type Platform = ApPlatform | LocalPlatform
  * is what stops a post being counted twice: BookWyrm's actor only ever produces
  * `reading` rows, NeoDB's only `marks`, and the remaining three only `posts`.
  */
-export type Lane = 'posts' | 'reading' | 'marks' | 'music' | 'trips' | 'garden'
+export type Lane = 'posts' | 'reading' | 'marks' | 'gigs' | 'music' | 'trips' | 'garden'
 
 /** Every kind of entry the stream can render. The view layer dispatches on this. */
 export const KINDS = [
   'post', 'photo', 'video',
   'book_started', 'book_finished', 'book_comment', 'book_review', 'book_quote',
   'screen', 'listen', 'play', 'read_neodb', 'mark',
+  'gig',
   'scrobble_day', 'trip', 'garden',
 ] as const
 export type Kind = (typeof KINDS)[number]
@@ -55,9 +56,10 @@ const PLATFORM_INFO: Record<Platform, Omit<PlatformInfo, 'platform'>> = {
   loops: { lane: 'posts', label: 'Loops', linkLabel: 'Loops' },
   // Markus' own ActivityPub server (software name "rullen"), for railway clips.
   rullen: { lane: 'posts', label: 'Rullen', linkLabel: 'Rullen' },
-  // Markus' own concert log (software name "samklang"): an attendance note per gig,
-  // federated as an ordinary public Note. Posts, like the others.
-  samklang: { lane: 'posts', label: 'Samklang', linkLabel: 'Samklang' },
+  // Markus' own concert log (software name "samklang"). The attendance federates as an
+  // ordinary public Note, but the gig behind it is a structured record we dereference and
+  // cache, so it gets its own lane rather than reading as a sentence with a link in it.
+  samklang: { lane: 'gigs', label: 'Konsertar', linkLabel: 'Gigowl' },
   bookwyrm: { lane: 'reading', label: 'BookWyrm', linkLabel: 'BookWyrm' },
   neodb: { lane: 'marks', label: 'NeoDB', linkLabel: 'NeoDB' },
   lastfm: { lane: 'music', label: 'Musikk', linkLabel: 'Last.fm' },
@@ -126,6 +128,6 @@ export function parseSources(raw: string): ApSource[] {
 
 /** The lanes a platform filter selects. Unfiltered ⇒ every lane. */
 export function lanesForPlatform(p: Platform | null): Lane[] {
-  if (p === null) return ['posts', 'reading', 'marks', 'music', 'trips', 'garden']
+  if (p === null) return ['posts', 'reading', 'marks', 'gigs', 'music', 'trips', 'garden']
   return [platformInfo(p).lane]
 }

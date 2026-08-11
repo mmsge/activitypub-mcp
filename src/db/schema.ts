@@ -343,6 +343,169 @@ export const neodbMarks = pgTable('neodb_marks', {
   index('neodb_marks_watched_at_idx').on(t.watchedAt),
 ])
 
+// ─── gigs (Gigowl / samklang.msge.no) ───────────────────────────────────────────────
+//
+// The same two-part split the NeoDB tables use, for the same reason: `gig_attendances`
+// is the per-actor event store (one row per person per concert — who went, what they
+// wrote, which photos), and `gig_catalog` is the shared per-concert cache everything
+// joins to. A concert is a fact about the world; going to it is a fact about a person.
+//
+// An attendance federates as a plain `Note` whose `tag` carries a `Link` named "Konsert"
+// pointing at the concert's canonical URI. That URI is dereferenceable as an AS2 `Event`
+// and is the join key. See ADR 0037, and Gigowl's own ADR 0006 / 0025 for the wire format.
+
+// One row per attendance from a followed actor, keyed unique on (concert_url, actor_ap_id).
+// A re-received attendance upserts, guarded on a strictly-newer `updated_at_ap`; a Delete
+// of the Note tombstones the row via `deleted_at`.
+export const gigAttendances = pgTable('gig_attendances', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // Normalised Gigowl concert URL — the join key onto gig_catalog.concert_url.
+  concertUrl: text('concert_url').notNull(),
+  actorApId: text('actor_ap_id').notNull(),
+  // interested | going | attended, plus the verb verbatim so an unknown one is never lost.
+  status: text('status'),
+  statusRaw: text('status_raw'),
+  // Where `status` came from: 'tag' (the explicit Oppmøte Link tag), 'property'
+  // (samklang:attendanceStatus, present only on a dereferenced Note) or 'template' (an
+  // exact prefix match on the generated Nynorsk opening line — the only source the
+  // attendances delivered before Gigowl's ADR 0026 have). Null when none of the three
+  // yielded anything, which is deliberately preferred over a guess.
+  statusSource: text('status_source'),
+  // The write-up, verbatim: free text, never parsed, normalised or translated.
+  review: text('review'),
+  contentWarning: text('content_warning'),
+  hashtags: jsonb('hashtags'), // string[] — '#konsert' plus one per headliner
+  photos: jsonb('photos'), // [{ url, mediaType, altText, width, height }]
+  noteApId: text('note_ap_id'), // the attendance Note's id — the Delete target
+  noteUrl: text('note_url'),
+  postId: text('post_id'),
+  // The Note's own `published`. Gigowl sets it to the attendance's updatedAt, so this is
+  // when the gig was LOGGED, never when it happened — a 2022 gig entered in 2026
+  // publishes in 2026. The night itself is gig_catalog.gig_date. Do not conflate them.
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  updatedAtAp: timestamp('updated_at_ap', { withTimezone: true }),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  raw: jsonb('raw'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('gig_attendances_concert_actor_idx').on(t.concertUrl, t.actorApId),
+  index('gig_attendances_concert_idx').on(t.concertUrl),
+  index('gig_attendances_actor_idx').on(t.actorApId),
+  index('gig_attendances_note_ap_id_idx').on(t.noteApId),
+  index('gig_attendances_status_idx').on(t.status),
+])
+
+// The per-concert cache, keyed by the concert's canonical URL. Filled by
+// sync-gig-metadata, which dereferences the concert as ActivityPub (never with an Accept
+// header containing text/html — Gigowl answers HTML for anything ambiguous) and merges the
+// schema.org MusicEvent from the page as a fallback for an origin older than Gigowl's
+// ADR 0026. `sourceMap` records each field's origin, mirroring catalog_metadata.
+export const gigCatalog = pgTable('gig_catalog', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  concertUrl: text('concert_url').notNull().unique(),
+  title: text('title'), // the composite "Artist, Venue, City, DATE" the origin renders
+  // The night of the gig. Always present once enriched, unlike `startAt`: the AP Event
+  // omits its startTime entirely unless the venue has an IANA zone AND the concert a
+  // start time, which most of the archive does not. This is the sort and filter key.
+  gigDate: date('gig_date'),
+  startAt: timestamp('start_at', { withTimezone: true }),
+  doorsTime: text('doors_time'), // local wall clock, in the venue's zone
+  // scheduled | cancelled | postponed | completed. 'completed' has no schema.org
+  // equivalent, so it is readable only from the ActivityPub representation.
+  concertStatus: text('concert_status'),
+  tourName: text('tour_name'),
+  festivalName: text('festival_name'),
+  notes: text('notes'),
+  venueUrl: text('venue_url'), // join key onto gig_venues.venue_url
+  // Denormalised from the venue so the common filters ("gigs in Bergen") need no join.
+  venueName: text('venue_name'),
+  venueCity: text('venue_city'),
+  venueCountry: text('venue_country'),
+  // [{ artistUrl, name, role, position }] — role is headliner | opener | guest.
+  lineup: jsonb('lineup'),
+  // string[] of the lineup names, flat, so "every gig I saw Motorpsycho at" is one ILIKE
+  // over a jsonb array rather than a join through gig_artists. The mark_titles trick.
+  artistNames: jsonb('artist_names'),
+  // [{ id, artist, entries: [{ position, setNumber, isEncore, songTitle, isCover,
+  // coverOfArtist, note }] }]. Empty until the origin serves them (Gigowl ADR 0026).
+  setlists: jsonb('setlists'),
+  songCount: integer('song_count'),
+  details: jsonb('details'),
+  sourceMap: jsonb('source_map'), // { field: 'samklang-ap' | 'samklang-jsonld' }
+  raw: jsonb('raw'),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+  enrichedAt: timestamp('enriched_at', { withTimezone: true }),
+  fetchError: text('fetch_error'),
+  fetchAttempts: integer('fetch_attempts').notNull().default(0),
+  lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+  // Set when an admin hides the row. Deliberately NOT part of the enrichment upsert's
+  // values object — including it there would unhide the row on every refresh (ADR 0013).
+  hiddenAt: timestamp('hidden_at', { withTimezone: true }),
+}, (t) => [
+  index('gig_catalog_gig_date_idx').on(t.gigDate),
+  index('gig_catalog_venue_idx').on(t.venueUrl),
+  index('gig_catalog_city_idx').on(t.venueCity),
+  index('gig_catalog_hidden_idx').on(t.hiddenAt),
+])
+
+// The artist cache. Its own table rather than only the `lineup` blob because an artist is
+// shared across every gig they played, and their external ids (MusicBrainz, Wikidata) are
+// what let a gig join up with the scrobble and NeoDB data already here.
+export const gigArtists = pgTable('gig_artists', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  artistUrl: text('artist_url').notNull().unique(),
+  name: text('name'),
+  sortName: text('sort_name'),
+  disambiguation: text('disambiguation'),
+  artistType: text('artist_type'), // person | group | other
+  country: text('country'),
+  mbid: text('mbid'),
+  wikidataQid: text('wikidata_qid'),
+  beginYear: integer('begin_year'),
+  endYear: integer('end_year'),
+  imageUrl: text('image_url'),
+  imageAttribution: text('image_attribution'),
+  sourceMap: jsonb('source_map'),
+  raw: jsonb('raw'),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+  enrichedAt: timestamp('enriched_at', { withTimezone: true }),
+  fetchError: text('fetch_error'),
+  fetchAttempts: integer('fetch_attempts').notNull().default(0),
+  lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+}, (t) => [
+  index('gig_artists_name_idx').on(t.name),
+  index('gig_artists_mbid_idx').on(t.mbid),
+])
+
+// The venue cache. Same shape, same reasons.
+export const gigVenues = pgTable('gig_venues', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  venueUrl: text('venue_url').notNull().unique(),
+  name: text('name'),
+  aka: jsonb('aka'), // string[] — venues get renamed by sponsors
+  city: text('city'),
+  country: text('country'), // ISO 3166-1 alpha-2
+  latitude: numeric('latitude'),
+  longitude: numeric('longitude'),
+  capacity: integer('capacity'),
+  timezone: text('timezone'), // IANA
+  wikidataQid: text('wikidata_qid'),
+  // The origin's "venue not announced yet" placeholder. A gig at one has a genuinely
+  // unknown venue, which is a different thing from missing data.
+  isPlaceholder: boolean('is_placeholder').notNull().default(false),
+  sourceMap: jsonb('source_map'),
+  raw: jsonb('raw'),
+  fetchedAt: timestamp('fetched_at', { withTimezone: true }).notNull().defaultNow(),
+  enrichedAt: timestamp('enriched_at', { withTimezone: true }),
+  fetchError: text('fetch_error'),
+  fetchAttempts: integer('fetch_attempts').notNull().default(0),
+  lastAttemptAt: timestamp('last_attempt_at', { withTimezone: true }),
+}, (t) => [
+  index('gig_venues_name_idx').on(t.name),
+  index('gig_venues_city_idx').on(t.city),
+])
+
 // Full markdown bodies of the markus.plus "Tankehav" notes, fetched from Obsidian
 // Publish's /access/ endpoint by sync-garden-content. The origin is flaky (500s on
 // edge-cache misses have been observed for extended periods), so content persists

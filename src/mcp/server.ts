@@ -25,6 +25,7 @@ import { getGardenPageSchema, getGardenPage } from './tools/garden-page.js'
 import { getBookDetailsSchema, getBookDetails } from './tools/book-details.js'
 import { getBooksSchema, getBooks } from './tools/books.js'
 import { getWatchedSchema, getWatched, getCatalogueDetailsSchema, getCatalogueDetails } from './tools/watched.js'
+import { getGigsSchema, getGigs, getGigDetailsSchema, getGigDetails, getGigStatsSchema, getGigStats } from './tools/gigs.js'
 import { getHashtagStatsSchema, getHashtagStats, getHashtagTrendsSchema, getHashtagTrends } from './tools/hashtag-stats.js'
 import { getEngagementSchema, getEngagement, getEngagementTrendsSchema, getEngagementTrends } from './tools/engagement.js'
 import { getActorEngagementTrendsSchema, getActorEngagementTrends } from './tools/actor-engagement-trends.js'
@@ -313,6 +314,36 @@ export function createMcpServer(): McpServer {
     getCatalogueDetailsSchema.shape,
     async (input) => {
       const result = await getCatalogueDetails(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_gigs',
+    "Browse the concert log as a paginated table — every gig behind this server's stored Gigowl (samklang.msge.no) attendances, enriched from the concert record the federated Note only links to. Each row carries: concert_url, title, gig_date, start_at, doors_time, concert_status, tour_name, festival_name, notes, a venue object (url/name/city/country), lineup (artistUrl, name, role — headliner/opener/guest — and position), artist_names, rsvp_status + status_source, reviews (the write-up(s), verbatim, newest first, [] when none), photos (with alt text), song_count, logged_at and fetched_at. TWO DATES, NEVER INTERCHANGEABLE: gig_date is the night of the gig and is what you almost always want; logged_at is when the attendance was posted, which for an imported archive is the order the import ran in — a gig from 2022 entered in 2026 has gig_date 2022 and logged_at 2026. sort_by defaults to gig_date, newest first. RSVP STATE (interested/going/attended) comes from status_source: 'tag' or 'property' means the origin published it as data; 'template' means it was read off the generated Nynorsk opening sentence, which is all that attendances logged before the origin published it as data carry — treat those as derived, and note that a state the parser did not recognise is null rather than a guess. Filter by artist (partial, matches support acts too), venue, city, country (ISO alpha-2), festival, tour, song (a title in the setlist), q (free text over title, notes and write-ups), status (RSVP), concert_status (scheduled/cancelled/postponed/completed), a from/to window or the year sugar (all on the NIGHT of the gig), has_review, has_setlist; include_unenriched:true also returns pending/failed rows, include_hidden:true rows an admin hid. SETLISTS are only ever as complete as the origin serves them — song_count is null for a gig nobody recorded one for, which is not the same as a gig with no songs. Carries `total` and a `next_cursor` (or legacy offset `page`). For one gig in full, including the setlist and the venue's own record, use get_gig_details; for aggregates use get_gig_stats.",
+    getGigsSchema.shape,
+    async (input) => {
+      const result = await getGigs(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_gig_details',
+    "Get one gig's full record, resolved by concert_url (exact) or a partial title (the most recent match wins). Returns everything get_gigs returns plus: the complete setlists array (per artist, each entry with position, setNumber, isEncore, songTitle, isCover, coverOfArtist and note — encores and covers are the two things a setlist is read for), the venue's own catalogue record when it has been fetched (aka names, coordinates, capacity, timezone, wikidata_qid, is_placeholder — a placeholder venue means the venue was genuinely not announced, not that data is missing), the category-specific `details`, source_map (per-field provenance: 'samklang-ap' or 'samklang-jsonld' — the ActivityPub representation is the more complete of the two and wins wherever it spoke), and enrichment status (fetched_at, enriched_at, fetch_error, fetch_attempts). Returns an `error` field rather than throwing when nothing matches. The gig sibling of get_catalogue_details.",
+    getGigDetailsSchema.shape,
+    async (input) => {
+      const result = await getGigDetails(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_gig_stats',
+    "Aggregate the concert log: how many gigs, how many distinct artists, venues, cities and countries, the first and last gig, how many carry a setlist or a write-up, and how many songs are on record. Plus breakdowns — by_status (RSVP), by_year (gigs per calendar year, by the night of the gig), top_artists, top_venues, top_cities and top_songs (the songs heard most often across recorded setlists). Bound it with from/to or the year sugar, narrow to one RSVP state with status, and set `top` for how many entries each breakdown returns (default 10). CAVEAT on top_songs and songs_played: they count only what a setlist records, so they are \"songs I have a record of\", never \"songs I heard\" — a gig nobody wrote a setlist for contributes nothing. Artist and venue totals are keyed on NAME, so two artists sharing a name count once. The gig sibling of get_reading_stats.",
+    getGigStatsSchema.shape,
+    async (input) => {
+      const result = await getGigStats(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

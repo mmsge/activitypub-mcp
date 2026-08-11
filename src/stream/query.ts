@@ -2,7 +2,7 @@ import { sql, and, eq, inArray, isNull, asc, gte, lt } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import {
   objects, actors, bookwyrmObjects, bookMetadata, neodbMarks,
-  catalogMetadata, scrobbles, trainTrips, gardenNotes,
+  catalogMetadata, gigAttendances, gigCatalog, scrobbles, trainTrips, gardenNotes,
 } from '../db/schema.js'
 import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
@@ -22,7 +22,7 @@ import { journeySlug } from './journeys.js'
 import { weatherSummary } from '../lib/weather-code.js'
 import type {
   Attachment, Candidate, Entry, StreamPage, UndatedGardenNote,
-  PostEntry, BookEntry, MarkEntry, ScrobbleDayEntry, TripEntry, GardenEntry, PostTrip,
+  PostEntry, BookEntry, MarkEntry, GigEntry, ScrobbleDayEntry, TripEntry, GardenEntry, PostTrip,
 } from './entries.js'
 
 /**
@@ -472,6 +472,86 @@ async function hydrateMarks(cands: Candidate[]): Promise<Map<string, Entry>> {
   return out
 }
 
+async function hydrateGigs(cands: Candidate[]): Promise<Map<string, Entry>> {
+  const out = new Map<string, Entry>()
+  if (cands.length === 0) return out
+  const ids = cands.map((c) => refParts(c.refId).id)
+  const db = getDb()
+
+  const rows = await db
+    .select({
+      id: gigAttendances.id,
+      concertUrl: gigAttendances.concertUrl,
+      status: gigAttendances.status,
+      review: gigAttendances.review,
+      photos: gigAttendances.photos,
+      noteUrl: gigAttendances.noteUrl,
+      noteApId: gigAttendances.noteApId,
+      createdAt: gigAttendances.createdAt,
+      title: gigCatalog.title,
+      artistNames: gigCatalog.artistNames,
+      venueName: gigCatalog.venueName,
+      venueCity: gigCatalog.venueCity,
+      venueCountry: gigCatalog.venueCountry,
+      tourName: gigCatalog.tourName,
+      festivalName: gigCatalog.festivalName,
+      setlists: gigCatalog.setlists,
+      songCount: gigCatalog.songCount,
+    })
+    .from(gigAttendances)
+    .leftJoin(gigCatalog, eq(gigCatalog.concertUrl, gigAttendances.concertUrl))
+    .where(inArray(gigAttendances.id, ids))
+
+  for (const c of cands) {
+    const { id } = refParts(c.refId)
+    const row = rows.find((r) => r.id === id)
+    if (!row) continue
+
+    // The opening songs only. A full setlist is a list to go and read, not something to
+    // put in a timeline card.
+    const setlistPreview: string[] = []
+    for (const list of Array.isArray(row.setlists) ? (row.setlists as Array<Record<string, unknown>>) : []) {
+      for (const entry of Array.isArray(list.entries) ? (list.entries as Array<Record<string, unknown>>) : []) {
+        const song = typeof entry.songTitle === 'string' ? entry.songTitle : null
+        if (song) setlistPreview.push(song)
+        if (setlistPreview.length >= 5) break
+      }
+      if (setlistPreview.length >= 5) break
+    }
+
+    const photos = (Array.isArray(row.photos) ? (row.photos as Array<Record<string, unknown>>) : [])
+      .flatMap((p) => {
+        const url = typeof p.url === 'string' ? p.url : null
+        if (!url) return []
+        return [{ url, altText: typeof p.altText === 'string' ? p.altText : null }]
+      })
+
+    const entry: GigEntry = {
+      refId: c.refId,
+      eventAt: c.eventAt,
+      archivedAt: row.createdAt,
+      source: 'samklang',
+      originUrl: row.noteUrl ?? row.noteApId,
+      kind: 'gig',
+      title: row.title,
+      artists: Array.isArray(row.artistNames) ? (row.artistNames as string[]) : [],
+      venue: row.venueName,
+      city: row.venueCity,
+      country: row.venueCountry,
+      tourName: row.tourName,
+      festivalName: row.festivalName,
+      status: row.status,
+      review: row.review,
+      photos,
+      songCount: row.songCount,
+      setlistPreview,
+      concertUrl: row.concertUrl,
+    }
+    out.set(c.refId, entry)
+  }
+  return out
+}
+
 async function hydrateScrobbleDays(cands: Candidate[]): Promise<Map<string, Entry>> {
   const out = new Map<string, Entry>()
   if (cands.length === 0) return out
@@ -603,6 +683,7 @@ const HYDRATORS: Record<string, (c: Candidate[]) => Promise<Map<string, Entry>>>
   post: hydratePosts,
   book: hydrateBooks,
   mark: hydrateMarks,
+  gig: hydrateGigs,
   scrobbleday: hydrateScrobbleDays,
   trip: hydrateTrips,
   garden: hydrateGarden,

@@ -13,20 +13,28 @@ import {
   setHidden,
   setCatalogHiddenByUrl,
   bookwyrmActorHandles,
+  queryGigs,
+  gigCities,
+  failedGigs,
+  gigById,
+  setGigHidden,
   type BookFilters,
   type WatchedFilters,
   type OtherFilters,
+  type GigFilters,
   type ScrobbleFilters,
 } from './media-query.js'
-import { BooksTab, WatchedTab, OtherTab, ScrobblesTab } from './views/media.js'
+import { BooksTab, WatchedTab, OtherTab, GigsTab, ScrobblesTab } from './views/media.js'
 import { enrichCatalogueItem, syncNeodbMetadata } from '../jobs/sync-neodb-metadata.js'
+import { enrichGig, syncGigMetadata } from '../jobs/sync-gig-metadata.js'
+import { backfillGigs } from '../jobs/backfill-gigs.js'
 import { enrichBookEdition, syncBookMetadata } from '../jobs/sync-book-metadata.js'
 import { syncReadingHistory } from '../jobs/sync-reading-history.js'
 import { syncScrobbles } from '../jobs/sync-scrobbles.js'
 
 const app = new Hono()
 
-const TABS = ['books', 'watched', 'other', 'scrobbles'] as const
+const TABS = ['books', 'watched', 'other', 'gigs', 'scrobbles'] as const
 type Tab = (typeof TABS)[number]
 
 function tabOf(c: Context): Tab {
@@ -117,6 +125,26 @@ app.get('/', async (c) => {
     )
   }
 
+  if (tab === 'gigs') {
+    const filters: GigFilters = {
+      q: q('q'),
+      city: q('city'),
+      health: q('health'),
+      hidden: q('hidden'),
+      sort: q('sort') === 'enriched' ? 'enriched' : 'gig_date',
+    }
+    const [data, cities] = await Promise.all([queryGigs(filters, page), gigCities()])
+    return c.html(
+      <GigsTab
+        data={data}
+        cities={cities}
+        filters={c.req.query() as Record<string, string | undefined>}
+        notice={notice}
+        returnTo={returnTo}
+      />
+    )
+  }
+
   if (tab === 'scrobbles') {
     const filters: ScrobbleFilters = {
       artist: q('artist'),
@@ -182,6 +210,13 @@ app.post('/reenrich', async (c) => {
       return redirectWith(c, returnTo, ok ? 'Book re-enriched' : 'Re-enrich returned no metadata')
     }
 
+    if (kind === 'gig') {
+      const row = await gigById(id)
+      if (!row) return redirectWith(c, returnTo, 'Gig not found')
+      const meta = await enrichGig(row.concertUrl)
+      return redirectWith(c, returnTo, meta ? 'Gig re-enriched' : 'Re-enrich failed — see server logs')
+    }
+
     // The Watched grid's row id is a mark id, not a catalogue id, so it passes the
     // catalogue URL straight through.
     const item = kind === 'catalogUrl'
@@ -216,9 +251,11 @@ async function handleHide(c: Context, hidden: boolean) {
   // hiding is an editorial act on the catalogue entry, not on one viewing of it.
   const ok = kind === 'catalogUrl'
     ? await setCatalogHiddenByUrl(id, hidden)
-    : kind === 'book' || kind === 'catalog'
-      ? await setHidden(kind, id, hidden)
-      : false
+    : kind === 'gig'
+      ? await setGigHidden(id, hidden)
+      : kind === 'book' || kind === 'catalog'
+        ? await setHidden(kind, id, hidden)
+        : false
 
   if (!ok) return redirectWith(c, returnTo, kind ? 'Row not found' : 'Unknown row kind')
   return redirectWith(c, returnTo, `${verb} — ${hidden ? 'no longer' : 'again'} served by the API`)
@@ -244,6 +281,25 @@ app.post('/retry-failed', async (c) => {
 
   const capped = items.length === RETRY_MAX ? ` (capped at ${RETRY_MAX} per press)` : ''
   return redirectWith(c, returnTo, `Retried ${items.length}, ${ok} enriched${capped}`)
+})
+
+app.post('/retry-failed-gigs', async (c) => {
+  const body = await c.req.parseBody()
+  const returnTo = safeReturn(body.return)
+
+  const gigs = await failedGigs(RETRY_MAX)
+  let ok = 0
+  for (const gig of gigs) {
+    try {
+      if (await enrichGig(gig.concertUrl)) ok++
+    } catch (e) {
+      logger.warn({ err: e, concertUrl: gig.concertUrl }, 'Retry of failed gig enrichment errored')
+    }
+    await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
+  }
+
+  const capped = gigs.length === RETRY_MAX ? ` (capped at ${RETRY_MAX} per press)` : ''
+  return redirectWith(c, returnTo, `Retried ${gigs.length}, ${ok} enriched${capped}`)
 })
 
 // --- POST: global syncs ------------------------------------------------------
@@ -277,6 +333,9 @@ const SYNC_JOBS: Record<string, { label: string; run: () => Promise<void> }> = {
   // Chained in the same order the scheduler uses: the history has to land before
   // enrichment collects Edition URLs from it, or the pass finds nothing new.
   reading: { label: 'Reading history', run: async () => { await syncReadingHistory(); await syncBookMetadata() } },
+  // The backfill first, so a gig whose attendance is stored but never parsed gets its
+  // catalogue row before enrichment goes looking for what to fetch.
+  gigs: { label: 'Gigs', run: async () => { await backfillGigs({ force: true }); await syncGigMetadata() } },
   lastfm: { label: 'Last.fm scrobbles', run: () => syncScrobbles() },
 }
 

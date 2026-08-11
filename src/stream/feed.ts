@@ -62,6 +62,14 @@ export function entryTitle(entry: Entry): string {
     case 'play': return `Spelte ${entry.title ?? 'noko'}`
     case 'read_neodb': return `Las ${entry.title ?? 'noko'}`
     case 'mark': return entry.title ?? 'Merka noko'
+    // The gig, not the paperwork: the artists and where, which is what a subscriber
+    // scanning a feed reader's title column actually wants to read.
+    case 'gig': {
+      const who = entry.artists.length > 0 ? entry.artists.join(', ') : entry.title
+      const where = [entry.venue, entry.city].filter(Boolean).join(', ')
+      if (!who) return 'Ein konsert'
+      return where ? `${who}, ${where}` : who
+    }
     case 'scrobble_day': return `${entry.playCount} spor den ${entry.day}`
     case 'trip': return `${entry.fromStation} → ${entry.toStation}`
     case 'garden': return entry.title
@@ -103,6 +111,8 @@ function entryContent(entry: Entry): string {
       return entry.excerpt ? `<p>${esc(entry.excerpt)}</p>` : ''
     case 'screen': case 'listen': case 'play': case 'read_neodb': case 'mark':
       return entry.comment ? `<p>${esc(entry.comment)}</p>` : ''
+    case 'gig':
+      return entry.review ? `<p>${esc(entry.review)}</p>` : ''
     case 'scrobble_day':
       return `<p>${esc(entry.topArtists.map((a) => `${a.artist} (${a.plays})`).join(', '))}</p>`
     default:
