@@ -105,6 +105,18 @@ Here is what each variable means:
 | `LASTFM_SYNC_INTERVAL_SECONDS` | No | How often to poll Last.fm for new scrobbles, in seconds. Default `60`, minimum `15`. |
 | `LINKEDIN_DMA_TOKEN` | No | Access token for LinkedIn's Member Data Portability (Member) API ([how to mint one](#linkedin-posts-and-performance)). Enables the LinkedIn post poller; blank disables it. The `.xlsx` metrics import works without it. |
 | `LINKEDIN_SYNC_INTERVAL_HOURS` | No | How often to re-crawl the LinkedIn snapshot, in hours. Default `168` (weekly), minimum `1`. |
+| `BREAKOUT_ENABLED` | No | Push an ntfy alert when a post beats your own baseline. **Off by default** — deploy, check `/admin/breakouts`, then arm. See [When a post does well](#when-a-post-does-well). |
+| `NTFY_TOPIC_BREAKOUT` | No | ntfy topic for those alerts. Default `tut-treff` — its own topic so it can be muted separately from the scrobble race. |
+| `BREAKOUT_WEIGHT_FAVOURITES` / `_REBLOGS` / `_REPLIES` | No | Score weights. Default `1` / `3` / `2`. Changing one re-scores the whole archive (handled as a silent re-seed). |
+| `BREAKOUT_BASELINE_DAYS` | No | Rolling window the p90/p99 bar is computed over. Default `90`, minimum `7`. The record rung is not windowed. |
+| `BREAKOUT_CANDIDATE_DAYS` | No | How far back the hourly pass still considers a post. Default `30`. |
+| `BREAKOUT_MIN_POSTS` | No | Refuse to arm an account with fewer scored posts in the window. Default `20`. |
+| `BREAKOUT_MIN_SCORE` | No | Absolute floor every rung must clear, whatever the percentile says. Default `10`. |
+| `BREAKOUT_OBJECT_TYPES` | No | Which object types count. Default is the sampler's list minus `GeneratedNote`. |
+| `BREAKOUT_INCLUDE_REPLIES` | No | Include your replies in the bar and as candidates. Off by default. |
+| `BREAKOUT_ACTORS` | No | Accounts to watch. Blank ⇒ every accepted follow. |
+| `BREAKOUT_FAST_LANE_MINUTES` / `_HOURS` / `_MAX_POSTS` | No | The fast lane over young posts — the only part that spends remote API calls. Default `10` min / `24` h / `10` posts; `0` minutes disables it. |
+| `BREAKOUT_DIGEST_HOUR` | No | Europe/Oslo hour for the daily digest. Default `21`; `-1` disables. A quiet day sends nothing. |
 | `LOG_LEVEL` | No | `info` is fine for production. Use `debug` to see more. |
 
 Generate a session secret:
@@ -530,6 +542,7 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_scrobbles` | "What did I listen to yesterday? Show my Aphex Twin scrobbles." |
 | `get_scrobble_stats` | "Who are my top artists this month? How many tracks have I scrobbled?" |
 | `get_scrobble_race` | "How far behind Taylor Swift is Maisie Peters? When will she overtake?" |
+| `get_post_breakouts` | "Which of my posts are doing unusually well? Where does my engagement bar sit right now? Why haven't I had an alert?" |
 | `get_reading_events` | "Show my reading timeline. When did I start and finish each book? What have I quoted?" |
 | `get_reading_stats` | "What's the average length of the books I read in 2026? How many pages have I read this year? Which subjects do I read most?" |
 | `get_reading_pace` | "How fast do I read? Which books did I read in parallel? What have I reread?" |
@@ -698,6 +711,62 @@ longer masquerade as twenty seconds of silence. See decision record 0030.
 Artist names are matched **exactly** here, unlike the substring filters on `get_scrobbles`
 and `get_scrobble_stats`: a countdown that reaches zero must not have its finish line moved
 by a stray collaboration credit. See decision record 0015.
+
+### When a post does well
+
+The background sampler already snapshots favourites, boosts and replies for every followed
+account's recent posts. `BREAKOUT_ENABLED=1` puts a watcher on top of it: when one of your
+posts does better than **your own usual**, you get an ntfy push while it is still happening.
+
+The bar is a percentile of your own history, not a fixed number — 24 favourites is a quiet
+day on one account and a personal best on another, and your reach changes over time. A
+post's score is `favourites*1 + reblogs*3 + replies*2` (a boost reaches an audience that
+was not already there; a reply costs effort; a favourite is one tap), and there are three
+rungs, each firing **once** and never re-arming:
+
+| Rung | Fires when the post passes | Push |
+|---|---|---|
+| p90 | the 90th percentile of that account's own recent posts | `Dette innlegget går godt` |
+| p99 | its 99th percentile | `Topp 1 % — for deg` |
+| record | every other post that account has ever made | `Ny personleg rekord` |
+
+Plus one low-priority digest in the evening (`BREAKOUT_DIGEST_HOUR`, Europe/Oslo) listing
+what crossed a rung and what came in across everything else. **A day with nothing to report
+sends no push at all** — a nightly "nothing happened" would just train you to mute the topic.
+
+Four things worth knowing before you arm it:
+
+- **It is off by default, and the first run is silent.** Deploy, open `/admin/breakouts`,
+  and look at where each account's bar actually sits before setting `BREAKOUT_ENABLED=1`.
+  The first pass after you do records where every post already stands and announces
+  nothing, so switching it on never replays your history into your phone.
+- **The score is a high-water mark.** Engagement counts go down — un-favourites and undone
+  boosts are real — so every score is the post's *peak* across its whole snapshot history.
+  A post that reached 60 and settled at 40 keeps its rung, and cannot re-fire it on the way
+  back up. It also means the record other posts are measured against can never be quietly
+  lowered by someone withdrawing a like.
+- **Two guards stop a quiet fortnight lying to you.** `BREAKOUT_MIN_SCORE` is an absolute
+  floor every rung must clear (a p90 of 2 is arithmetic, not a compliment), and
+  `BREAKOUT_MIN_POSTS` refuses to arm an account at all below that many sampled posts —
+  a p99 over eight posts is "best of eight". An account below the threshold shows
+  `established: false` with a reason rather than just going quiet.
+- **Only the fast lane costs anything.** The hourly pass is chained to the sampler and
+  spends zero API calls. `BREAKOUT_FAST_LANE_MINUTES` re-reads only posts from the last
+  `BREAKOUT_FAST_LANE_HOURS`, capped at `BREAKOUT_FAST_LANE_MAX_POSTS` per account per
+  tick, and costs nothing on a day you have not posted. To spend less, cut `MAX_POSTS`
+  rather than lengthening the interval — the value is entirely in a post's first hours.
+
+`get_post_breakouts` (and `/api/v1/post-breakouts`) reports all of it, computed **live from
+the archive** rather than from the watcher's state — so it answers correctly even with
+notifications unconfigured. Its `armed` list is the debugging surface: rows sitting there
+with nothing arriving on your phone means the push is failing, not that nothing qualifies.
+`/admin/breakouts` is the same data as a page.
+
+Note the horizon: the sampler tracks the most recent `ENGAGEMENT_SAMPLE_RECENT_POSTS`
+(default 20) posts per account, so a post that takes off after twenty newer ones have been
+published is no longer sampled and can no longer break out.
+
+See decision record 0036.
 
 ### Watch dates
 
@@ -912,6 +981,7 @@ All paths accept `GET`, `QUERY`, and `POST`.
 | `/scrobbles` | `get_scrobbles` | `artist`, `album`, `track`, `from`, `to`, `since`, `sort_order`, `limit`, `page`, `cursor` |
 | `/scrobble-stats` | `get_scrobble_stats` | `artist`, `album`, `track`, `from`, `to`, `since`, `group_by`, `limit` |
 | `/scrobble-race` | `get_scrobble_race` | `leader`, `challenger`, `pace_days` |
+| `/post-breakouts` | `get_post_breakouts` | `actor_handle`, `days`, `limit` |
 | `/reading-stats` | `get_reading_stats` | `actor_handle`, `status`, `year`, `from`, `to`, `format`, `author`, `rating`, `group_by`, `limit` |
 | `/reading-pace` | `get_reading_pace` | `actor_handle`, `year`, `from`, `to`, `sort`, `limit` |
 | `/books` | `get_books` | `title`, `format`, `language`, `series`, `subject`, `sort_order`, `limit`, `page`, `cursor` |

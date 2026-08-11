@@ -38,6 +38,7 @@ import {
   getHashtagTrendsSchema, getHashtagTrends,
 } from '../mcp/tools/hashtag-stats.js'
 import { getScrobbleRaceSchema, getScrobbleRace } from '../mcp/tools/scrobble-race.js'
+import { getPostBreakoutsSchema, getPostBreakouts } from '../mcp/tools/post-breakouts.js'
 import {
   getEngagementSchema, getEngagement,
   getEngagementTrendsSchema, getEngagementTrends,
@@ -204,6 +205,18 @@ export const endpoints: RestEndpoint[] = [
     schema: getScrobbleRaceSchema,
     handler: getScrobbleRace,
     numbers: ['pace_days'],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/post-breakouts',
+    name: 'get_post_breakouts',
+    description: "The state of the post-breakout notifier: for each watched account, where its own engagement bar sits (median / p90 / p99 over a rolling window, plus the all-time record), the thresholds a post must reach, which posts are armed to fire right now, and which have already been announced. A post's score is favourites*1 + reblogs*3 + replies*2 (configurable) and is always its PEAK across the whole snapshot history, never the latest reading. Computed live from the archive rather than from the notifier's state, so it answers correctly even when notifications are unconfigured. NOTE: this endpoint is public-only, so the percentiles and lists here are computed over public posts alone and can differ from the MCP tool's, which sees the whole archive.",
+    schema: getPostBreakoutsSchema,
+    // Carries post text and URLs, so it is bound to the public-only scope like every
+    // other REST endpoint that serves post rows. See ADR 0026.
+    handler: publicOnly(getPostBreakouts),
+    numbers: ['days', 'limit'],
     booleans: [],
     arrays: [],
   },

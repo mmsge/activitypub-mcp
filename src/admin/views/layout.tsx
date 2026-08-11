@@ -20,6 +20,7 @@ export const Layout: FC<PropsWithChildren<{ title?: string }>> = ({ title, child
             <a href="/admin/objects">Posts</a>
             <a href="/admin/media">Media</a>
             <a href="/admin/visibility">Visibility</a>
+            <a href="/admin/breakouts">Breakouts</a>
             <a href="/admin/follows">Follows</a>
             <a href="/admin/logs">Logs</a>
             <a href="/admin/tools">Tools</a>

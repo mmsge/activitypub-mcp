@@ -1,10 +1,12 @@
 import { config, getRaceMilestones, getScrobbleRacers } from '../config.js'
 import { logger } from '../lib/logger.js'
-import { publishNtfy } from '../lib/ntfy.js'
+import { publishNtfy, type Notifier } from '../lib/ntfy.js'
 import { decideRaceAlert } from '../lib/scrobble-race.js'
 import { loadRaceSnapshot, loadRaceState, saveRaceState } from '../lib/race-store.js'
 
-export type Notifier = typeof publishNtfy
+// Moved to src/lib/ntfy.ts, beside the publisher it describes, now that the breakout
+// notifier needs it too. Re-exported so existing importers keep working.
+export type { Notifier } from '../lib/ntfy.js'
 
 /**
  * Watch the configured head-to-head scrobble race and push an ntfy alert as the gap

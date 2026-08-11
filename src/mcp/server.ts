@@ -10,6 +10,7 @@ import { getReadingStatsSchema, getReadingStats } from './tools/reading-stats.js
 import { getReadingPaceSchema, getReadingPace } from './tools/reading-pace.js'
 import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleStats } from './tools/scrobbles.js'
 import { getScrobbleRaceSchema, getScrobbleRace } from './tools/scrobble-race.js'
+import { getPostBreakoutsSchema, getPostBreakouts } from './tools/post-breakouts.js'
 import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
 import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats } from './tools/train-trips.js'
 import { getTripPostsSchema, getTripPosts } from './tools/trip-posts.js'
@@ -162,6 +163,16 @@ export function createMcpServer(): McpServer {
     getScrobbleRaceSchema.shape,
     async (input) => {
       const result = await getScrobbleRace(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_post_breakouts',
+    "The state of the post-breakout notifier: for each watched account, where its own engagement bar sits (median / p90 / p99 over a rolling window, plus the all-time record), the thresholds a post must actually reach, which posts are armed to fire an alert right now, and which have already been announced. A post's score is favourites*1 + reblogs*3 + replies*2 (configurable) and is always its PEAK across the whole snapshot history, never the latest reading — engagement counts go down, and a withdrawn favourite must not lower the bar or re-arm a spent rung. Baselines, thresholds and `armed` are computed live from the archive rather than read from the notifier's state, so this answers correctly even when notifications are unconfigured: `armed` non-empty with nothing arriving on the phone means the push is failing, not that nothing qualifies. `baseline.established` is false for an account with too few sampled posts for a percentile to mean anything — nothing fires there at all.",
+    getPostBreakoutsSchema.shape,
+    async (input) => {
+      const result = await getPostBreakouts(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )
