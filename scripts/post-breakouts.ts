@@ -8,11 +8,17 @@
 // It works with the feature switched off — baselines and thresholds are computed live
 // from `objects` + `engagement_snapshots`, never from the notifier's state.
 //
-//   npm run post-breakouts
+// Run it INSIDE the container. DATABASE_URL is injected by Compose and is deliberately
+// not in .env, so on the host this exits with every required variable undefined:
 //
-// Pass --notify to actually run the ladder and send whatever it decides. That is the
-// end-to-end check of the ntfy path; it obeys BREAKOUT_ENABLED and NTFY_PASSWORD like
-// the scheduled job does, and it will latch the rungs it announces.
+//   docker compose exec app npm run post-breakouts
+//
+// Requires `npm run db:migrate` to have been run — `make deploy` does not run
+// migrations, and this reads post_breakout_state whether or not the feature is armed.
+//
+// Pass `-- --notify` to actually run the ladder and send whatever it decides. That is
+// the end-to-end check of the ntfy path; it obeys BREAKOUT_ENABLED and NTFY_PASSWORD
+// like the scheduled job does, and it will latch the rungs it announces.
 import { getPostBreakouts } from '../src/mcp/tools/post-breakouts.js'
 import { runPostBreakout } from '../src/jobs/post-breakout.js'
 import { logger } from '../src/lib/logger.js'
