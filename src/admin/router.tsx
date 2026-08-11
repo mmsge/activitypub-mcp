@@ -14,6 +14,8 @@ import { FollowsPage } from './views/follows.js'
 import { LogsPage, LogRows } from './views/logs.js'
 import { ObjectsPage } from './views/objects.js'
 import { VisibilityPage } from './views/visibility.js'
+import { BreakoutsPage } from './views/breakouts.js'
+import { getPostBreakouts } from '../mcp/tools/post-breakouts.js'
 import { config } from '../config.js'
 import { streamEnabled } from '../stream/host.js'
 import { parseSources } from '../stream/sources.js'
@@ -209,6 +211,20 @@ app.get('/objects', async (c) => {
  * believe the five platforms send. This is where that meets the real rows, while
  * the site is still switched off.
  */
+/**
+ * The breakout notifier's own state. Calls the MCP tool directly rather than over HTTP,
+ * so there is one implementation and one set of SQL behind the page and the API.
+ *
+ * No scope is passed: the admin IS the owner, so this sees the whole archive including
+ * followers-only posts — unlike the REST endpoint, which is bound to public-only for
+ * the reason ADR 0026 gives.
+ */
+app.get('/breakouts', async (c) => {
+  const report = await getPostBreakouts({ days: 30, limit: 50 })
+  if ('error' in report) return c.text(report.error as string, 404)
+  return c.html(<BreakoutsPage report={report} />)
+})
+
 app.get('/visibility', async (c) => {
   const db = getDb()
 

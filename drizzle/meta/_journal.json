@@ -204,6 +204,13 @@
       "when": 1786437424353,
       "tag": "0028_trip_line_legs",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1786523824353,
+      "tag": "0029_post_breakout_state",
+      "breakpoints": true
     }
   ]
 }

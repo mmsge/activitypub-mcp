@@ -29,6 +29,7 @@ import { repairNeodbIngest } from './jobs/repair-neodb-ingest.js'
 import { runDeliveryWorker } from './jobs/deliver.js'
 import { pruneActivityLog } from './jobs/prune-activity-log.js'
 import { publishStatusNote } from './jobs/publish-status-note.js'
+import { runPostBreakout } from './jobs/post-breakout.js'
 import { getDb } from './db/client.js'
 import { streamApp } from './stream/router.js'
 import { isStreamHost, streamEnabled } from './stream/host.js'
@@ -193,6 +194,19 @@ async function main() {
       await repairNeodbIngest()
     } catch (e) {
       logger.error(e, 'NeoDB ingest repair failed on startup')
+    }
+  })()
+
+  // Seed the breakout ladder on boot rather than an hour later. The first run after
+  // the feature is switched on announces NOTHING — it records where every post already
+  // is, so a year of history is never replayed into his phone — and doing that at
+  // startup means the very next post is judged against a ladder that is already primed.
+  // See decision record 0036.
+  void (async () => {
+    try {
+      await runPostBreakout()
+    } catch (e) {
+      logger.error(e, 'Breakout seeding failed on startup')
     }
   })()
 

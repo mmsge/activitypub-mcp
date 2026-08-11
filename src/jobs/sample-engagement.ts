@@ -18,7 +18,7 @@ import { logger } from '../lib/logger.js'
 // Status-like object types worth sampling for engagement. Excludes BookWyrm
 // bibliographic objects (Edition/Work/ShelfBook) and other non-post records, which
 // carry no favourite/reblog/reply counts.
-const SAMPLED_TYPES = [
+export const SAMPLED_TYPES = [
   'Note', 'Question', 'Article', 'Page', 'Image', 'Video',
   'Comment', 'GeneratedNote', 'Review',
 ]

@@ -96,3 +96,8 @@ export async function publishNtfy(
   logger.info({ topic: target.topic, title: msg.title }, 'ntfy push sent')
   return true
 }
+
+/** The publisher, as a job dependency. Every notifying job takes one of these with
+ *  `publishNtfy` as the default, so the alert decisions can be tested without a
+ *  broker. Lives here rather than beside any one job now that two features need it. */
+export type Notifier = typeof publishNtfy

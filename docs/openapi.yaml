@@ -1136,6 +1136,86 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/post-breakouts:
+    get:
+      tags: [REST API]
+      summary: Which posts are doing unusually well, relative to your own baseline
+      description: |
+        The state of the post-breakout notifier. For each watched account: where its
+        own engagement bar sits (median / p90 / p99 over a rolling window, plus the
+        all-time record), the thresholds a post must actually reach, which posts are
+        armed to fire an alert right now, and which have already been announced.
+
+        A post's score is `favourites*1 + reblogs*3 + replies*2` (configurable), and it
+        is always the post's **peak** across its whole snapshot history rather than the
+        latest reading — engagement counts go down, and a withdrawn favourite must not
+        lower the bar or re-arm a spent rung.
+
+        Baselines, thresholds and `armed` are computed live from the archive rather
+        than read from the notifier's state, so this answers correctly even when
+        notifications are unconfigured: `armed` non-empty with nothing arriving means
+        the push is failing, not that nothing qualifies. `baseline.established` is
+        false for an account with too few sampled posts for a percentile to mean
+        anything — nothing fires there at all.
+
+        NOTE: this endpoint serves public posts only, so its percentiles and lists are
+        computed over public posts alone and can differ from the `get_post_breakouts`
+        MCP tool, which sees the whole archive.
+      operationId: getPostBreakouts
+      parameters:
+        - {
+            name: actor_handle,
+            in: query,
+            description: Narrow to one account (@user@domain or an actor URL).,
+            schema: { type: string },
+          }
+        - {
+            name: days,
+            in: query,
+            description: How far back the recent list of announced breakouts reaches.,
+            schema: { type: integer, minimum: 1, maximum: 365, default: 30 },
+          }
+        - {
+            name: limit,
+            in: query,
+            description: Maximum rows in recent and in each account's armed list.,
+            schema: { type: integer, minimum: 1, maximum: 200, default: 20 },
+          }
+      responses:
+        "200":
+          description: Baselines, armed posts and announced breakouts.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PostBreakoutsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Which posts are doing unusually well (JSON body)
+      operationId: getPostBreakoutsPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                actor_handle: { type: string }
+                days: { type: integer, minimum: 1, maximum: 365, default: 30 }
+                limit: { type: integer, minimum: 1, maximum: 200, default: 20 }
+      responses:
+        "200":
+          description: Baselines, armed posts and announced breakouts.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PostBreakoutsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/now-playing:
     get:
       tags: [REST API]
@@ -3918,6 +3998,130 @@ components:
           properties:
             from: { type: [string, "null"] }
             to: { type: [string, "null"] }
+
+    BreakoutRung:
+      type: string
+      enum: [p90, p99, best]
+      description:
+        Which rung of the ladder. p90 = past the p90 of that account's own recent
+        posts, p99 = past its p99, best = a personal best.
+
+    PostBreakoutsResponse:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: BREAKOUT_ENABLED. False means nothing will ever push.
+        blocked_reason:
+          type: [string, "null"]
+          description:
+            Why the notifier is inert, or null when it is armed. Distinguishes "switched
+            off" from "no ntfy password", which look identical from the phone.
+        topic: { type: string }
+        weights:
+          type: object
+          properties:
+            favourites: { type: number }
+            reblogs: { type: number }
+            replies: { type: number }
+        floor:
+          type: integer
+          description:
+            BREAKOUT_MIN_SCORE — the absolute floor every rung is lifted to, so a quiet
+            fortnight cannot make a two-favourite post exceptional.
+        min_posts: { type: integer }
+        digest_hour:
+          type: integer
+          description: Europe/Oslo hour of the daily digest; -1 when disabled.
+        fast_lane_minutes: { type: integer }
+        actors:
+          type: array
+          items:
+            type: object
+            properties:
+              actor: { type: string }
+              actor_ap_id: { type: string }
+              baseline:
+                type: object
+                description: The raw numbers. Percentiles are over the window; best is all-time.
+                properties:
+                  established:
+                    type: boolean
+                    description: False means nothing fires for this account at all.
+                  reason: { type: [string, "null"] }
+                  posts_in_window: { type: integer }
+                  window_days: { type: integer }
+                  median: { type: number }
+                  p90: { type: number }
+                  p99: { type: number }
+                  best: { type: integer }
+                  best_status_ap_id: { type: [string, "null"] }
+                  second_best:
+                    type: integer
+                    description:
+                      Runner-up, used as the record threshold when the candidate itself
+                      holds the record — no post has to beat itself.
+              thresholds:
+                type: object
+                description:
+                  What a post must actually reach, after the floor is applied and the
+                  rungs are forced strictly apart. These are the numbers the pushes quote.
+                properties:
+                  p90: { type: integer }
+                  p99: { type: integer }
+                  best: { type: integer }
+              tracked_posts: { type: integer }
+              armed:
+                type: array
+                description:
+                  Posts clearing a rung further than anything already announced for
+                  them. On a working deployment this empties within the hour.
+                items:
+                  type: object
+                  properties:
+                    status_ap_id: { type: string }
+                    url: { type: [string, "null"] }
+                    published_at: { type: [string, "null"], format: date-time }
+                    visibility: { type: [string, "null"] }
+                    score:
+                      type: integer
+                      description: Latest reading; can be below peak_score.
+                    peak_score:
+                      type: integer
+                      description: High-water mark — what the rung is judged against.
+                    favourites: { type: integer }
+                    reblogs: { type: integer }
+                    replies: { type: integer }
+                    would_fire: { $ref: "#/components/schemas/BreakoutRung" }
+                    spent_rung:
+                      oneOf:
+                        - { $ref: "#/components/schemas/BreakoutRung" }
+                        - { type: "null" }
+                    text: { type: [string, "null"] }
+        recent:
+          type: array
+          description:
+            Breakouts actually announced, newest first. A rung pre-marked when the post
+            was first seen was never announced and does not appear here.
+          items:
+            type: object
+            properties:
+              status_ap_id: { type: string }
+              actor: { type: string }
+              url: { type: [string, "null"] }
+              rung: { $ref: "#/components/schemas/BreakoutRung" }
+              fired_at: { type: string, format: date-time }
+              score:
+                type: integer
+                description: The score at which the rung was announced.
+              peak_score: { type: integer }
+              current_score:
+                type: integer
+                description:
+                  What it is doing now. Below peak_score means engagement was withdrawn
+                  — real, and deliberately not hidden. The rung is not taken back.
+              visibility: { type: [string, "null"] }
+              text: { type: [string, "null"] }
 
     ScrobbleRaceResponse:
       type: object

@@ -45,6 +45,12 @@ const schema = z.object({
   NTFY_TOPIC: z.string().default('scrobble-race'),
   NTFY_USER: z.string().default('markus'),
   NTFY_PASSWORD: z.string().default(''),
+  // Second topic, for the post-breakout alerts below. Its own topic rather than
+  // sharing `scrobble-race` so either feature can be muted on the phone without
+  // silencing the other — they say completely different things, and only one of them
+  // ever ends. publishNtfy() takes an explicit target, so nothing has to mutate
+  // NTFY_TOPIC to reach it.
+  NTFY_TOPIC_BREAKOUT: z.string().default('tut-treff'),
   // Head-to-head scrobble race: watch the challenger close on the leader and push an
   // ntfy alert as the gap shrinks. Exact artist names as Last.fm scrobbles them
   // ("Taylor Swift", "Maisie Peters"). Either one empty disables both race jobs.
@@ -128,6 +134,71 @@ const schema = z.object({
   ENGAGEMENT_SAMPLE_INTERVAL_MINUTES: z.coerce.number().int().min(5).default(60),
   // How many of the owner's most recent posts the sampler tracks. 0 disables it.
   ENGAGEMENT_SAMPLE_RECENT_POSTS: z.coerce.number().int().min(0).max(50).default(20),
+  // ── Breakout alerts: "this post is doing better than your usual" (record 0036) ──
+  // Master switch, off by default. The code can therefore be deployed and inspected
+  // at /admin/breakouts days before anything is allowed to push — the same
+  // deploy-then-arm property STREAM_DOMAIN gives the public stream.
+  BREAKOUT_ENABLED: z.string().default('')
+    .transform(v => ['1', 'true', 'yes', 'on'].includes(v.trim().toLowerCase())),
+  // A post's score is favourites*w1 + reblogs*w2 + replies*w3. A boost weighs most
+  // because it puts the post in front of an audience that was not already there; a
+  // reply costs real effort; a favourite is one tap.
+  //
+  // These are part of the persisted state (`weights_key`): changing one re-scores the
+  // whole archive at once, which without a guard would look like fifty posts breaking
+  // out in the same minute. A changed weight re-seeds silently instead.
+  BREAKOUT_WEIGHT_FAVOURITES: z.coerce.number().min(0).default(1),
+  BREAKOUT_WEIGHT_REBLOGS: z.coerce.number().min(0).default(3),
+  BREAKOUT_WEIGHT_REPLIES: z.coerce.number().min(0).default(2),
+  // The rolling window the p90/p99 bar is computed over. Long enough to survive a
+  // quiet fortnight, short enough that the bar follows his reach as it changes. The
+  // personal-best rung is deliberately NOT windowed — a record is a record.
+  BREAKOUT_BASELINE_DAYS: z.coerce.number().int().min(7).default(90),
+  // How far back the hourly pass still considers a post a candidate. A post can take
+  // off days after it was written (one boost by a big account), so this is much
+  // longer than the fast lane's window.
+  BREAKOUT_CANDIDATE_DAYS: z.coerce.number().int().min(1).default(30),
+  // Two independent guards against a quiet baseline, and both are needed.
+  //
+  // BREAKOUT_MIN_POSTS: below this many scored posts in the window the actor is not
+  // armed at all — a p99 over eight posts is "best of eight" wearing a statistician's
+  // hat. BREAKOUT_MIN_SCORE: an absolute floor every rung must clear regardless of
+  // the percentile, because "did particularly well" also has a floor below which a
+  // push is just noise. A p90 of 2 is arithmetic, not a compliment.
+  BREAKOUT_MIN_POSTS: z.coerce.number().int().min(1).default(20),
+  BREAKOUT_MIN_SCORE: z.coerce.number().int().min(0).default(10),
+  // Object types that count as a post worth judging. This is SAMPLED_TYPES minus
+  // GeneratedNote: BookWyrm's auto-generated "Markus finished reading X" boilerplate
+  // gets almost no engagement, and leaving it in drags that actor's percentiles
+  // toward zero — the quiet-baseline hazard, arriving through the back door.
+  BREAKOUT_OBJECT_TYPES: z.string()
+    .default('Note,Question,Article,Page,Image,Video,Comment,Review'),
+  // Replies are excluded from both the baseline and the candidates by default, the
+  // same default get_actor_engagement_trends takes: a reply's reach is not comparable
+  // to an original's, and a stream of low-engagement replies would drag every
+  // percentile down until ordinary posts started looking exceptional.
+  BREAKOUT_INCLUDE_REPLIES: z.string().default('')
+    .transform(v => ['1', 'true', 'yes', 'on'].includes(v.trim().toLowerCase())),
+  // Which accounts to watch, as @user@domain or actor URLs. Blank means every
+  // accepted follow — which for this server is exactly Markus' own accounts. An
+  // escape hatch for excluding one account without unfollowing it.
+  BREAKOUT_ACTORS: z.string().default(''),
+  // The fast lane: a short-interval pass over posts published in the last
+  // BREAKOUT_FAST_LANE_HOURS, so a post taking off is caught while it is still
+  // happening rather than up to an hour later. This is the ONLY part of the feature
+  // that spends remote API calls — the hourly pass reads what the sampler just wrote.
+  // 0 disables the fast lane and leaves the hourly pass running.
+  //
+  // If it ever needs trimming, cut MAX_POSTS rather than lengthening the interval:
+  // the value of the fast lane is entirely in the first hours of a post's life.
+  BREAKOUT_FAST_LANE_MINUTES: z.coerce.number().int().min(0).default(10),
+  BREAKOUT_FAST_LANE_HOURS: z.coerce.number().int().min(1).default(24),
+  BREAKOUT_FAST_LANE_MAX_POSTS: z.coerce.number().int().min(1).max(50).default(10),
+  // Hour of day (Europe/Oslo) for the daily digest of everything that crossed a rung.
+  // -1 disables it. A day with nothing to report sends no push at all — a nightly
+  // "ingenting skjedde" would train him to mute the topic, which would cost him the
+  // alerts that matter.
+  BREAKOUT_DIGEST_HOUR: z.coerce.number().int().min(-1).max(23).default(21),
   // ── The public stream at meg.msge.no ────────────────────────────────────────
   // The app serves two sites on one port: bot.skvip.lol (the ActivityPub actor,
   // admin and MCP) and this one, a public, unauthenticated page republishing
@@ -264,6 +335,48 @@ export function getRaceMilestones(raw: string = config.RACE_MILESTONES): number[
     .map(s => Number(s.trim()))
     .filter(n => Number.isInteger(n) && n > 0)
   return [...new Set(values)].sort((a, b) => b - a)
+}
+
+export interface BreakoutWeights { favourites: number; reblogs: number; replies: number }
+
+/** The three engagement weights. All-zero would score every post 0 and make every
+ *  percentile 0, so it falls back to the defaults rather than arming a feature that
+ *  would call everything a breakout. */
+export function getBreakoutWeights(): BreakoutWeights {
+  const w = {
+    favourites: config.BREAKOUT_WEIGHT_FAVOURITES,
+    reblogs: config.BREAKOUT_WEIGHT_REBLOGS,
+    replies: config.BREAKOUT_WEIGHT_REPLIES,
+  }
+  if (w.favourites === 0 && w.reblogs === 0 && w.replies === 0) {
+    return { favourites: 1, reblogs: 3, replies: 2 }
+  }
+  return w
+}
+
+/** Object types the breakout baseline and candidates are drawn from. Blank entries are
+ *  dropped; an entirely empty list falls back to the default rather than failing boot
+ *  or — worse — silently matching nothing, which would look exactly like "he has not
+ *  posted lately". The getRaceMilestones() convention. */
+export function getBreakoutObjectTypes(raw: string = config.BREAKOUT_OBJECT_TYPES): string[] {
+  const types = [...new Set(raw.split(',').map(s => s.trim()).filter(Boolean))]
+  return types.length ? types : ['Note', 'Question', 'Article', 'Page', 'Image', 'Video', 'Comment', 'Review']
+}
+
+/** Accounts to watch. Empty means "every accepted follow" — resolved by the store,
+ *  since this getter has no database. */
+export function getBreakoutActors(): string[] {
+  return config.BREAKOUT_ACTORS.split(',').map(s => s.trim()).filter(Boolean)
+}
+
+/** Whether the breakout jobs may run at all.
+ *
+ *  NTFY_PASSWORD is part of the condition, not a separate check, for the reason
+ *  record 0015 gives: advancing a ladder past rungs nobody was ever told about is the
+ *  silent no-op hetzner-server ADR 0011 exists to forbid. The jobs log the refusal
+ *  loudly rather than idling quietly. */
+export function breakoutEnabled(): boolean {
+  return config.BREAKOUT_ENABLED && config.NTFY_PASSWORD !== ''
 }
 
 export function getBookwyrmActors(): string[] {

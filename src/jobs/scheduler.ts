@@ -8,6 +8,9 @@ import { syncNeodbMetadata } from './sync-neodb-metadata.js'
 import { syncReadingHistory } from './sync-reading-history.js'
 import { syncGardenContent } from './sync-garden-content.js'
 import { sampleEngagement } from './sample-engagement.js'
+import { runPostBreakout } from './post-breakout.js'
+import { runBreakoutFastLane } from './breakout-fast-lane.js'
+import { runBreakoutDigest } from './breakout-digest.js'
 import { pruneActivityLog } from './prune-activity-log.js'
 import { publishStatusNote } from './publish-status-note.js'
 import { linkTripPosts } from './link-trip-posts.js'
@@ -75,9 +78,27 @@ export function startScheduler(): void {
 
   // Engagement sampling for the owner's recent posts — skip_unchanged writes
   // keep this cheap, so an hourly default builds smooth trends without bloat.
+  //
+  // The breakout ladder and its digest are chained to the sampler rather than given
+  // their own timers, for the same reason the scrobble race is chained to the scrobble
+  // sync: they react to the rows the sampler just wrote, so an independent interval
+  // would only add a window in which they read stale counts. Both are DB-only — the
+  // fast lane below is the sole part of the feature that talks to remote instances.
   setInterval(async () => {
     try { await sampleEngagement() } catch (e) { logger.error(e, 'Engagement sampling error') }
+    try { await runPostBreakout() } catch (e) { logger.error(e, 'Breakout check error') }
+    try { await runBreakoutDigest() } catch (e) { logger.error(e, 'Breakout digest error') }
   }, config.ENGAGEMENT_SAMPLE_INTERVAL_MINUTES * 60_000)
+
+  // The breakout fast lane — re-reads engagement for posts published in the last
+  // BREAKOUT_FAST_LANE_HOURS so a post taking off is caught while it is still
+  // happening. Gated at registration AND inside the job: a disabled deployment pays
+  // nothing for the timer, and toggling the env off takes effect without a restart.
+  if (config.BREAKOUT_FAST_LANE_MINUTES > 0) {
+    setInterval(async () => {
+      try { await runBreakoutFastLane() } catch (e) { logger.error(e, 'Breakout fast lane error') }
+    }, config.BREAKOUT_FAST_LANE_MINUTES * 60_000)
+  }
 
   // Request-log retention — every 6 hours. Cheap (one indexed DELETE) and keeps the
   // "we store nothing about actors we don't follow" claim on the profile honest.

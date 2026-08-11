@@ -49,6 +49,19 @@ are *not mounted* on the public host, and a route added to the bot app cannot le
 onto it. `STREAM_DOMAIN` unset disables the stream entirely. Caddy points both
 domains at `172.18.0.1:3000`. See ADR 0018.
 
+## Breakout alerts
+
+When one of Markus' posts beats **his own baseline** (p90 → p99 → personal best of that
+account's own recent posts), an ntfy push goes to `n.msge.no` on its own topic
+(`NTFY_TOPIC_BREAKOUT`, default `tut-treff`), plus a low-priority digest each evening.
+`BREAKOUT_ENABLED` is **off by default** and the first run after arming is silent — it
+records where every post already stands rather than replaying the archive. Inspect at
+`/admin/breakouts` or via `get_post_breakouts`. See ADR 0036.
+
+The one rule not to "simplify" back: every score is the post's **peak** across its whole
+snapshot history, never the latest snapshot. Engagement counts go down, and reading the
+latest one would let an un-favourite lower the record every other post is measured against.
+
 ## Stack
 
 Hono + TypeScript, PostgreSQL. The `db` service (postgres) is internal-only and not exposed to the host. The `app` service exposes port 3000 to the host so central Caddy can reach it.

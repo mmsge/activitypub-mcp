@@ -511,6 +511,58 @@ export const engagementSnapshots = pgTable('engagement_snapshots', {
   index('engagement_snapshots_origin_status_idx').on(t.origin, t.statusId),
 ])
 
+// Per-post state for the breakout notifier: which posts have been announced as doing
+// unusually well, and how far up the ladder each one got. See decision record 0036.
+//
+// One row per post, not per (post, rung) — the rungs are a ladder, and `rung` only
+// ever ratchets upward, so a post that has already taken the record cannot announce
+// "past your p90" again however the numbers move afterwards.
+//
+// Four things here would look like dead weight to a later cleanup, and all four are
+// load-bearing:
+//
+//   `peakScore`, not `score`, is what the ladder is evaluated against. Engagement
+//   counts go DOWN — engagement_snapshots says so in its own comment — and an
+//   un-favourite must not be able to un-fire a rung, re-arm one, or lower the personal
+//   best every other post is measured against. `score` is still stored because the
+//   divergence between "doing now" and "peaked at" is the interesting part.
+//
+//   the three *At columns are nullable, and stay NULL when a rung was pre-marked at
+//   SEED time rather than announced. That distinction is the only reason switching the
+//   feature on does not replay a year of history into his phone: the first sighting of
+//   a post records where it already is and says nothing.
+//
+//   `weightsKey` fingerprints the BREAKOUT_WEIGHT_* values. Changing a weight
+//   re-scores the whole archive at once; comparing the key lets that be a silent
+//   re-seed instead of fifty posts appearing to break out in the same minute.
+//
+//   there is no foreign key to objects.ap_id, matching engagement_snapshots: a
+//   delete-and-re-ingest cycle must not cascade away a latch.
+export const postBreakoutState = pgTable('post_breakout_state', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  statusApId: text('status_ap_id').notNull().unique(),
+  actorApId: text('actor_ap_id').notNull(),
+  /** Latest observed score. Doubles as the dedupe key: an unchanged tick short-circuits. */
+  score: integer('score').notNull(),
+  /** High-water mark. Monotone up — this is what the rungs are judged against. */
+  peakScore: integer('peak_score').notNull(),
+  /** null | 'p90' | 'p99' | 'best'. One-way; only the furthest rung is ever announced. */
+  rung: text('rung'),
+  /** Score at which `rung` was reached, so the digest quotes what was announced. */
+  rungScore: integer('rung_score'),
+  // When each rung was ANNOUNCED. NULL means "never announced" — either not reached,
+  // or reached before this post was first seen (pre-marked at seed time).
+  p90At: timestamp('p90_at', { withTimezone: true }),
+  p99At: timestamp('p99_at', { withTimezone: true }),
+  bestAt: timestamp('best_at', { withTimezone: true }),
+  weightsKey: text('weights_key').notNull(),
+  seededAt: timestamp('seeded_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  // "what crossed a rung today" (the digest) and the per-account admin table.
+  index('post_breakout_actor_idx').on(t.actorApId, t.updatedAt),
+])
+
 export const adminSessions = pgTable('admin_sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
   tokenHash: text('token_hash').notNull().unique(),
