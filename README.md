@@ -770,8 +770,15 @@ Four things worth knowing before you arm it:
 - **Two guards stop a quiet fortnight lying to you.** `BREAKOUT_MIN_SCORE` is an absolute
   floor every rung must clear (a p90 of 2 is arithmetic, not a compliment), and
   `BREAKOUT_MIN_POSTS` refuses to arm an account at all below that many sampled posts —
-  a p99 over eight posts is "best of eight". An account below the threshold shows
-  `established: false` with a reason rather than just going quiet.
+  a p99 over eight posts is "best of eight".
+- **An unarmed account says which of three things is wrong**, because the fix for each is
+  somewhere different: `no_posts` (nothing is being sampled at all — an ingest problem,
+  not a breakout one), `no_engagement_data` (posts *are* sampled but every one scores
+  zero and always has, because that origin does not report favourite/boost/reply counts
+  back to us — it will never fire, whatever you set the thresholds to), and
+  `too_few_posts` (the ordinary case: real engagement, not enough history yet). In
+  practice only some fediverse software reports counts; expect at least one account to
+  sit permanently on `no_engagement_data`.
 - **Only the fast lane costs anything.** The hourly pass is chained to the sampler and
   spends zero API calls. `BREAKOUT_FAST_LANE_MINUTES` re-reads only posts from the last
   `BREAKOUT_FAST_LANE_HOURS`, capped at `BREAKOUT_FAST_LANE_MAX_POSTS` per account per

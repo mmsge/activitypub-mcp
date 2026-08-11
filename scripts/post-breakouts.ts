@@ -25,6 +25,14 @@ import { logger } from '../src/lib/logger.js'
 
 const notify = process.argv.includes('--notify')
 
+// Each of these points at a different place to go looking, which is the whole reason
+// they are not one label.
+const UNARMED: Record<string, string> = {
+  no_posts: 'nothing sampled (ingest/sampler, not this feature)',
+  no_engagement_data: 'origin reports no counts — will never fire',
+  too_few_posts: 'too little history yet',
+}
+
 try {
   if (notify) {
     logger.info('Running the breakout ladder for real — this may push and will latch rungs')
@@ -51,8 +59,9 @@ try {
     p99: `${Math.round(a.baseline.p99)} → ${a.thresholds.p99}`,
     record: `${a.baseline.best} → ${a.thresholds.best}`,
     // The single most useful column: an account that is not established fires nothing
-    // at all, and that is a completely different silence from "nothing qualifies".
-    established: a.baseline.established ? 'yes' : `NO (${a.baseline.reason})`,
+    // at all, and that is a completely different silence from "nothing qualifies" —
+    // as are the three reasons it can be unestablished for.
+    established: a.baseline.established ? 'yes' : `NO — ${UNARMED[a.baseline.reason ?? ''] ?? a.baseline.reason}`,
   })))
 
   const armed = report.actors.flatMap(a => a.armed.map(p => ({

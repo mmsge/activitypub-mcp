@@ -4048,7 +4048,18 @@ components:
                   established:
                     type: boolean
                     description: False means nothing fires for this account at all.
-                  reason: { type: [string, "null"] }
+                  reason:
+                    type: [string, "null"]
+                    enum: [no_posts, no_engagement_data, too_few_posts, null]
+                    description: >
+                      Why the account is not armed, when established is false. Three
+                      different problems with three different fixes: no_posts means
+                      nothing is being sampled at all (an ingest problem, not a
+                      breakout one); no_engagement_data means posts ARE sampled but
+                      every one scores zero and always has, because the origin does
+                      not report favourite/boost/reply counts back — that account
+                      will never fire, whatever the thresholds; too_few_posts is the
+                      ordinary case of real engagement without enough history yet.
                   posts_in_window: { type: integer }
                   window_days: { type: integer }
                   median: { type: number }

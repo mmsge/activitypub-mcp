@@ -31,13 +31,29 @@ export interface BreakoutBaseline {
   secondBest: number
 }
 
+/**
+ * Why an account is not armed. Three genuinely different situations that all look
+ * identical from the phone, and reporting them as one cost a round-trip of hand-written
+ * SQL the first time this shipped:
+ *
+ *  - `no_posts` — nothing scored in the window at all. The account is not being
+ *    ingested, or has not posted lately. Not a breakout problem; look at the sampler.
+ *  - `no_engagement_data` — posts ARE being sampled, but every one of them scores zero
+ *    and always has. The origin does not report favourite/boost/reply counts back to
+ *    us (fetchEngagement's 'unsupported' path). No threshold can help; the account
+ *    will simply never fire.
+ *  - `too_few_posts` — the ordinary case. Real engagement, just not enough history yet
+ *    for a percentile to mean anything.
+ */
+export type BreakoutUnarmedReason = 'no_posts' | 'no_engagement_data' | 'too_few_posts'
+
 export interface BreakoutThresholds {
   p90: number
   p99: number
   best: number
-  /** False when the population is too small to mean anything. Nothing fires. */
+  /** False when nothing about this account can meaningfully fire. Nothing is written. */
   established: boolean
-  reason?: 'too_few_posts'
+  reason?: BreakoutUnarmedReason
 }
 
 export interface BreakoutPost {
@@ -145,7 +161,15 @@ export function breakoutThresholds(
   baseline: BreakoutBaseline,
   opts: { minPosts: number; minScore: number; candidateApId?: string },
 ): BreakoutThresholds {
-  const established = baseline.n >= opts.minPosts
+  // Order matters: the most specific diagnosis wins. An account with 19 zero-scoring
+  // BookWyrm posts is not "nearly there" — it is never going to fire, and saying
+  // "too few posts" would send you looking for more posts rather than for the counts.
+  const reason: BreakoutUnarmedReason | null =
+    baseline.n === 0 ? 'no_posts'
+      : baseline.best === 0 ? 'no_engagement_data'
+        : baseline.n < opts.minPosts ? 'too_few_posts'
+          : null
+
   const floor = opts.minScore
 
   const p90 = Math.max(Math.ceil(baseline.p90), floor)
@@ -155,9 +179,9 @@ export function breakoutThresholds(
   const toBeat = holdsRecord ? baseline.secondBest : baseline.best
   const best = Math.max(toBeat + 1, p99 + 1, floor)
 
-  return established
-    ? { p90, p99, best, established: true }
-    : { p90, p99, best, established: false, reason: 'too_few_posts' }
+  return reason
+    ? { p90, p99, best, established: false, reason }
+    : { p90, p99, best, established: true }
 }
 
 /** The FURTHEST rung a score has reached, or null.
