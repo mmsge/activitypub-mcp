@@ -64,13 +64,25 @@ latest one would let an un-favourite lower the record every other post is measur
 
 ## Gigs
 
-Concert attendances federate from **Gigowl** (`samklang.msge.no`, software name `samklang`)
-as ordinary public Notes whose `tag` carries a `Link` named `Konsert` pointing at the
-concert. That link is the discriminator; the concert URL dereferences as an AS2 `Event`
+Concert attendances federate from **Gigowl** (`@markus@gigowl.social`, software name
+`samklang`) as ordinary public Notes whose `tag` carries a `Link` named `Konsert` pointing at
+the concert. That link is the discriminator; the concert URL dereferences as an AS2 `Event`
 and is the join key. `get_gigs` / `get_gig_details` / `get_gig_stats`, `/api/v1/gigs`,
 **Admin → Media → Gigs**, and its own lane on the public stream. See ADR 0037.
 
-Two rules not to "simplify" back:
+The origin used to live at `samklang.msge.no` with Nynorsk paths (`/konsert/`, `/oppmote/`,
+`/brukar/`) and moved, in one window, to `gigowl.social` with English ones (`/gig/`,
+`/attendance/`, `/user/`) — Gigowl's ADR 0029 and 0030, ours 0038. Two consequences worth
+knowing before touching anything gig-shaped:
+
+- **`canonicalGigUri` in `src/lib/gig-attendance.ts` rebases every Gigowl URI on the way in.**
+  A stored `raw` payload is kept exactly as delivered, so replaying one is what would
+  otherwise reopen the old keys. `npm run rebase-gig-origin` moved the stored rows once.
+- **`https://samklang.msge.no/ns#` is NOT the old domain — it is the JSON-LD vocabulary**,
+  frozen by the origin and shared by every instance of the software. Nothing may move it;
+  the RSVP status tags point at it.
+
+Two more rules not to "simplify" back:
 
 - **`gig_date` is the night of the gig; `published_at` is when it was logged.** The origin
   stamps a Note with the attendance's `updatedAt`, so a decade of concerts imported in one

@@ -12,6 +12,7 @@
     "backfill-neodb-marks": "tsx scripts/backfill-neodb-marks.ts",
     "repair-neodb-ingest": "tsx scripts/repair-neodb-ingest.ts",
     "backfill-gigs": "tsx scripts/backfill-gigs.ts",
+    "rebase-gig-origin": "tsx scripts/rebase-gig-origin.ts",
     "link-trip-posts": "tsx scripts/link-trip-posts.ts",
     "sync-weather": "tsx scripts/sync-weather.ts",
     "resolve-lines": "tsx scripts/resolve-trip-lines.ts",

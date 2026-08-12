@@ -343,7 +343,7 @@ export const neodbMarks = pgTable('neodb_marks', {
   index('neodb_marks_watched_at_idx').on(t.watchedAt),
 ])
 
-// ─── gigs (Gigowl / samklang.msge.no) ───────────────────────────────────────────────
+// ─── gigs (Gigowl / gigowl.social) ──────────────────────────────────────────────────
 //
 // The same two-part split the NeoDB tables use, for the same reason: `gig_attendances`
 // is the per-actor event store (one row per person per concert — who went, what they
@@ -365,11 +365,12 @@ export const gigAttendances = pgTable('gig_attendances', {
   // interested | going | attended, plus the verb verbatim so an unknown one is never lost.
   status: text('status'),
   statusRaw: text('status_raw'),
-  // Where `status` came from: 'tag' (the explicit Oppmøte Link tag), 'property'
+  // Where `status` came from: 'tag' (the explicit Oppmøte/Attendance Link tag), 'property'
   // (samklang:attendanceStatus, present only on a dereferenced Note) or 'template' (an
-  // exact prefix match on the generated Nynorsk opening line — the only source the
-  // attendances delivered before Gigowl's ADR 0026 have). Null when none of the three
-  // yielded anything, which is deliberately preferred over a guess.
+  // exact prefix match on the generated opening line, in either of the two languages the
+  // origin has generated it in — the only source the attendances delivered before Gigowl's
+  // ADR 0026 have). Null when none of the three yielded anything, which is deliberately
+  // preferred over a guess.
   statusSource: text('status_source'),
   // The write-up, verbatim: free text, never parsed, normalised or translated.
   review: text('review'),

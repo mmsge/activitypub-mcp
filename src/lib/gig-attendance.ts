@@ -1,13 +1,13 @@
 // Parsing a Gigowl (samklang) gig attendance out of a federated ActivityPub `Note`.
 //
-// Gigowl — `samklang.msge.no`, software name "samklang" — publishes one `Note` per
+// Gigowl — `gigowl.social`, software name "samklang" — publishes one `Note` per
 // attendance at a concert. It is deliberately an ordinary Note, because a `Join` or a
 // custom verb renders as nothing at all on Mastodon; the structure rides in tags that
 // Mastodon drops harmlessly. The hooks we work off:
 //
 //   tag: { type:'Link', href:<concert url>, name:'Konsert', mediaType:'application/activity+json' }
-//   tag: { type:'Link', href:'https://samklang.msge.no/ns#attended', name:'Oppmøte' }
-//   tag: { type:'Hashtag', name:'#konsert' | '#<ArtistName>' }
+//   tag: { type:'Link', href:'https://samklang.msge.no/ns#attended', name:'Attendance' }
+//   tag: { type:'Hashtag', name:'#gig' | '#<ArtistName>' }
 //   samklang:attendanceStatus: 'interested' | 'going' | 'attended'   (dereferenced Note only)
 //
 // The `Konsert` Link tag is the discriminator. Gigowl uses the same one on its own inbound
@@ -19,14 +19,14 @@
 // `src/federation/note.ts`: four blocks — opening line, the write-up, the concert link, the
 // hashtags — joined by a blank line and rendered one `<p>` each. That template is the
 // sibling repo's, not a stranger's, and the opening line is the ONLY record of whether the
-// gig was attended, planned or merely wanted for every Note delivered before the
-// `Oppmøte` tag existed (ADR 0026 over there).
+// gig was attended, planned or merely wanted for every Note delivered before the status
+// tag existed (ADR 0026 over there). It was named `Oppmøte` then and `Attendance` now.
 //
 // So the prose is read for exactly two things, both structural rather than semantic:
 //
 //   1. The RSVP status, and only as a last resort — an exact prefix match against the
-//      three generated openings, yielding null rather than a guess for anything else.
-//      The explicit tag and property both win over it when present.
+//      generated openings in both languages the origin has written them in, yielding null
+//      rather than a guess for anything else. The tag and property both win over it.
 //   2. Which blocks are NOT the write-up, so the write-up is what is left. Block 0 is the
 //      opening; the link block is identified by equality with the concert URL; the hashtag
 //      block by its `class="hashtag"` anchors. Nothing is matched on what it says.
@@ -42,6 +42,97 @@ type AnyObject = Record<string, unknown>
 
 /** Gigowl's frozen JSON-LD namespace. A vocabulary id, not an address — never derived. */
 export const SAMKLANG_NS = 'https://samklang.msge.no/ns#'
+
+// ── The origin changed address, so every identifier here has two forms ─────────────────
+//
+// Gigowl moved from `samklang.msge.no` to `gigowl.social` and, in the same window, moved
+// its whole URI space from Nynorsk to English (its ADR 0029 and 0030). Both halves show up
+// in the identifiers this store is keyed on:
+//
+//   https://samklang.msge.no/konsert/<ULID>  →  https://gigowl.social/gig/<ULID>
+//   https://samklang.msge.no/oppmote/<ULID>  →  https://gigowl.social/attendance/<ULID>
+//   https://samklang.msge.no/brukar/markus   →  https://gigowl.social/user/markus
+//
+// The old domain 301s, so nothing is unreachable — but a redirect does not rescue an
+// identifier. The two strings are one concert wearing two names, and a store keyed on the
+// first files every re-delivered attendance as a second gig beside the first.
+//
+// So Gigowl URIs are canonicalised to the new space on the way in. The rows already stored
+// were rewritten once by jobs/rebase-gig-origin.ts; this is what keeps a *replay* landing
+// on the same row rather than beside it — `objects.raw` is kept verbatim as delivered, and
+// the local-first backfill re-parses it.
+export const LEGACY_GIG_ORIGIN = 'https://samklang.msge.no'
+export const GIG_ORIGIN = 'https://gigowl.social'
+
+/**
+ * Nynorsk path segment → English, for the segments that can appear inside an identifier
+ * we persist. A trimmed copy of `LEGACY_SEGMENTS` in the origin's `src/web/legacy-paths.ts`
+ * — the ~50 interface routes there are paths nobody here ever stored.
+ *
+ * `artist` and `media` map to themselves: those names did not change, but a URL under them
+ * still has to change host, and listing them is what lets one table decide both halves.
+ *
+ * `ns` is deliberately ABSENT, and that absence is the safety property. A URL whose first
+ * segment is not in this table is returned untouched, so `SAMKLANG_NS` above — a vocabulary
+ * identifier shared by every instance of the software rather than an address on one of them
+ * — never moves, no matter how many times this runs.
+ */
+const LEGACY_PATH_SEGMENTS: Record<string, string> = {
+  konsert: 'gig',
+  stad: 'venue',
+  setliste: 'setlist',
+  oppmote: 'attendance',
+  brukar: 'user',
+  innboks: 'inbox',
+  utboks: 'outbox',
+  fylgjarar: 'followers',
+  fylgjer: 'following',
+  artist: 'artist',
+  media: 'media',
+}
+
+function segmentKey(segment: string): string {
+  try {
+    return decodeURIComponent(segment)
+  } catch {
+    // A malformed escape is not ours to fix; look the segment up as it arrived.
+    return segment
+  }
+}
+
+function mapSegment(segment: string): string {
+  const key = segmentKey(segment)
+  return Object.hasOwn(LEGACY_PATH_SEGMENTS, key) ? LEGACY_PATH_SEGMENTS[key]! : segment
+}
+
+/**
+ * A Gigowl URI in its current form. Anything else — a URL on another host, a URL already
+ * in the new space, the `/ns#` vocabulary — is returned exactly as given.
+ *
+ * Idempotent, because no English target is also a Nynorsk source (the origin asserts that
+ * in its own test suite): a rewritten URI has no legacy segments left to rewrite.
+ */
+export function canonicalGigUri(raw: string): string {
+  if (!raw.startsWith(`${LEGACY_GIG_ORIGIN}/`)) return raw
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return raw
+  }
+  const segments = url.pathname.split('/')
+  // segments[0] is the empty string before the leading slash; [1] is what decides whether
+  // this is an identifier at all. An unknown first segment moves nothing.
+  if (!Object.hasOwn(LEGACY_PATH_SEGMENTS, segmentKey(segments[1] ?? ''))) return raw
+  url.host = new URL(GIG_ORIGIN).host
+  url.pathname = segments.map(mapSegment).join('/')
+  return url.toString()
+}
+
+/** `canonicalGigUri` for a value that may not be a string. Null passes through. */
+function canonicalOrNull(raw: string | null): string | null {
+  return raw == null ? null : canonicalGigUri(raw)
+}
 
 /** The `name` on the Link tag that points at the concert. Gigowl emits the Nynorsk one. */
 const CONCERT_TAG_NAMES = new Set(['konsert', 'concert'])
@@ -62,13 +153,21 @@ export const GIG_STATUS_MAP: Record<string, string> = {
 /**
  * The generated opening line of each state, as an exact prefix.
  *
- * Longest first: "Eg var på " and "Eg skal på " cannot collide, but ordering by length
- * makes the match independent of insertion order if a fourth state is ever added.
+ * Six entries for three states because the origin's copy moved from Nynorsk to UK English
+ * (Gigowl's ADR 0032) at the same time as the domain. Already-delivered posts are immutable
+ * copies and stay Nynorsk, so both templates are live in the archive at once and neither
+ * set can be dropped.
+ *
+ * Longest first: none of these can collide, but ordering by length makes the match
+ * independent of insertion order if a fourth state is ever added.
  */
 const STATUS_PREFIXES: [string, string][] = [
   ['Eg har lyst til å sjå ', 'interested'],
+  ['I would like to see ', 'interested'],
+  ['I am going to ', 'going'],
   ['Eg skal på ', 'going'],
   ['Eg var på ', 'attended'],
+  ['I was at ', 'attended'],
 ]
 
 export function mapGigStatus(verb: unknown): { status: string | null; raw: string | null; known: boolean } {
@@ -82,11 +181,12 @@ export function mapGigStatus(verb: unknown): { status: string | null; raw: strin
 /**
  * Canonicalise a Gigowl catalogue URL so the Link tag href, the `samklang:concert`
  * property and the link in the generated prose all collapse to one key — the value
- * gig_catalog rows are keyed on.
+ * gig_catalog rows are keyed on. A URI still on the origin's old address is moved to its
+ * current one first, so an old payload and a new delivery key the same.
  */
 export function normalizeSamklangUrl(raw: unknown): string | null {
   if (typeof raw !== 'string' || !raw.trim()) return null
-  const s = raw.trim()
+  const s = canonicalGigUri(raw.trim())
   try {
     const u = new URL(s)
     u.hash = ''
@@ -192,6 +292,11 @@ export function splitNoteBlocks(
 ): { opening: string | null; review: string | null } {
   if (!content || !content.trim()) return { opening: null, review: null }
 
+  // Both sides of the link-block comparison below go through the same normaliser, so it
+  // holds whichever address the caller's concert URL and the prose happen to be on — a Note
+  // written before the origin moved links to the old one in prose we did not write.
+  const concert = normalizeSamklangUrl(concertUrl)
+
   const paragraphs = content.includes('</p>')
     ? content.split(/<\/p\s*>/i).filter((block) => block.trim() !== '')
     : [content]
@@ -204,7 +309,7 @@ export function splitNoteBlocks(
     // The hashtag block: Gigowl marks every tag anchor with class="hashtag".
     if (/class\s*=\s*["']?hashtag/i.test(block.html)) return false
     // The link block: the concert URL on its own line.
-    if (concertUrl && normalizeSamklangUrl(block.text) === concertUrl) return false
+    if (concert && normalizeSamklangUrl(block.text) === concert) return false
     return true
   })
 
@@ -244,7 +349,7 @@ function extractPhotos(obj: AnyObject): GigPhoto[] {
   for (const item of list) {
     if (!item || typeof item !== 'object') continue
     const a = item as AnyObject
-    const url = strOrNull(a.url) ?? strOrNull((a.url as AnyObject | undefined)?.href)
+    const url = canonicalOrNull(strOrNull(a.url) ?? strOrNull((a.url as AnyObject | undefined)?.href))
     if (!url) continue
     out.push({
       url,
@@ -316,14 +421,17 @@ export function parseGigAttendance(obj: unknown, actorApId: string): ParsedGigAt
     normalizeSamklangUrl(o['samklang:concert']) ?? normalizeSamklangUrl(concertTag.href)
   if (!concertUrl) return null
 
-  const noteApId = strOrNull(o.id)
-  const noteUrl = strOrNull(o.url) ?? noteApId
+  // The Note's own id, its permalink and the attending actor all live in the origin's URI
+  // space too, so they move with it — otherwise a replayed old payload would file a second
+  // row under the old actor, and a Delete naming the new Note id would tombstone nothing.
+  const noteApId = canonicalOrNull(strOrNull(o.id))
+  const noteUrl = canonicalOrNull(strOrNull(o.url)) ?? noteApId
   const { opening, review } = splitNoteBlocks(strOrNull(o.content), concertUrl)
   const { status, raw: statusRaw, known: statusKnown, source: statusSource } = resolveGigStatus(o, opening)
 
   return {
     concertUrl,
-    actorApId,
+    actorApId: canonicalGigUri(actorApId),
     status,
     statusRaw,
     statusKnown,

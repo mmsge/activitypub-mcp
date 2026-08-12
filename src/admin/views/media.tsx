@@ -359,10 +359,11 @@ export const OtherTab: FC<{
 // --- gigs --------------------------------------------------------------------
 
 /**
- * Where the RSVP state came from. 'template' means it was read off the generated Nynorsk
- * opening sentence rather than published as data by the origin, which is worth seeing at
- * a glance: those are the rows that would go wrong first if the origin reworded its
- * template, and the ones that turn into stated facts once the origin is redeployed.
+ * Where the RSVP state came from. 'template' means it was read off the generated opening
+ * sentence rather than published as data by the origin, which is worth seeing at a glance:
+ * those are the rows that would go wrong first if the origin reworded its template — as it
+ * did when the copy moved from Nynorsk to English — and the ones that turn into stated
+ * facts once the origin is redeployed.
  */
 const StatusBadge: FC<{ status: string | null; source: string | null }> = ({ status, source }) => {
   if (!status) return <span class="muted">unknown</span>

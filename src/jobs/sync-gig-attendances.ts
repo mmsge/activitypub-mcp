@@ -1,7 +1,7 @@
 import { getDb } from '../db/client.js'
 import { gigAttendances } from '../db/schema.js'
 import { and, eq, isNull, sql } from 'drizzle-orm'
-import type { ParsedGigAttendance } from '../lib/gig-attendance.js'
+import { canonicalGigUri, type ParsedGigAttendance } from '../lib/gig-attendance.js'
 import { queueGigEnrichment } from './sync-gig-metadata.js'
 import { logger } from '../lib/logger.js'
 
@@ -80,8 +80,11 @@ export async function upsertGigAttendance(attendance: ParsedGigAttendance): Prom
  * Soft, like the NeoDB mark tombstone: the history stays auditable and a recreate can
  * revive the same row. Returns how many rows were tombstoned.
  */
-export async function tombstoneGigAttendance(noteApId: string): Promise<number> {
-  if (!noteApId) return 0
+export async function tombstoneGigAttendance(rawNoteApId: string): Promise<number> {
+  if (!rawNoteApId) return 0
+  // Stored note ids are in the origin's current URI space, so a Delete naming the old one
+  // has to be moved onto it before it can match anything.
+  const noteApId = canonicalGigUri(rawNoteApId)
   const now = new Date()
   const rows = await getDb()
     .update(gigAttendances)

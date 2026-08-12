@@ -3,6 +3,7 @@ import { getDb } from '../../db/client.js'
 import { gigCatalog, gigVenues } from '../../db/schema.js'
 import { and, count, eq, getTableColumns, isNull, sql, type SQL } from 'drizzle-orm'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
+import { canonicalGigUri } from '../../lib/gig-attendance.js'
 
 // ---- shared helpers --------------------------------------------------------
 //
@@ -373,7 +374,11 @@ export async function getGigDetails(input: z.infer<typeof getGigDetailsSchema>) 
 
   const conditions: SQL[] = []
   if (!input.include_hidden) conditions.push(isNull(gigCatalog.hiddenAt))
-  if (input.concert_url) conditions.push(eq(gigCatalog.concertUrl, input.concert_url))
+  // Rows are keyed on the origin's current URI. A URL copied out of an older answer, or off
+  // a page saved before the origin changed address, names the same gig at the address it
+  // used to have — resolve it rather than reporting the gig as missing, which is what the
+  // origin's own 301 does for a browser.
+  if (input.concert_url) conditions.push(eq(gigCatalog.concertUrl, canonicalGigUri(input.concert_url)))
   else if (input.title) conditions.push(sql`${gigCatalog.title} ILIKE ${'%' + input.title + '%'}`)
 
   const rows = await db

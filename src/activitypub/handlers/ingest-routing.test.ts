@@ -77,19 +77,19 @@ describe('handleAnnounce', () => {
   })
 })
 
-const GIGOWL_ACTOR = 'https://samklang.msge.no/brukar/markus'
-const GIG_NOTE_ID = 'https://samklang.msge.no/oppmote/01KZRJ3RV4PVMV17KJ7P567V1C'
+const GIGOWL_ACTOR = 'https://gigowl.social/user/markus'
+const GIG_NOTE_ID = 'https://gigowl.social/attendance/01KZRJ3RV4PVMV17KJ7P567V1C'
 
 const GIG_NOTE = {
   id: GIG_NOTE_ID,
   type: 'Note',
   attributedTo: GIGOWL_ACTOR,
   published: '2026-08-11T14:02:37.795Z',
-  content: '<p>Eg var på Queen + Adam Lambert på Unity Arena i Fornebu, 2022-07-21.</p>',
+  content: '<p>I was at Queen + Adam Lambert at Unity Arena in Fornebu, 21 July 2022.</p>',
   tag: [
     {
       type: 'Link',
-      href: 'https://samklang.msge.no/konsert/01KZRJ3NKDAEF25EWQKCEAP8D2',
+      href: 'https://gigowl.social/gig/01KZRJ3NKDAEF25EWQKCEAP8D2',
       mediaType: 'application/activity+json',
       name: 'Konsert',
     },

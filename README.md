@@ -322,7 +322,7 @@ event-ordered stream. See ADR [0018](docs/decision-records/0018-publish-the-arch
 
 ```sh
 STREAM_DOMAIN=meg.msge.no
-STREAM_SOURCES=@markus@skvip.lol|mastodon,@mvrkws@bookwyrm.social|bookwyrm,@markus@pixelfed.babb.no|pixelfed,@markus@loops.video|loops,@markus@minreol.dk|neodb,@markus@rullen.no|rullen,@markus@samklang.msge.no|samklang
+STREAM_SOURCES=@markus@skvip.lol|mastodon,@mvrkws@bookwyrm.social|bookwyrm,@markus@pixelfed.babb.no|pixelfed,@markus@loops.video|loops,@markus@minreol.dk|neodb,@markus@rullen.no|rullen,@markus@gigowl.social|samklang
 STREAM_INCLUDE_UNLISTED=          # unset = unlisted posts stay withheld
 STREAM_SCROBBLE_CUTOFF_MONTHS=12  # daily music digests only this far back
 STREAM_CACHE_TTL_SECONDS=180
@@ -1092,6 +1092,22 @@ Database migrations run automatically on startup.
 **A mark shows up but `watched_at` is today, not the real date**
 - minreol does not federate a backdated mark on creation: the `Create` carries today's date and a follow-up `Update` (usually seconds later) carries the real one. Check the Activities page for the `Update`; if it never arrived, re-save the mark on NeoDB.
 - For marks ingested before the column existed, the date is recovered from the stored payload by **Admin → Import → Repair NeoDB Marks** (or `npm run repair-neodb-ingest`), which also runs once automatically on the first startup after deploying. It only ever fills a blank date, so it will not overwrite one that is already right.
+
+**Gigs are missing, or every concert appears twice**
+- Gigowl moved from `samklang.msge.no` to `gigowl.social` and renamed its paths at the same
+  time (`/konsert/` → `/gig/`, `/oppmote/` → `/attendance/`, `/brukar/` → `/user/`). The old
+  address 301s, but the gig store is *keyed* on those URLs and a key does not follow a
+  redirect — so an archive that has not been rebased forks in two. See decision record
+  [0038](docs/decision-records/0038-follow-gigowl-at-its-new-address.md).
+- Point `FOLLOW_ACTORS` and `STREAM_SOURCES` at `@markus@gigowl.social` (the `|samklang`
+  platform slug does not change — that is the NodeInfo software name, which did not move),
+  then rebase what is stored:
+  ```bash
+  docker compose exec app env DRY_RUN=1 npm run rebase-gig-origin  # count, change nothing
+  docker compose exec app npm run rebase-gig-origin
+  ```
+  It is idempotent, touches nothing but Gigowl's own identifiers, and drops the follow row
+  for the old address so the next startup sends a real `Follow` to the new account.
 
 **Container fails to start**
 ```bash

@@ -69,8 +69,8 @@ describe('getGigsSchema', () => {
 
 describe('getGigDetailsSchema / getGigStatsSchema', () => {
   it('takes either a URL or a title', () => {
-    expect(getGigDetailsSchema.parse({ concert_url: 'https://samklang.msge.no/konsert/K' }).concert_url)
-      .toBe('https://samklang.msge.no/konsert/K')
+    expect(getGigDetailsSchema.parse({ concert_url: 'https://gigowl.social/gig/K' }).concert_url)
+      .toBe('https://gigowl.social/gig/K')
     expect(getGigDetailsSchema.parse({ title: 'Motorpsycho' }).title).toBe('Motorpsycho')
     expect(getGigDetailsSchema.parse({}).include_hidden).toBe(false)
   })
