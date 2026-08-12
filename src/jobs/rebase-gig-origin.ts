@@ -112,10 +112,23 @@ async function rebaseRows<Row extends { id: string }>(
   return changed
 }
 
+/**
+ * All of it, or none of it.
+ *
+ * The first production run stopped halfway — a foreign key on `trip_posts` refused the
+ * `objects` update (see migration 0031) — leaving the gig tables rebased and the Notes they
+ * point at still at the old address, which is precisely the split this whole job exists to
+ * prevent: the stream's gigs lane joins the two, so the public page lost every gig. Nothing
+ * here is a long operation and the row counts are in the dozens, so there is no reason for
+ * it ever to be observable half-done.
+ */
 export async function rebaseGigOrigin(opts: { dryRun?: boolean } = {}): Promise<GigOriginRebaseResult> {
-  const db = getDb()
-  const dryRun = opts.dryRun ?? false
+  return getDb().transaction((tx) => rebaseInTransaction(tx, opts.dryRun ?? false))
+}
 
+type Tx = Parameters<Parameters<ReturnType<typeof getDb>['transaction']>[0]>[0]
+
+async function rebaseInTransaction(db: Tx, dryRun: boolean): Promise<GigOriginRebaseResult> {
   const attendanceRows = await db
     .select({
       id: gigAttendances.id,

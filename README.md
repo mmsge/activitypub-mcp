@@ -1103,11 +1103,15 @@ Database migrations run automatically on startup.
   platform slug does not change — that is the NodeInfo software name, which did not move),
   then rebase what is stored:
   ```bash
-  docker compose exec app env DRY_RUN=1 npm run rebase-gig-origin  # count, change nothing
+  docker compose exec app npm run db:migrate
+  docker compose exec app env DRY_RUN=1 npm run rebase-gig-origin
   docker compose exec app npm run rebase-gig-origin
   ```
-  It is idempotent, touches nothing but Gigowl's own identifiers, and drops the follow row
-  for the old address so the next startup sends a real `Follow` to the new account.
+  The migration is not optional: without it the `trip_posts` foreign key forbids renaming an
+  `objects` row and the rebase refuses to run. The rebase itself is one transaction, so a
+  failure leaves the archive exactly as it was; it is idempotent, touches nothing but
+  Gigowl's own identifiers, and drops the follow row for the old address so the next startup
+  sends a real `Follow` to the new account.
 
 **Container fails to start**
 ```bash

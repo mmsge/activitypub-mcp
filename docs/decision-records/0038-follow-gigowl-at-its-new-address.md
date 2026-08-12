@@ -115,7 +115,9 @@ not recognise yields `null`, never a guess.
 1. `FOLLOW_ACTORS` and `STREAM_SOURCES` in `/srv/bot/.env`: `@markus@samklang.msge.no` →
    `@markus@gigowl.social` (the `|samklang` platform slug stays).
 2. `make deploy`. `syncFollows` sends the Follow to the new actor.
-3. `docker compose exec app npm run rebase-gig-origin` (`DRY_RUN=1` first to see the counts).
+3. `docker compose exec app npm run db:migrate` — `make deploy` does not run migrations, and
+   the rebase cannot touch `objects` without migration 0031 (see the postscript).
+4. `docker compose exec app npm run rebase-gig-origin` (`DRY_RUN=1` first to see the counts).
 
 Either order works — the read path canonicalises regardless — but the stream's gigs lane is
 empty in the window between the handle changing and the rebase running, because the stored
@@ -131,3 +133,42 @@ attendances are still attributed to the old actor id.
   sampled before", which is the correct outcome for a post that has genuinely moved.
 - If the origin ever moves again, `canonicalGigUri` is the one place that needs to know, and
   the script rebases from the map without further edits.
+
+## Postscript — the foreign key that said no, and the half-moved archive
+
+The first production run failed partway through, and the two things it taught are worth more
+than the ten minutes they cost.
+
+**`trip_posts` refused the `objects` update.** `trip_posts.object_ap_id` referenced
+`objects.ap_id` with `ON DELETE cascade ON UPDATE no action`, so renaming a parent row was
+simply forbidden:
+
+```
+update or delete on table "objects" violates foreign key constraint
+"trip_posts_object_ap_id_objects_ap_id_fk" on table "trip_posts"
+```
+
+There were rows to violate because the whole 29-attendance archive was imported in one
+afternoon and stamped with that afternoon (the `published` trap this record's predecessor
+already documents), and Markus was on a train for part of it — so the trip matcher, which
+joins on a time window and nothing else, bound gig Notes to a train journey. A quirk in
+isolation; a blocker here.
+
+Migration 0031 makes that constraint `ON UPDATE cascade`, which is what the row already
+meant: the parent key is a **remote** identifier and remote identifiers move, while the link
+itself is derived from a time window (ADR 0023) and is about that post whatever it is now
+called. `ON DELETE cascade` is unchanged.
+
+**The failure was not the expensive part — the partial write was.** The job updated table by
+table with no transaction, so when it stopped, `gig_attendances`, `gig_catalog`,
+`gig_artists` and `gig_venues` had moved and the `objects` rows they point at had not. That
+is exactly the split the job exists to prevent: the stream's gigs lane joins
+`objects.ap_id = gig_attendances.note_ap_id`, and until the fixed run landed, the public page
+had no gigs at all. `rebaseGigOrigin` now runs inside one transaction — all of it or none of
+it — which is verified by putting the old constraint back and asserting the row counts do
+not move.
+
+The general lesson, and the reason this is written down: **a one-off data migration deserves
+a transaction more than a routine job does, not less.** It is the run nobody has rehearsed,
+against the one database that matters, and "it failed" is a far cheaper outcome to inherit
+than "it half worked".
