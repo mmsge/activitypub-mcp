@@ -9,7 +9,7 @@ import {
   objects,
 } from '../db/schema.js'
 import { eq, like, or, sql, type Column, type SQL } from 'drizzle-orm'
-import { LEGACY_GIG_ORIGIN, canonicalGigUri } from '../lib/gig-attendance.js'
+import { LEGACY_GIG_ORIGIN, MOVABLE_GIG_URI_PREFIXES, canonicalGigUri } from '../lib/gig-attendance.js'
 import { logger } from '../lib/logger.js'
 
 /**
@@ -261,21 +261,36 @@ async function rebaseInTransaction(db: Tx, dryRun: boolean): Promise<GigOriginRe
   return result
 }
 
-/** How many rows still name the old origin anywhere the rebase looks. For the script's
- *  closing check: a non-zero count after a real run means something was missed. */
+/**
+ * How many rows the rebase still OUGHT to move, for the script's closing check.
+ *
+ * Deliberately narrower than "names the old origin". Not every URI under the old address has
+ * a successor at the new one: the first production run finished with one `activities.ap_id`
+ * of the form `https://samklang.msge.no/aktivitet/<ULID>` — a transient Follow/Accept id the
+ * origin mints per delivery, in neither its entity paths nor its redirect map. Nothing at
+ * gigowl.social corresponds to it, and rewriting it would invent an identifier that has
+ * never existed anywhere; it is a true record of an activity issued at that address.
+ *
+ * Counting it as a miss made a correct run report a problem, and a check that cries wolf is
+ * one nobody reads the second time. So the count matches only the prefixes the rewrite would
+ * actually move — a non-zero result now means something really was missed.
+ */
 export async function countLegacyGigRows(): Promise<number> {
+  // `ARRAY[$1, $2, …]::text[]`, spelled out. Passing the JS array as one parameter renders a
+  // row constructor — `LIKE ANY (($1, $2, …))` — which Postgres rejects, because ANY takes an
+  // array and a row is not one.
+  const patterns = MOVABLE_GIG_URI_PREFIXES.map(([was]) => `${was}%`)
+  const movable = sql`ARRAY[${sql.join(patterns.map((p) => sql`${p}`), sql`, `)}]::text[]`
+  const m = (column: string): SQL => sql`${sql.raw(column)} LIKE ANY (${movable})`
   const [row] = await getDb().execute<{ count: number }>(sql`
     SELECT (
       (SELECT count(*) FROM gig_attendances
-        WHERE concert_url LIKE ${legacy} OR actor_ap_id LIKE ${legacy}
-           OR note_ap_id LIKE ${legacy} OR note_url LIKE ${legacy})
-    + (SELECT count(*) FROM gig_catalog WHERE concert_url LIKE ${legacy} OR venue_url LIKE ${legacy})
-    + (SELECT count(*) FROM gig_artists WHERE artist_url LIKE ${legacy} OR image_url LIKE ${legacy})
-    + (SELECT count(*) FROM gig_venues WHERE venue_url LIKE ${legacy})
-    + (SELECT count(*) FROM objects
-        WHERE ap_id LIKE ${legacy} OR actor_ap_id LIKE ${legacy} OR url LIKE ${legacy})
-    + (SELECT count(*) FROM activities
-        WHERE ap_id LIKE ${legacy} OR actor_ap_id LIKE ${legacy} OR object_ap_id LIKE ${legacy})
+        WHERE ${m('concert_url')} OR ${m('actor_ap_id')} OR ${m('note_ap_id')} OR ${m('note_url')})
+    + (SELECT count(*) FROM gig_catalog WHERE ${m('concert_url')} OR ${m('venue_url')})
+    + (SELECT count(*) FROM gig_artists WHERE ${m('artist_url')} OR ${m('image_url')})
+    + (SELECT count(*) FROM gig_venues WHERE ${m('venue_url')})
+    + (SELECT count(*) FROM objects WHERE ${m('ap_id')} OR ${m('actor_ap_id')} OR ${m('url')})
+    + (SELECT count(*) FROM activities WHERE ${m('ap_id')} OR ${m('actor_ap_id')} OR ${m('object_ap_id')})
     + (SELECT count(*) FROM follows WHERE actor_ap_id LIKE ${legacy})
     )::int AS count`)
   return Number(row?.count ?? 0)

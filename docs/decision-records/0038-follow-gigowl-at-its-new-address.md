@@ -172,3 +172,29 @@ The general lesson, and the reason this is written down: **a one-off data migrat
 a transaction more than a routine job does, not less.** It is the run nobody has rehearsed,
 against the one database that matters, and "it failed" is a far cheaper outcome to inherit
 than "it half worked".
+
+## Postscript 2 — one URI stays at the old address on purpose
+
+The finished run reported `remaining: 1`, and the row was:
+
+```
+activities.ap_id = https://samklang.msge.no/aktivitet/01KZPKJ9Y0FD3PJZXK8FWCFCYQ
+```
+
+`/aktivitet/<ULID>` is how the origin mints a **transient activity id** — the wrapper on a
+Follow, an Accept, an Undo — with `ulid()` at delivery time. It is in neither `ENTITY_PATHS`
+(the entity URI space that moved to English) nor `LEGACY_SEGMENTS` (the redirect map), and no
+route serves it at either address. This particular one is the handshake from following
+`@markus@samklang.msge.no` on 2026-08-10.
+
+**It must not move**, and `canonicalGigUri` declining it is the closed segment map working as
+designed rather than a gap in it. There is nothing at gigowl.social that this identifies;
+rewriting it would invent an identifier that has never existed anywhere, in place of a true
+record of an activity that really was issued at that address. Renaming an entity that moved
+and renaming the receipt for something that happened are not the same operation.
+
+What was wrong was the **check**: `countLegacyGigRows` counted anything still naming the old
+origin, so a correct run finished by warning about a row nobody should ever touch. It now
+counts only the prefixes the rewrite would actually move — derived from the same segment map,
+so SQL and code cannot drift — and a non-zero result means something really was missed. A
+check that cries wolf is one nobody reads the second time.

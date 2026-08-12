@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   canonicalGigUri,
   collectConcertUrls,
+  MOVABLE_GIG_URI_PREFIXES,
   isGigAttendance,
   normalizeSamklangUrl,
   parseGigAttendance,
@@ -361,6 +362,23 @@ describe('canonicalGigUri', () => {
     // status tags point at it, so moving it would make every RSVP state unreadable.
     expect(canonicalGigUri(`${SAMKLANG_NS}attended`)).toBe(`${SAMKLANG_NS}attended`)
     expect(canonicalGigUri('https://samklang.msge.no/ns')).toBe('https://samklang.msge.no/ns')
+  })
+
+  it('declines a URI the origin never renamed', () => {
+    // `/aktivitet/<ULID>` is a transient Follow/Accept id the origin mints per delivery. It
+    // is in neither its entity paths nor its redirect map, so nothing at gigowl.social
+    // corresponds to it and rewriting it would invent an identifier that has never existed
+    // anywhere. One is in the archive, from the handshake with the old account.
+    const handshake = 'https://samklang.msge.no/aktivitet/01KZPKJ9Y0FD3PJZXK8FWCFCYQ'
+    expect(canonicalGigUri(handshake)).toBe(handshake)
+    expect(MOVABLE_GIG_URI_PREFIXES.some(([was]) => handshake.startsWith(was))).toBe(false)
+  })
+
+  it('has a prefix list that agrees with it, so SQL and code cannot drift', () => {
+    // The rebase job counts what is left to do in SQL, which cannot call the function.
+    for (const [was, now] of MOVABLE_GIG_URI_PREFIXES) {
+      expect(canonicalGigUri(`${was}01ABC`)).toBe(`${now}01ABC`)
+    }
   })
 
   it('leaves alone what is not the origin, and is idempotent on what is', () => {
