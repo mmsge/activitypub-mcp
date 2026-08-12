@@ -91,6 +91,19 @@ const LEGACY_PATH_SEGMENTS: Record<string, string> = {
   media: 'media',
 }
 
+/**
+ * The URI prefixes `canonicalGigUri` will actually move, as `<old>` → `<new>` pairs.
+ *
+ * For SQL, which cannot call the function: it is how the rebase job tells "still at the old
+ * address because we missed it" from "still at the old address because it does not belong to
+ * the new one". Not everything under the old origin has a successor —
+ * `https://samklang.msge.no/aktivitet/<ULID>` is a transient Follow/Accept id the origin
+ * mints per delivery, absent from both its entity paths and its redirect map, so it names an
+ * activity that really was issued at that address and nothing else, forever.
+ */
+export const MOVABLE_GIG_URI_PREFIXES: [string, string][] = Object.entries(LEGACY_PATH_SEGMENTS)
+  .map(([was, now]) => [`${LEGACY_GIG_ORIGIN}/${was}/`, `${GIG_ORIGIN}/${now}/`])
+
 function segmentKey(segment: string): string {
   try {
     return decodeURIComponent(segment)
