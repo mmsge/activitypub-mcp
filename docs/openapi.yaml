@@ -2439,7 +2439,7 @@ paths:
       summary: Browse the concert log
       description: |
         The concert log as a paginated list — every gig behind this server's stored
-        Gigowl (samklang.msge.no) attendances, enriched from the concert record the
+        Gigowl (gigowl.social) attendances, enriched from the concert record the
         federated Note only links to.
 
         **Two dates, never interchangeable.** `gig_date` is the night of the gig and is
@@ -2450,7 +2450,7 @@ paths:
 
         **RSVP state.** `rsvp_status` is interested/going/attended and `status_source`
         says where it came from: `tag` or `property` means the origin published it as
-        data, `template` means it was read off the generated Nynorsk opening sentence —
+        data, `template` means it was read off the generated opening sentence —
         all that attendances logged before the origin published it as data carry. A state
         the parser did not recognise is null rather than a guess.
 

@@ -34,7 +34,7 @@ const ACTOR_IDS = {
   bookwyrm: ['https://bookwyrm.social/user/mvrkws'],
   neodb: ['https://minreol.dk/@markus@minreol.dk/'],
   rullen: ['https://rullen.no/users/markus'],
-  samklang: ['https://samklang.msge.no/brukar/markus'],
+  samklang: ['https://gigowl.social/user/markus'],
 }
 
 const ctx = (facets: Partial<Facets> = {}): LaneContext => ({
@@ -127,12 +127,15 @@ describe('postsLane', () => {
 
   it('carries every posts-lane account when unfiltered', () => {
     const { params } = dialect.sqlToQuery(postsLane(ctx())!)
-    for (const id of Object.values(ACTOR_IDS).flat()) {
-      // The three accounts that own a lane of their own: BookWyrm reads as reading,
-      // NeoDB as marks, and Gigowl as gigs. A posts lane that swept any of them in
-      // would publish the same event twice in the merge.
-      if (id.includes('bookwyrm') || id.includes('minreol') || id.includes('samklang')) continue
-      expect(params, id).toContain(id)
+    // The three accounts that own a lane of their own: BookWyrm reads as reading, NeoDB as
+    // marks, and Gigowl as gigs. A posts lane that swept any of them in would publish the
+    // same event twice in the merge. Skipped by PLATFORM, not by a substring of the URL —
+    // an account can change address without changing which lane it belongs to, and Gigowl
+    // did exactly that.
+    const ownLane = ['bookwyrm', 'neodb', 'samklang']
+    for (const [platform, ids] of Object.entries(ACTOR_IDS)) {
+      if (ownLane.includes(platform)) continue
+      for (const id of ids) expect(params, id).toContain(id)
     }
   })
 

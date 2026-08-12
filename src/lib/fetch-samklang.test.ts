@@ -7,7 +7,10 @@ import {
   mergeJsonLd,
 } from './fetch-samklang.js'
 
-const CONCERT = 'https://samklang.msge.no/konsert/01KZPXDDJ4196FCHF4TQ24HKGW'
+// The origin's current address. It moved here from samklang.msge.no and took its whole URI
+// space from Nynorsk to English with it (Gigowl's ADR 0029 and 0030) — but NOT the
+// `samklang:` JSON-LD vocabulary below, which is frozen and stays where it always was.
+const CONCERT = 'https://gigowl.social/gig/01KZPXDDJ4196FCHF4TQ24HKGW'
 
 // The ActivityPub Event as the origin serves it once Gigowl's ADR 0026 is deployed.
 const EVENT_WITH_EXTRAS = {
@@ -17,27 +20,27 @@ const EVENT_WITH_EXTRAS = {
   name: 'Synne Sørgjerd, Bergen kulturhus, Bergen, 2026-01-10',
   startTime: '2026-01-10T18:00:00Z',
   summary: 'Synne Sørgjerd (headliner)',
-  location: { id: 'https://samklang.msge.no/stad/STAD', type: 'Place', name: 'Bergen kulturhus' },
-  tag: 'https://samklang.msge.no/artist/A1',
+  location: { id: 'https://gigowl.social/venue/STAD', type: 'Place', name: 'Bergen kulturhus' },
+  tag: 'https://gigowl.social/artist/A1',
   url: CONCERT,
   'samklang:date': '2026-01-10',
   'samklang:concertStatus': 'completed',
   'samklang:notes': 'Hovedsalen.',
   'samklang:tourName': 'Ei ferd',
   'samklang:venue': {
-    id: 'https://samklang.msge.no/stad/STAD',
+    id: 'https://gigowl.social/venue/STAD',
     name: 'Bergen kulturhus',
     city: 'Bergen',
     country: 'NO',
     timezone: 'Europe/Oslo',
   },
   'samklang:lineup': [
-    { artist: 'https://samklang.msge.no/artist/A1', name: 'Synne Sørgjerd', role: 'headliner', position: 0 },
+    { artist: 'https://gigowl.social/artist/A1', name: 'Synne Sørgjerd', role: 'headliner', position: 0 },
   ],
   'samklang:setlist': [
     {
-      id: 'https://samklang.msge.no/setliste/S1',
-      artist: 'https://samklang.msge.no/artist/A1',
+      id: 'https://gigowl.social/setlist/S1',
+      artist: 'https://gigowl.social/artist/A1',
       entries: [
         { position: 0, setNumber: 1, isEncore: false, songTitle: 'Sjalu', isCover: false },
         { position: 0, setNumber: 2, isEncore: true, songTitle: 'Sail On', isCover: true, coverOfArtist: 'The Beach Boys' },
@@ -52,11 +55,11 @@ const EVENT_WITHOUT_EXTRAS = {
   '@context': ['https://www.w3.org/ns/activitystreams'],
   id: CONCERT,
   type: 'Event',
-  location: { id: 'https://samklang.msge.no/stad/STAD', type: 'Place', name: 'Bergen kulturhus' },
+  location: { id: 'https://gigowl.social/venue/STAD', type: 'Place', name: 'Bergen kulturhus' },
   name: 'Synne Sørgjerd, Bergen kulturhus, Bergen, 2026-01-10',
   startTime: '2026-01-10T18:00:00Z',
   summary: 'Synne Sørgjerd (headliner)',
-  tag: 'https://samklang.msge.no/artist/A1',
+  tag: 'https://gigowl.social/artist/A1',
   url: CONCERT,
 } as Record<string, unknown>
 
@@ -71,12 +74,12 @@ const MUSIC_EVENT_JSONLD = {
   eventStatus: 'https://schema.org/EventScheduled',
   location: {
     '@type': 'Place',
-    '@id': 'https://samklang.msge.no/stad/STAD',
+    '@id': 'https://gigowl.social/venue/STAD',
     name: 'Bergen kulturhus',
     address: { '@type': 'PostalAddress', addressLocality: 'Bergen', addressCountry: 'NO' },
   },
   performer: [
-    { '@type': 'Person', '@id': 'https://samklang.msge.no/artist/A1', name: 'Synne Sørgjerd' },
+    { '@type': 'Person', '@id': 'https://gigowl.social/artist/A1', name: 'Synne Sørgjerd' },
   ],
   description: 'Hovedsalen.',
 } as Record<string, unknown>
@@ -91,7 +94,7 @@ describe('mapConcertEvent', () => {
     expect(meta.venueCity).toBe('Bergen')
     expect(meta.venueCountry).toBe('NO')
     expect(meta.lineup).toEqual([
-      { artistUrl: 'https://samklang.msge.no/artist/A1', name: 'Synne Sørgjerd', role: 'headliner', position: 0 },
+      { artistUrl: 'https://gigowl.social/artist/A1', name: 'Synne Sørgjerd', role: 'headliner', position: 0 },
     ])
     expect(meta.artistNames).toEqual(['Synne Sørgjerd'])
     expect(meta.sourceMap.gigDate).toBe('samklang-ap')
@@ -113,11 +116,11 @@ describe('mapConcertEvent', () => {
     // The live trap: one artist yields a string, several yield an array. Reading only
     // the array shape works for every festival and fails for every solo show.
     expect(mapConcertEvent(CONCERT, EVENT_WITH_EXTRAS).details.artistUris).toEqual([
-      'https://samklang.msge.no/artist/A1',
+      'https://gigowl.social/artist/A1',
     ])
     const many = mapConcertEvent(CONCERT, {
       ...EVENT_WITH_EXTRAS,
-      tag: ['https://samklang.msge.no/artist/A1', 'https://samklang.msge.no/artist/A2'],
+      tag: ['https://gigowl.social/artist/A1', 'https://gigowl.social/artist/A2'],
     })
     expect(many.details.artistUris).toHaveLength(2)
   })
@@ -213,8 +216,8 @@ describe('extractMusicEventJsonLd', () => {
 
 describe('mapArtist and mapVenue', () => {
   it('maps an artist record', () => {
-    const artist = mapArtist('https://samklang.msge.no/artist/A1', {
-      id: 'https://samklang.msge.no/artist/A1',
+    const artist = mapArtist('https://gigowl.social/artist/A1', {
+      id: 'https://gigowl.social/artist/A1',
       type: 'Organization',
       name: 'Motorpsycho',
       summary: 'Norwegian band',
@@ -234,8 +237,8 @@ describe('mapArtist and mapVenue', () => {
   })
 
   it('maps a venue record, keeping coordinates as strings for the numeric column', () => {
-    const venue = mapVenue('https://samklang.msge.no/stad/STAD', {
-      id: 'https://samklang.msge.no/stad/STAD',
+    const venue = mapVenue('https://gigowl.social/venue/STAD', {
+      id: 'https://gigowl.social/venue/STAD',
       type: 'Place',
       name: 'Rockefeller',
       latitude: 59.9,
@@ -256,7 +259,7 @@ describe('mapArtist and mapVenue', () => {
   })
 
   it('treats a placeholder venue as a stated fact, not as missing data', () => {
-    const venue = mapVenue('https://samklang.msge.no/stad/TBA', {
+    const venue = mapVenue('https://gigowl.social/venue/TBA', {
       name: 'Ikkje kunngjort',
       'samklang:isPlaceholder': true,
     })

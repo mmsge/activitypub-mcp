@@ -11,7 +11,7 @@ const REAL = [
   '@markus@loops.video|loops',
   '@markus@minreol.dk|neodb',
   '@markus@rullen.no|rullen',
-  '@markus@samklang.msge.no|samklang',
+  '@markus@gigowl.social|samklang',
 ].join(',')
 
 describe('parseSources', () => {
