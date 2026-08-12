@@ -798,7 +798,14 @@ export const trainTrips = pgTable('train_trips', {
 export const tripPosts = pgTable('trip_posts', {
   id: uuid('id').primaryKey().defaultRandom(),
   tripId: uuid('trip_id').notNull().references(() => trainTrips.id, { onDelete: 'cascade' }),
-  objectApId: text('object_ap_id').notNull().references(() => objects.apId, { onDelete: 'cascade' }),
+  // `onUpdate: 'cascade'` because the parent key is a REMOTE identifier, and remote
+  // identifiers move: Gigowl renamed every one of its Notes when it changed address
+  // (ADR 0038), and without this the rebase could not touch `objects` at all — the FK
+  // refused the parent update and the archive was left half-moved. The link is derived
+  // from a time window, so it belongs to whatever that post is now called.
+  objectApId: text('object_ap_id')
+    .notNull()
+    .references(() => objects.apId, { onDelete: 'cascade', onUpdate: 'cascade' }),
   // 'boarding' | 'aboard' | 'alighting' — see TripRelation.
   relation: text('relation').notNull(),
   // Signed seconds from departure; negative while still boarding. Stored so a
