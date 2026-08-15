@@ -1024,8 +1024,19 @@ export const sourceSyncState = pgTable('source_sync_state', {
   // recent run. See ADR 0034.
   lastDataAt: timestamp('last_data_at', { withTimezone: true }),
   lastError: text('last_error'),
-  /** HTTP status of the last failure — 401/403 is what makes a token "expired". */
+  /** HTTP status of the last *failure* — 401/403 is what makes a token "expired". */
   lastStatus: integer('last_status'),
+  // The terminal response of the last attempt, whatever it was classified as —
+  // written on success too, which `lastStatus`/`lastError` deliberately are not.
+  // A source whose every run succeeds and returns nothing used to leave those two
+  // NULL forever, which is exactly the LinkedIn snapshot's steady state and the one
+  // place the evidence is most wanted. 0 means no response arrived at all.
+  // See ADR 0039.
+  lastHttpStatus: integer('last_http_status'),
+  /** That response's body, clipped. LinkedIn's error envelope is the diagnosis. */
+  lastHttpBody: text('last_http_body'),
+  /** One line saying what the run concluded and on what evidence. Read this first. */
+  lastNote: text('last_note'),
   consecutiveFailures: integer('consecutive_failures').notNull().default(0),
   itemsLastRun: integer('items_last_run'),
   /** Latch for the failure push, so a weekly poller alerts once and not forever. */

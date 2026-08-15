@@ -136,3 +136,46 @@ describe('successSet', () => {
     }
   })
 })
+
+// `lastStatus` and `lastError` are failure-only on purpose — `deriveTokenStatus`
+// reads `lastStatus` to decide `unauthorized`, so a 404 from a perfectly healthy
+// end-of-crawl must never land there. The cost of that, unnoticed until this source
+// spent days succeeding and producing nothing, is that a run which never fails
+// leaves no evidence at all. So the trace is stored alongside, on every attempt.
+// See ADR 0039.
+describe('successSet — the attempt trace', () => {
+  const trace = { status: 404, body: 'No data found for this domain and memberId', note: 'nothing yet' }
+
+  it('records the terminal status and body even though the run succeeded', () => {
+    const set = successSet(0, NOW, trace) as Record<string, unknown>
+
+    expect(set.lastHttpStatus).toBe(404)
+    expect(set.lastHttpBody).toContain('No data found')
+    expect(set.lastNote).toBe('nothing yet')
+    // Still a success: the failure fields stay cleared, so a 404 that is only the
+    // end of the data cannot make the badge red.
+    expect(set.lastStatus).toBeNull()
+    expect(set.lastError).toBeNull()
+    expect(set.consecutiveFailures).toBe(0)
+  })
+
+  it('STILL omits lastDataAt on an empty run, trace or no trace', () => {
+    // The trap ADR 0034 exists for: any key present here is rewritten every run, so
+    // writing lastDataAt unconditionally would erase the record that this source has
+    // ever produced data the first time a run legitimately came back empty.
+    expect(successSet(0, NOW, trace)).not.toHaveProperty('lastDataAt')
+    expect(successSet(3, NOW, trace)).toHaveProperty('lastDataAt', NOW)
+  })
+
+  it('writes nothing trace-shaped when there is no trace, rather than nulling it', () => {
+    const set = successSet(1, NOW) as Record<string, unknown>
+    expect(set).not.toHaveProperty('lastHttpStatus')
+    expect(set).not.toHaveProperty('lastNote')
+  })
+
+  it('clips a body that would otherwise bloat the row', () => {
+    const set = successSet(0, NOW, { ...trace, body: 'y'.repeat(9000) }) as Record<string, unknown>
+    expect((set.lastHttpBody as string).length).toBeLessThan(4200)
+    expect(set.lastHttpBody).toContain('9000 bytes')
+  })
+})

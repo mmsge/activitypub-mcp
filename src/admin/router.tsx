@@ -133,6 +133,8 @@ app.get('/', async (c) => {
         lastSuccessAt: liHealth?.lastSuccessAt ?? null,
         lastDataAt: liHealth?.lastDataAt ?? null,
         lastError: liHealth?.lastError ?? null,
+        lastNote: liHealth?.lastNote ?? null,
+        lastHttpStatus: liHealth?.lastHttpStatus ?? null,
         posts: Number(liPosts),
         metricRows: Number(liMetrics),
         latestExport: liLatestExport[0]?.latest ?? null,

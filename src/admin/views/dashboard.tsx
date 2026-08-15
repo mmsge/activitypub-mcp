@@ -34,6 +34,9 @@ interface DashboardData {
     lastSuccessAt: Date | null
     lastDataAt: Date | null
     lastError: string | null
+    /** What the last attempt concluded and on what evidence. See ADR 0039. */
+    lastNote: string | null
+    lastHttpStatus: number | null
     posts: number
     metricRows: number
     latestExport: string | null
@@ -143,11 +146,14 @@ export function DashboardPage({ data }: { data: DashboardData }) {
             )}
             {data.linkedin.status === 'awaiting_data' && (
               <>
-                The poller is working, but LinkedIn has not produced{' '}
+                The poller completes, but LinkedIn has not produced{' '}
                 <code>MEMBER_SHARE_INFO</code> yet — it collates the snapshot's activity
-                domains after the profile ones, and publishes no timing for it. Nothing to
-                fix, and re-minting the token would restart the wait rather than shorten
-                it. This clears itself.{' '}
+                domains after the profile ones, and publishes no timing for it. The line
+                below says which of those the last run actually established: it probes{' '}
+                <code>PROFILE</code> on an empty crawl, so a refused token can no longer
+                sit here looking like patience. If that probe came back with data there is
+                nothing to fix, and re-minting would restart the wait rather than shorten
+                it. To look right now, run <code>npm run probe-linkedin</code>.{' '}
               </>
             )}
             {!data.linkedin.enabled && <>LINKEDIN_DMA_TOKEN is unset, so the poller is off. </>}
@@ -155,7 +161,17 @@ export function DashboardPage({ data }: { data: DashboardData }) {
             {data.linkedin.lastSuccessAt ? data.linkedin.lastSuccessAt.toISOString() : 'never'}
             {' · '}Posts last arrived:{' '}
             {data.linkedin.lastDataAt ? data.linkedin.lastDataAt.toISOString() : 'never'}
+            {data.linkedin.lastHttpStatus !== null && (
+              <>{' · '}Last response: HTTP {data.linkedin.lastHttpStatus}</>
+            )}
           </p>
+          {/* The evidence, not a paraphrase of it. Written on every attempt — a run
+              that never fails used to leave `last_error` null and say nothing at all. */}
+          {data.linkedin.lastNote && (
+            <p style="color: #888; margin-top: 4px; font-size: 12px; font-family: monospace;">
+              {data.linkedin.lastNote}
+            </p>
+          )}
         </div>
       )}
 

@@ -13,7 +13,7 @@
 // expiry, so mistaking its death for a completed crawl is the likeliest way this
 // source silently stops working.
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { fetchSnapshotPage } from './fetch-linkedin-snapshot.js'
+import { fetchSnapshotPage, probeSnapshotDomain, snapshotUrl } from './fetch-linkedin-snapshot.js'
 
 function respond(body: unknown, init: { ok?: boolean; status?: number } = {}) {
   const fn = vi.fn(async () => ({
@@ -110,12 +110,12 @@ describe('fetchSnapshotPage', () => {
 
   it('ends cleanly on the documented no-data message, even though it is an error response', async () => {
     respond({ message: 'No data found for this memberId', status: 404 }, { ok: false, status: 404 })
-    expect(await fetchSnapshotPage('tok', 'MEMBER_SHARE_INFO', 9)).toEqual({ kind: 'end' })
+    expect(await fetchSnapshotPage('tok', 'MEMBER_SHARE_INFO', 9)).toMatchObject({ kind: 'end' })
   })
 
   it('ends on an empty snapshotData', async () => {
     respond(page([]))
-    expect(await fetchSnapshotPage('tok', 'MEMBER_SHARE_INFO', 9)).toEqual({ kind: 'end' })
+    expect(await fetchSnapshotPage('tok', 'MEMBER_SHARE_INFO', 9)).toMatchObject({ kind: 'end' })
   })
 
   it('reports an expired token as an error, NOT as the end of the data', async () => {
@@ -150,5 +150,77 @@ describe('fetchSnapshotPage', () => {
     respond('<html>502 Bad Gateway</html>')
     const r = await fetchSnapshotPage('tok', 'MEMBER_SHARE_INFO', 0)
     expect(r.kind).toBe('error')
+  })
+})
+
+// The trace exists because of what ADR 0039 is about: the classifier is lossy by
+// necessity — "not collated yet" and "you have paged past the end" are the same 404
+// with the same body — and the evidence used to be discarded along with the
+// distinction. A run that never failed left `last_status: null` and
+// `last_error: null` behind, so a source that had produced nothing for four days
+// looked, from every stored field, exactly like one that was fine.
+describe('the trace on every outcome', () => {
+  it('carries the status and body of a data page', async () => {
+    respond(page([{ a: 1 }]))
+    const r = await fetchSnapshotPage('tok', 'MEMBER_SHARE_INFO', 2)
+
+    expect(r.trace.status).toBe(200)
+    expect(r.trace.domain).toBe('MEMBER_SHARE_INFO')
+    expect(r.trace.start).toBe(2)
+    expect(r.trace.body).toContain('snapshotData')
+    expect(r.trace.url).toContain('start=2')
+  })
+
+  it('carries the 404 body of an end-of-data page, which is the whole diagnosis', async () => {
+    respond(
+      { message: 'No data found for this domain and memberId', status: 404 },
+      { ok: false, status: 404 },
+    )
+    const r = await fetchSnapshotPage('tok', 'MEMBER_SHARE_INFO', 0)
+
+    expect(r.kind).toBe('end')
+    expect(r.trace.status).toBe(404)
+    expect(r.trace.body).toContain('No data found')
+  })
+
+  it('carries the body of a refused token', async () => {
+    respond({ message: 'Invalid access token', status: 401 }, { ok: false, status: 401 })
+    const r = await fetchSnapshotPage('tok', 'MEMBER_SHARE_INFO', 0)
+
+    expect(r.trace.status).toBe(401)
+    expect(r.trace.body).toContain('Invalid access token')
+  })
+
+  it('reports status 0 with the error text when no response arrived at all', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('ETIMEDOUT') }))
+    const r = await fetchSnapshotPage('tok', 'MEMBER_SHARE_INFO', 0)
+
+    expect(r.trace.status).toBe(0)
+    expect(r.trace.body).toContain('ETIMEDOUT')
+  })
+
+  it('clips a large body on the classified page but not on the raw probe', async () => {
+    const big = 'x'.repeat(9000)
+    respond(page([{ a: big }]))
+
+    const r = await fetchSnapshotPage('tok', 'MEMBER_SHARE_INFO', 0)
+    expect(r.trace.body.length).toBeLessThan(3000)
+    expect(r.trace.body).toContain('bytes]')
+
+    respond(page([{ a: big }]))
+    const raw = await probeSnapshotDomain('tok', 'MEMBER_SHARE_INFO', 0)
+    expect(raw.body.length).toBeGreaterThan(9000)
+  })
+})
+
+describe('snapshotUrl', () => {
+  it('omits the domain entirely when asked for every domain at once', () => {
+    const url = snapshotUrl(null, 0)
+    expect(url).not.toContain('domain=')
+    expect(url).toContain('q=criteria')
+  })
+
+  it('keeps the domain case-sensitive — LinkedIn returns nothing on the wrong case', () => {
+    expect(snapshotUrl('MEMBER_SHARE_INFO', 1)).toContain('domain=MEMBER_SHARE_INFO')
   })
 })

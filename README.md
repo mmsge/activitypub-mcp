@@ -631,15 +631,52 @@ LinkedIn builds the snapshot as a batch job when you consent, and the activity d
 (`MEMBER_SHARE_INFO`, `ARTICLES`, `ALL_LIKES`, `ALL_COMMENTS`, `INSTANT_REPOSTS`) land
 after the profile-shaped ones (`PROFILE`, `REGISTRATION`, `RICH_MEDIA`) — three hours in,
 the first group can still be returning `404 No data found for this domain and memberId`
-while the second answers fine. There is no published timing. Nothing is wrong and there
-is nothing to fix; the state clears itself, and `last_data_at` records when the posts
-actually arrived.
+while the second answers fine. There is no published timing. `last_data_at` records when
+the posts actually arrived.
+
+**But read the note beside the badge before waiting it out.** *Awaiting data* on its own
+only means no row has ever arrived; it is not a statement about the token. So on a run
+that finds nothing, the poller asks `PROFILE` as a control and stores what both answered,
+in `last_note` (dashboard, `get_linkedin_stats`, and `npm run sync-linkedin`):
+
+- *control returned records* — token, scope and consent are all verified good, and the
+  domain genuinely is not collated yet. Nothing to fix.
+- *control returned 401/403* — the token is refused. This is recorded as a **failure**,
+  not as patience: the badge turns red and the ntfy push fires.
+- *control was empty too* — the whole snapshot is missing rather than one domain being
+  slow, which is a different problem and does not clear itself.
 
 **Do not re-mint the token to try to hurry it along.** LinkedIn creates the snapshot at
 the moment of consent, so a fresh consent plausibly restarts the collation rather than
 skipping ahead. If the activity domains are still 404 after a day while the others are
 200, that is a stuck job rather than a slow one — use
-[LinkedIn's DMA support form](https://www.linkedin.com/help/linkedin/ask/dsapi).
+[LinkedIn's DMA support form](https://www.linkedin.com/help/linkedin/ask/dsapi), quoting
+the `x-li-uuid` request id the probe below prints.
+
+#### Probing the snapshot by hand
+
+The poller runs every 168 hours, so waiting for the next tick to learn anything is not a
+diagnostic. `npm run probe-linkedin` asks the endpoint directly and prints exactly what
+comes back — no crawl loop, no classifier in front of it, nothing written to the database,
+and the token never printed:
+
+```
+npm run probe-linkedin                       # controls, MEMBER_SHARE_INFO, activity domains
+npm run probe-linkedin -- --domain ARTICLES  # one domain (repeatable)
+npm run probe-linkedin -- --all              # every domain LinkedIn documents
+npm run probe-linkedin -- --full             # untruncated bodies
+npm run probe-linkedin -- --json out.json    # the whole run as JSON
+```
+
+It probes the controls and the activity domains together on purpose. One domain answering
+404 has four plausible explanations — wrong scope, wrong app, a uniquely broken domain, a
+collation job that has not finished — and one response cannot separate them; the seam
+between the two groups can. It prints a verdict line saying which stage is failing, and
+exits non-zero on a 401/403 so a cron can act on it.
+
+`npm run sync-linkedin` remains the way to run a real poll on demand — it writes rows and
+clears failure state — and now prints the verdict and the raw response body alongside the
+counters.
 
 The API version is pinned to `202312` in code and is deliberately not configurable: it is
 the only value this endpoint accepts, it does not track the monthly DMA version numbers,
@@ -654,7 +691,14 @@ is two independent rankings printed side by side — one by engagements (~14 row
 impressions (~50) — joined on the post URL rather than on row position. A post appearing
 only in the impressions block gets a null engagement count rather than a guessed one.
 
-See [ADR 0033](docs/decision-records/0033-linkedin-as-a-source-two-halves-joined-on-the-post-id.md).
+The two halves are joined on a numeric post id extracted from whichever URL form each
+source emitted, so a mismatch would be silent — both tables fill up and every query still
+returns rows. `get_linkedin_stats` therefore reports `join_health`: `matched: 0` with
+non-zero counts on both sides means the join is broken, not that there is a backlog.
+
+See [ADR 0033](docs/decision-records/0033-linkedin-as-a-source-two-halves-joined-on-the-post-id.md),
+[0034](docs/decision-records/0034-a-successful-empty-crawl-is-not-a-healthy-one.md) and
+[0039](docs/decision-records/0039-a-clean-run-that-explains-nothing-is-not-observability.md).
 
 ### Last.fm scrobbles
 

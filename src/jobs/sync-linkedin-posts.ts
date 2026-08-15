@@ -1,11 +1,18 @@
 import { config } from '../config.js'
 import { getDb } from '../db/client.js'
 import { linkedinPosts } from '../db/schema.js'
-import { fetchSnapshotPage } from '../lib/fetch-linkedin-snapshot.js'
+import { fetchSnapshotPage, type SnapshotTrace } from '../lib/fetch-linkedin-snapshot.js'
+import { joinWarning, linkedinJoinHealth } from '../lib/linkedin-join.js'
 import { normaliseRecord, pick, pickBoolean, pickDate } from '../lib/linkedin-keys.js'
 import { canonicalPostKey } from '../lib/linkedin-url.js'
 import { logger } from '../lib/logger.js'
-import { LINKEDIN_SOURCE, recordAttempt, recordFailure, recordSuccess } from '../lib/source-health.js'
+import {
+  LINKEDIN_SOURCE,
+  recordAttempt,
+  recordFailure,
+  recordSuccess,
+  type AttemptTrace,
+} from '../lib/source-health.js'
 
 /**
  * Ingest Markus' own LinkedIn posts from the DMA Member Snapshot API.
@@ -21,6 +28,31 @@ import { LINKEDIN_SOURCE, recordAttempt, recordFailure, recordSuccess } from '..
 
 /** The domain carrying posts: date, URL, commentary, visibility, attached link, reshare flag. */
 const DOMAIN = 'MEMBER_SHARE_INFO'
+
+/**
+ * The domain asked when the target one comes back empty, purely to find out
+ * whether the token still works.
+ *
+ * An empty crawl of MEMBER_SHARE_INFO is ambiguous by construction — LinkedIn
+ * spells "not collated yet" and "you have paged past the end" with the same 404
+ * body (ADR 0034) — so on its own it was recorded as a plain success, and a source
+ * that had never once produced a row reported `token_status: awaiting_data` with
+ * `last_status: null` and `last_error: null`. That state was derived entirely from
+ * `last_data_at IS NULL`; it said nothing whatsoever about auth, which is the
+ * thing an operator most wants ruled out.
+ *
+ * PROFILE is the right control because it is the *earliest* domain LinkedIn
+ * collates — the observed seam in ADR 0034 was profile-shaped domains answering
+ * 200 while every activity-shaped one answered 404. So PROFILE returning records
+ * is positive evidence that the token, the scope and the consent are all intact
+ * and the archive exists; PROFILE returning 401/403 turns a silent "awaiting" into
+ * the refused-token failure it actually is; and PROFILE *also* coming back empty
+ * means the whole snapshot is missing, which is a different problem from one slow
+ * domain and should not read as "nearly there".
+ *
+ * One extra request per run, and only on a run that found nothing. See ADR 0039.
+ */
+const CONTROL_DOMAIN = 'PROFILE'
 
 /**
  * Hook for the adjacent domains (ALL_COMMENTS, ALL_LIKES, INSTANT_REPOSTS,
@@ -129,19 +161,35 @@ async function upsertPosts(rows: LinkedinPostRow[]): Promise<number> {
  * is NOT a termination: it aborts the run without recording a success, so a dead
  * token cannot masquerade as a completed crawl.
  */
-async function crawlDomain(token: string, domain: string): Promise<LinkedinPostRow[]> {
+export interface CrawlResult {
+  rows: LinkedinPostRow[]
+  /** How many pages were actually read before the terminator. */
+  pages: number
+  /** The response that ended the crawl — kept so a clean run leaves evidence too. */
+  trace: SnapshotTrace
+  /** True when MAX_PAGES stopped the crawl rather than the API did. */
+  truncated: boolean
+}
+
+/** A crawl that failed, carrying the trace so the failure can be recorded verbatim. */
+export class CrawlError extends Error {
+  constructor(message: string, readonly status: number, readonly trace: SnapshotTrace) {
+    super(message)
+    this.name = 'CrawlError'
+  }
+}
+
+async function crawlDomain(token: string, domain: string): Promise<CrawlResult> {
   const rows: LinkedinPostRow[] = []
   let start = 0
+  let last: SnapshotTrace | null = null
 
   for (let page = 0; page < MAX_PAGES; page++) {
     const result = await fetchSnapshotPage(token, domain, start)
+    last = result.trace
 
-    if (result.kind === 'error') {
-      const err = new Error(result.message) as Error & { status?: number }
-      err.status = result.status
-      throw err
-    }
-    if (result.kind === 'end') return rows
+    if (result.kind === 'error') throw new CrawlError(result.message, result.status, result.trace)
+    if (result.kind === 'end') return { rows, pages: page, trace: result.trace, truncated: false }
 
     for (const entry of result.items) {
       const row = toPostRow(entry)
@@ -155,7 +203,65 @@ async function crawlDomain(token: string, domain: string): Promise<LinkedinPostR
   // Never truncate silently: a cap that is hit looks exactly like a complete crawl
   // from the row count alone.
   logger.warn({ domain, maxPages: MAX_PAGES }, 'LinkedIn crawl hit the page cap; data may be incomplete')
-  return rows
+  return { rows, pages: MAX_PAGES, trace: last!, truncated: true }
+}
+
+/** A one-line summary of a response, for the stored note. */
+function describe(trace: SnapshotTrace): string {
+  const body = trace.body.replace(/\s+/g, ' ').trim().slice(0, 160)
+  return trace.status === 0 ? `no response (${body})` : `HTTP ${trace.status} ${body}`
+}
+
+/**
+ * What an empty crawl means, decided by asking a domain that should always answer.
+ *
+ * `auth` is the outcome that must not be swallowed: it is recorded as a failure, so
+ * the badge turns red, `deriveTokenStatus` returns `unauthorized`, and the latched
+ * ntfy push fires — none of which happened while a refused token could hide inside
+ * a clean-looking `awaiting_data`.
+ */
+export type EmptyVerdict =
+  | { kind: 'auth'; status: number; note: string; trace: AttemptTrace }
+  | { kind: 'awaiting'; note: string; trace: AttemptTrace }
+  | { kind: 'empty_archive'; note: string; trace: AttemptTrace }
+  | { kind: 'inconclusive'; note: string; trace: AttemptTrace }
+
+export async function classifyEmptyCrawl(
+  token: string,
+  target: SnapshotTrace,
+): Promise<EmptyVerdict> {
+  const control = await fetchSnapshotPage(token, CONTROL_DOMAIN, 0)
+  const head = `${DOMAIN}: returned no records (${describe(target)}).`
+  // The body kept is the TARGET's — that is the response being explained. The
+  // control's verdict goes in the note beside it.
+  const body = target.body
+
+  if (control.kind === 'error') {
+    const detail = `${CONTROL_DOMAIN}: ${describe(control.trace)}`
+    if (control.status === 401 || control.status === 403) {
+      const note = `${head} ${detail} → the token is refused. Re-mint it; this is not a collation delay.`
+      return {
+        kind: 'auth',
+        status: control.status,
+        note,
+        trace: { status: control.status, body: control.trace.body, note },
+      }
+    }
+    const note = `${head} ${detail} → control inconclusive, cannot tell a collation delay from an upstream fault.`
+    return { kind: 'inconclusive', note, trace: { status: target.status, body, note } }
+  }
+
+  if (control.kind === 'data') {
+    const note =
+      `${head} ${CONTROL_DOMAIN}: HTTP ${control.trace.status} with ${control.items.length} record(s) ` +
+      '→ token, scope and consent are all good; this domain is not collated yet. Do NOT re-mint the token.'
+    return { kind: 'awaiting', note, trace: { status: target.status, body, note } }
+  }
+
+  const note =
+    `${head} ${CONTROL_DOMAIN}: ${describe(control.trace)} — empty as well → the whole snapshot is missing, ` +
+    'not just this domain. Past a day of this, it is a stuck collation job rather than a slow one (DMA support form).'
+  return { kind: 'empty_archive', note, trace: { status: target.status, body, note } }
 }
 
 export async function syncLinkedinPosts(): Promise<void> {
@@ -168,17 +274,67 @@ export async function syncLinkedinPosts(): Promise<void> {
   await recordAttempt(LINKEDIN_SOURCE)
   logger.info({ domain: DOMAIN }, 'Starting LinkedIn snapshot sync')
 
-  let rows: LinkedinPostRow[]
+  let crawl: CrawlResult
   try {
-    rows = await crawlDomain(token, DOMAIN)
+    crawl = await crawlDomain(token, DOMAIN)
   } catch (e) {
-    const err = e as Error & { status?: number }
-    await recordFailure(LINKEDIN_SOURCE, err.status ?? 0, err.message)
+    if (e instanceof CrawlError) {
+      const note = `${DOMAIN}: crawl aborted — ${describe(e.trace)}`
+      logger.error({ domain: DOMAIN, status: e.status, url: e.trace.url }, note)
+      await recordFailure(LINKEDIN_SOURCE, e.status, e.message, {
+        status: e.status,
+        body: e.trace.body,
+        note,
+      })
+      return
+    }
+    const err = e as Error
+    await recordFailure(LINKEDIN_SOURCE, 0, err.message, {
+      status: 0,
+      body: err.stack ?? err.message,
+      note: `${DOMAIN}: crawl threw before any response could be classified — ${err.message}`,
+    })
     return
   }
 
-  const written = await upsertPosts(rows)
-  await recordSuccess(LINKEDIN_SOURCE, written)
+  // An empty crawl is the state this source has actually lived in, and on its own
+  // it is indistinguishable from a healthy one. Ask the control domain rather than
+  // recording a success that means nothing. See ADR 0039.
+  if (crawl.rows.length === 0) {
+    const verdict = await classifyEmptyCrawl(token, crawl.trace)
+    if (verdict.kind === 'auth') {
+      logger.error({ domain: DOMAIN, status: verdict.status }, verdict.note)
+      await recordFailure(LINKEDIN_SOURCE, verdict.status, verdict.note, verdict.trace)
+      return
+    }
+    logger.warn({ domain: DOMAIN, verdict: verdict.kind, url: crawl.trace.url }, verdict.note)
+    await recordSuccess(LINKEDIN_SOURCE, 0, verdict.trace)
+    return
+  }
 
-  logger.info({ domain: DOMAIN, parsed: rows.length, upserted: written }, 'LinkedIn snapshot sync complete')
+  const written = await upsertPosts(crawl.rows)
+  const join = await linkedinJoinHealth()
+  const warning = joinWarning(join)
+
+  const note = [
+    `${DOMAIN}: ${crawl.pages} page(s), ${crawl.rows.length} record(s) parsed, ${written} upserted.`,
+    crawl.truncated ? `Stopped at the ${MAX_PAGES}-page cap — data may be incomplete.` : null,
+    `Join: ${join.matched}/${join.posts} post(s) matched a metric key, ${join.orphan_metrics} metric key(s) still without content.`,
+    warning,
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  if (warning) logger.error({ domain: DOMAIN, join }, warning)
+
+  await recordSuccess(LINKEDIN_SOURCE, written, {
+    status: crawl.trace.status,
+    body: crawl.trace.body,
+    note,
+  })
+
+  logger.info(
+    { domain: DOMAIN, parsed: crawl.rows.length, upserted: written, join },
+    'LinkedIn snapshot sync complete',
+  )
 }
