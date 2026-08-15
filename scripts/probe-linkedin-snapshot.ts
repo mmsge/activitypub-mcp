@@ -11,13 +11,19 @@
 // Read-only: it makes GET requests and writes nothing to the database. Safe to run
 // against production, and it never prints the token.
 //
-//   npm run probe-linkedin                       # the diagnostic domain set
-//   npm run probe-linkedin -- --domain ARTICLES  # one domain (repeatable)
-//   npm run probe-linkedin -- --all              # every domain LinkedIn documents
-//   npm run probe-linkedin -- --no-domain        # one query across all domains
-//   npm run probe-linkedin -- --start 3          # a specific page index
-//   npm run probe-linkedin -- --full             # untruncated bodies
-//   npm run probe-linkedin -- --json out.json    # the whole run as JSON
+// RUN IT INSIDE THE CONTAINER. `LINKEDIN_DMA_TOKEN` reaches the app through
+// Compose's `env_file`, and `DATABASE_URL` is injected by Compose and deliberately
+// not in `.env`, so `npm run probe-linkedin` from /srv/bot on the host dies in
+// config.ts with every required variable undefined — before it has made a single
+// request. Same trap the breakout scripts carry a note about.
+//
+//   docker compose exec app npm run probe-linkedin                       # the diagnostic domain set
+//   docker compose exec app npm run probe-linkedin -- --domain ARTICLES  # one domain (repeatable)
+//   docker compose exec app npm run probe-linkedin -- --all              # every domain LinkedIn documents
+//   docker compose exec app npm run probe-linkedin -- --no-domain        # one query across all domains
+//   docker compose exec app npm run probe-linkedin -- --start 3          # a specific page index
+//   docker compose exec app npm run probe-linkedin -- --full             # untruncated bodies
+//   docker compose exec app npm run probe-linkedin -- --json out.json    # the whole run as JSON
 import { writeFile } from 'node:fs/promises'
 import { config } from '../src/config.js'
 import { probeSnapshotDomain } from '../src/lib/fetch-linkedin-snapshot.js'
