@@ -617,14 +617,15 @@ can consent and generate one at all** — outside that region the flow is unavai
    and accept the terms. Access is granted immediately.
 3. Open **Docs and tools → OAuth Token Tools → Create token**, select the app, tick the
    **`r_dma_portability_self_serve`** scope, and consent.
-4. Put the token in `.env` as `LINKEDIN_DMA_TOKEN` and run `npm run sync-linkedin` to
-   confirm it works.
+4. Put the token in `/srv/bot/.env` as `LINKEDIN_DMA_TOKEN` and run
+   `docker compose exec app npm run sync-linkedin` to confirm it works.
 
 **Treat its expiry as unknown and possibly short.** When it dies you do not have to read
 logs to find out: the admin dashboard shows a red *Token refused* badge, `get_linkedin_stats`
 reports `source_health.token_status: "unauthorized"`, and — if ntfy is configured — one
 push goes out on the transition (once per outage, not once per poll). Re-mint, update
-`.env`, and re-run `npm run sync-linkedin`; a success clears the state.
+`.env`, and re-run `docker compose exec app npm run sync-linkedin`; a success clears the
+state.
 
 **A freshly-minted token will show *Awaiting data* for a while, and that is normal.**
 LinkedIn builds the snapshot as a batch job when you consent, and the activity domains
@@ -637,7 +638,7 @@ the posts actually arrived.
 **But read the note beside the badge before waiting it out.** *Awaiting data* on its own
 only means no row has ever arrived; it is not a statement about the token. So on a run
 that finds nothing, the poller asks `PROFILE` as a control and stores what both answered,
-in `last_note` (dashboard, `get_linkedin_stats`, and `npm run sync-linkedin`):
+in `last_note` (dashboard, `get_linkedin_stats`, and the `sync-linkedin` script):
 
 - *control returned records* — token, scope and consent are all verified good, and the
   domain genuinely is not collated yet. Nothing to fix.
@@ -656,16 +657,22 @@ the `x-li-uuid` request id the probe below prints.
 #### Probing the snapshot by hand
 
 The poller runs every 168 hours, so waiting for the next tick to learn anything is not a
-diagnostic. `npm run probe-linkedin` asks the endpoint directly and prints exactly what
-comes back — no crawl loop, no classifier in front of it, nothing written to the database,
-and the token never printed:
+diagnostic. The probe asks the endpoint directly and prints exactly what comes back — no
+crawl loop, no classifier in front of it, nothing written to the database, and the token
+never printed.
 
-```
-npm run probe-linkedin                       # controls, MEMBER_SHARE_INFO, activity domains
-npm run probe-linkedin -- --domain ARTICLES  # one domain (repeatable)
-npm run probe-linkedin -- --all              # every domain LinkedIn documents
-npm run probe-linkedin -- --full             # untruncated bodies
-npm run probe-linkedin -- --json out.json    # the whole run as JSON
+**Run it inside the container.** `LINKEDIN_DMA_TOKEN` comes from `.env` via Compose's
+`env_file` and `DATABASE_URL` is injected by Compose and deliberately not in `.env`, so
+running this on the host fails with every required variable undefined — the same trap as
+the breakout scripts below:
+
+```bash
+cd /srv/bot
+docker compose exec app npm run probe-linkedin                       # controls, MEMBER_SHARE_INFO, activity domains
+docker compose exec app npm run probe-linkedin -- --domain ARTICLES  # one domain (repeatable)
+docker compose exec app npm run probe-linkedin -- --all              # every domain LinkedIn documents
+docker compose exec app npm run probe-linkedin -- --full             # untruncated bodies
+docker compose exec app npm run probe-linkedin -- --json out.json    # the whole run as JSON
 ```
 
 It probes the controls and the activity domains together on purpose. One domain answering
@@ -674,9 +681,9 @@ collation job that has not finished — and one response cannot separate them; t
 between the two groups can. It prints a verdict line saying which stage is failing, and
 exits non-zero on a 401/403 so a cron can act on it.
 
-`npm run sync-linkedin` remains the way to run a real poll on demand — it writes rows and
-clears failure state — and now prints the verdict and the raw response body alongside the
-counters.
+`docker compose exec app npm run sync-linkedin` remains the way to run a real poll on
+demand — it writes rows and clears failure state — and now prints the verdict and the raw
+response body alongside the counters.
 
 The API version is pinned to `202312` in code and is deliberately not configurable: it is
 the only value this endpoint accepts, it does not track the monthly DMA version numbers,
