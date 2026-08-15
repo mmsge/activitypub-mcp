@@ -57,7 +57,18 @@ const NO_DATA_RE = /no data found/i
 export type ProbeVerdict = 'data' | 'no_data' | 'unauthorized' | 'version' | 'error' | 'unreadable'
 
 export interface Probe {
+  /** The domain that was ASKED for. Null on an all-domain query. */
   domain: string | null
+  /**
+   * The domain LinkedIn said it answered with, from `elements[0].snapshotDomain`.
+   *
+   * The two differ on an all-domain query (`q=criteria` with no `domain`), which
+   * paginates across every domain in turn and is therefore the only way to see
+   * which domains the archive actually holds. That matters here: a domain can 404
+   * when asked for by name, and the question of whether its data exists at all is
+   * a different one. See ADR 0041.
+   */
+  snapshotDomain: string | null
   status: number
   /** How the poller's classifier would read this response. */
   verdict: ProbeVerdict
@@ -80,6 +91,7 @@ export interface Probe {
 export function classify(trace: SnapshotTrace): Probe {
   const base = {
     domain: trace.domain,
+    snapshotDomain: null as string | null,
     status: trace.status,
     requestId: trace.headers['x-li-uuid'] ?? null,
     durationMs: trace.durationMs,
@@ -101,9 +113,10 @@ export function classify(trace: SnapshotTrace): Probe {
     return { ...base, verdict: 'unreadable', items: 0 }
   }
 
+  const snapshotDomain: string | null = parsed?.elements?.[0]?.snapshotDomain ?? null
   const items = parsed?.elements?.[0]?.snapshotData
   if (!Array.isArray(items) || items.length === 0) {
-    return { ...base, verdict: 'no_data', items: 0 }
+    return { ...base, snapshotDomain, verdict: 'no_data', items: 0 }
   }
 
   // The keys the poller would derive. Reported because "did anything arrive" and
@@ -113,7 +126,35 @@ export function classify(trace: SnapshotTrace): Probe {
     .map((e: Record<string, unknown>) => toPostRow(e)?.postKey)
     .filter((k: string | undefined): k is string => Boolean(k))
 
-  return { ...base, verdict: 'data', items: items.length, keys }
+  return { ...base, snapshotDomain, verdict: 'data', items: items.length, keys }
+}
+
+/**
+ * How many pages the response says there are, or null.
+ *
+ * `paging.total` under-reports for a single domain — the docs say so, and ADR 0033
+ * is emphatic that it must never terminate a crawl. It is used here for a different
+ * job: telling a human roughly how far an all-domain walk has to go. A hint on a
+ * progress line can be wrong; a loop terminator cannot.
+ */
+export function pagingTotal(probe: Probe): number | null {
+  try {
+    const n = JSON.parse(probe.body)?.paging?.total
+    return typeof n === 'number' ? n : null
+  } catch {
+    return null
+  }
+}
+
+/** Records seen per domain across a run, keyed by what LinkedIn said it answered with. */
+export function tallyByDomain(probes: Probe[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const p of probes) {
+    const d = p.snapshotDomain ?? p.domain
+    if (!d || p.verdict !== 'data') continue
+    out.set(d, (out.get(d) ?? 0) + p.items)
+  }
+  return out
 }
 
 /**
@@ -124,8 +165,17 @@ export function classify(trace: SnapshotTrace): Probe {
  */
 export function verdictLine(probes: Probe[]): string {
   const named = (d: string | null) => probes.find((p) => p.domain === d)
-  const has = (d: string) => named(d)?.verdict === 'data'
-  const target = named(TARGET_DOMAIN)
+  const has = (d: string) =>
+    probes.some((p) => (p.domain === d || p.snapshotDomain === d) && p.verdict === 'data')
+
+  // An all-domain walk that yields a MEMBER_SHARE_INFO page is the target answering,
+  // even though nothing asked for it by name — and it is the more interesting way to
+  // get an answer, because the per-domain query 404s. Preferred over the named probe
+  // when it carries data. See ADR 0041.
+  const viaWalk = probes.find(
+    (p) => p.domain === null && p.snapshotDomain === TARGET_DOMAIN && p.verdict === 'data',
+  )
+  const target = viaWalk ?? named(TARGET_DOMAIN)
 
   if (probes.some((p) => p.verdict === 'unauthorized')) {
     return 'VERDICT: auth. The token is refused (401/403). Re-mint it — this is not a collation delay.'
@@ -136,6 +186,15 @@ export function verdictLine(probes: Probe[]): string {
   if (!target) return 'VERDICT: (MEMBER_SHARE_INFO was not probed in this run.)'
 
   if (target.verdict === 'data') {
+    if (viaWalk) {
+      const keys = target.keys.length
+      return (
+        `VERDICT: WORKAROUND FOUND — the all-domain query returned a ${TARGET_DOMAIN} page ` +
+        `(${target.items} record(s), ${keys} usable key(s)) even though asking for that domain by name ` +
+        '404s. The data exists and is reachable; the per-domain lookup is what is broken. Worth ' +
+        'teaching the poller to crawl without a domain filter, and worth saying in the support ticket.'
+      )
+    }
     return target.keys.length === 0
       ? 'VERDICT: parse. MEMBER_SHARE_INFO returned records but no post key could be read from any of them — ' +
           'the URL field is spelled differently than the alias list expects. Compare a raw record below against toPostRow().'

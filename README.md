@@ -684,7 +684,18 @@ docker compose exec app npm run probe-linkedin -- --domain ARTICLES  # one domai
 docker compose exec app npm run probe-linkedin -- --all              # every domain LinkedIn documents
 docker compose exec app npm run probe-linkedin -- --full             # untruncated bodies
 docker compose exec app npm run probe-linkedin -- --json out.json    # the whole run as JSON
+docker compose exec app npm run probe-linkedin -- --no-domain --pages 60   # walk the unfiltered query
 ```
+
+**`--no-domain` is a different question from the rest**, and worth knowing about when a
+named domain 404s. LinkedIn's `domain` parameter is optional, and omitting it returns data
+from *all* domains, paginated — 59 pages on this archive. So "does asking for this domain
+by name work?" and "does the archive contain this domain's data at all?" are separable, and
+only the unfiltered walk answers the second. `--pages N` walks it and prints a per-domain
+tally of records, keyed on what LinkedIn said it answered with rather than what was asked
+for. If a domain that 404s by name turns up in the walk, the data is reachable and only the
+lookup is broken — the run says `WORKAROUND FOUND`.
+See [ADR 0041](docs/decision-records/0041-ask-the-archive-what-it-holds-not-whether-a-name-answers.md).
 
 It probes the controls and the activity domains together on purpose. One domain answering
 404 has four plausible explanations — wrong scope, wrong app, a uniquely broken domain, a

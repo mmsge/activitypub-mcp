@@ -14,7 +14,8 @@ const getDb = vi.fn(() => {
 })
 vi.mock('../db/client.js', () => ({ getDb }))
 
-const { classify, verdictLine, DEFAULT_DOMAINS, ALL_DOMAINS } = await import('./linkedin-probe.js')
+const { classify, verdictLine, tallyByDomain, pagingTotal, DEFAULT_DOMAINS, ALL_DOMAINS } =
+  await import('./linkedin-probe.js')
 
 const trace = (domain: string | null, status: number, body: unknown) => ({
   url: `https://api.linkedin.com/rest/memberSnapshotData?q=criteria&domain=${domain}&start=0`,
@@ -172,5 +173,65 @@ describe('the probed domain set', () => {
     expect(ALL_DOMAINS).not.toContain('member_share_info')
     expect(new Set(ALL_DOMAINS).size).toBe(ALL_DOMAINS.length)
     for (const d of DEFAULT_DOMAINS) expect(ALL_DOMAINS).toContain(d)
+  })
+})
+
+// The all-domain query (`q=criteria` with no `domain`) paginates across every domain
+// in turn — 59 pages on this archive — so it is the only view of what the snapshot
+// ACTUALLY holds, as opposed to what answers when asked for by name. Those are
+// different questions the moment a named lookup 404s. See ADR 0041.
+describe('the all-domain walk', () => {
+  const walkPage = (domain: string, items: unknown[], total?: number) =>
+    classify(trace(null, 200, {
+      ...(total === undefined ? {} : { paging: { start: 0, count: 10, total } }),
+      elements: [{ snapshotDomain: domain, snapshotData: items }],
+    }))
+
+  it('records what LinkedIn answered with, not what was asked for', () => {
+    const p = walkPage('LOGIN', [{ 'Login Type': 'Login' }])
+    expect(p.domain).toBeNull()
+    expect(p.snapshotDomain).toBe('LOGIN')
+  })
+
+  it('tallies records per domain across the pages', () => {
+    const tally = tallyByDomain([
+      walkPage('LOGIN', [{ a: 1 }, { a: 2 }]),
+      walkPage('ALL_LIKES', [{ a: 3 }]),
+      walkPage('LOGIN', [{ a: 4 }]),
+      walkPage('ARTICLES', []),
+    ])
+    expect(tally.get('LOGIN')).toBe(3)
+    expect(tally.get('ALL_LIKES')).toBe(1)
+    // An empty page contributes nothing rather than a zero entry that reads as
+    // "this domain was seen".
+    expect(tally.has('ARTICLES')).toBe(false)
+  })
+
+  it('calls a MEMBER_SHARE_INFO page in the walk a WORKAROUND, not just data', () => {
+    // This is the outcome worth shouting about: the named lookup 404s while the
+    // unfiltered one hands the same domain over. The data would exist and be
+    // reachable, and the poller could be taught to crawl without the filter.
+    const line = verdictLine([
+      classify(trace('MEMBER_SHARE_INFO', 404, NO_DATA)),
+      walkPage('MEMBER_SHARE_INFO', [SHARE]),
+    ])
+    expect(line).toMatch(/WORKAROUND FOUND/)
+    expect(line).toMatch(/1 usable key/)
+  })
+
+  it('does not let a walk page mask a refused token', () => {
+    const line = verdictLine([
+      classify(trace('PROFILE', 401, { message: 'Invalid access token' })),
+      walkPage('MEMBER_SHARE_INFO', [SHARE]),
+    ])
+    expect(line).toMatch(/VERDICT: auth/)
+  })
+
+  it('reads paging.total as a hint and nothing more', () => {
+    expect(pagingTotal(walkPage('LOGIN', [{ a: 1 }], 59))).toBe(59)
+    // Absent or unparseable is null, never 0 — a 0 would read as "no pages" and
+    // ADR 0033 is emphatic this count must never terminate anything.
+    expect(pagingTotal(walkPage('LOGIN', [{ a: 1 }]))).toBeNull()
+    expect(pagingTotal(classify(trace(null, 200, '<html>')))).toBeNull()
   })
 })

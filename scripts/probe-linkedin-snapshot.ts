@@ -21,6 +21,7 @@
 //   docker compose exec app npm run probe-linkedin -- --domain ARTICLES  # one domain (repeatable)
 //   docker compose exec app npm run probe-linkedin -- --all              # every domain LinkedIn documents
 //   docker compose exec app npm run probe-linkedin -- --no-domain        # one query across all domains
+//   docker compose exec app npm run probe-linkedin -- --no-domain --pages 60   # …walked, with a per-domain tally
 //   docker compose exec app npm run probe-linkedin -- --start 3          # a specific page index
 //   docker compose exec app npm run probe-linkedin -- --full             # untruncated bodies
 //   docker compose exec app npm run probe-linkedin -- --json out.json    # the whole run as JSON
@@ -31,6 +32,8 @@ import {
   ALL_DOMAINS,
   DEFAULT_DOMAINS,
   classify,
+  pagingTotal,
+  tallyByDomain,
   verdictLine,
   type Probe,
   type ProbeVerdict,
@@ -43,11 +46,18 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 /** How much of a body is printed without `--full`. */
 const PREVIEW = 1200
 
+/**
+ * Ceiling on `--pages`. Generous — an all-domain walk of this archive reported 59
+ * — but present so a typo cannot turn a diagnostic into an afternoon of requests.
+ */
+const MAX_PAGES = 500
+
 function parseArgs(argv: string[]) {
   const domains: string[] = []
   let all = false
   let noDomain = false
   let start = 0
+  let pages = 1
   let full = false
   let json: string | null = null
 
@@ -57,11 +67,12 @@ function parseArgs(argv: string[]) {
     else if (a === '--all') all = true
     else if (a === '--no-domain') noDomain = true
     else if (a === '--start') start = Number(argv[++i])
+    else if (a === '--pages') pages = Number(argv[++i])
     else if (a === '--full') full = true
     else if (a === '--json') json = argv[++i]
     else if (a === '--help' || a === '-h') {
       console.log(
-        'Usage: npm run probe-linkedin -- [--domain X]… [--all] [--no-domain] [--start N] [--full] [--json out.json]',
+        'Usage: npm run probe-linkedin -- [--domain X]… [--all] [--no-domain] [--start N] [--pages N] [--full] [--json out.json]',
       )
       process.exit(0)
     } else {
@@ -74,6 +85,10 @@ function parseArgs(argv: string[]) {
     console.error('--start must be a non-negative integer page index (it is a PAGE index, not an offset)')
     process.exit(2)
   }
+  if (!Number.isInteger(pages) || pages < 1 || pages > MAX_PAGES) {
+    console.error(`--pages must be an integer between 1 and ${MAX_PAGES}`)
+    process.exit(2)
+  }
 
   const list: (string | null)[] = all
     ? [...ALL_DOMAINS]
@@ -84,7 +99,7 @@ function parseArgs(argv: string[]) {
         : [...DEFAULT_DOMAINS]
   if (noDomain) list.unshift(null)
 
-  return { domains: list, start, full, json }
+  return { domains: list, start, pages, full, json }
 }
 
 const SYMBOL: Record<ProbeVerdict, string> = {
@@ -97,7 +112,7 @@ const SYMBOL: Record<ProbeVerdict, string> = {
 }
 
 // Arguments first, so `--help` answers even on a box with no token configured.
-const { domains, start, full, json } = parseArgs(process.argv.slice(2))
+const { domains, start, pages, full, json } = parseArgs(process.argv.slice(2))
 
 const token = config.LINKEDIN_DMA_TOKEN.trim()
 if (!token) {
@@ -105,33 +120,68 @@ if (!token) {
   process.exit(1)
 }
 
-console.log(`Probing ${domains.length} domain(s) at page index ${start}, Linkedin-Version 202312\n`)
+const span = pages === 1 ? `page index ${start}` : `page indices ${start}–${start + pages - 1}`
+console.log(`Probing ${domains.length} domain(s) at ${span}, Linkedin-Version 202312\n`)
 
 const probes: Probe[] = []
 for (const domain of domains) {
-  const trace = await probeSnapshotDomain(token, domain, start)
-  const probe = classify(trace)
-  probes.push(probe)
+  for (let i = 0; i < pages; i++) {
+    const trace = await probeSnapshotDomain(token, domain, start + i)
+    const probe = classify(trace)
+    probes.push(probe)
 
-  const label = (domain ?? '(all domains)').padEnd(24)
-  const keys = probe.keys.length > 0 ? `  keys: ${probe.keys.slice(0, 3).join(', ')}` : ''
+    // On an all-domain walk the requested label says nothing — every page is a
+    // different domain — so show what LinkedIn said it answered with instead.
+    const shown = domain ?? (probe.snapshotDomain ? `→ ${probe.snapshotDomain}` : '(all domains)')
+    const label = (pages === 1 ? shown : `${shown} [${start + i}]`).padEnd(28)
+    const keys = probe.keys.length > 0 ? `  keys: ${probe.keys.slice(0, 3).join(', ')}` : ''
+    console.log(
+      `${label} ${String(probe.status).padStart(3)}  ${SYMBOL[probe.verdict].padEnd(10)}` +
+        ` items: ${String(probe.items).padStart(4)}  ${probe.durationMs}ms${keys}`,
+    )
+
+    // The end of the data, however it is spelled. Stop rather than spending the
+    // rest of --pages on 404s.
+    if (i > 0 && probe.verdict === 'no_data') {
+      console.log(`  ↳ end of data at page ${start + i}`)
+      break
+    }
+    if (i === 0 && pages > 1) {
+      const total = pagingTotal(probe)
+      if (total !== null) console.log(`  ↳ paging.total says ${total} (a hint, not a terminator)`)
+    }
+    await sleep(DELAY_MS)
+  }
+}
+
+if (pages > 1) {
+  console.log('\n--- records per domain --------------------------------------------------')
+  const tally = [...tallyByDomain(probes)].sort((a, b) => b[1] - a[1])
+  if (tally.length === 0) console.log('(nothing returned any records)')
+  for (const [domain, count] of tally) console.log(`${domain.padEnd(32)} ${String(count).padStart(6)}`)
+  const target = tally.find(([d]) => d === 'MEMBER_SHARE_INFO')
   console.log(
-    `${label} ${String(probe.status).padStart(3)}  ${SYMBOL[probe.verdict].padEnd(10)}` +
-      ` items: ${String(probe.items).padStart(4)}  ${probe.durationMs}ms${keys}`,
+    target
+      ? `\nMEMBER_SHARE_INFO IS present in this walk (${target[1]} record(s)).`
+      : '\nMEMBER_SHARE_INFO did not appear in this walk.',
   )
-  await sleep(DELAY_MS)
 }
 
 console.log(`\n${verdictLine(probes)}\n`)
 
 console.log('--- raw responses -------------------------------------------------------')
-for (const p of probes) {
+const shown = full ? probes : probes.filter((p) => p.verdict !== 'no_data' || probes.length <= 12)
+if (shown.length < probes.length) {
+  console.log(`(${probes.length - shown.length} empty page(s) omitted; --full prints everything)`)
+}
+for (const p of shown) {
   const body =
     full || p.body.length <= PREVIEW
       ? p.body
       : `${p.body.slice(0, PREVIEW)}… [${p.body.length} bytes, --full for all]`
   const id = p.requestId ? `  x-li-uuid: ${p.requestId}` : ''
-  console.log(`\n### ${p.domain ?? '(all domains)'}  HTTP ${p.status}${id}`)
+  const name = p.domain ?? p.snapshotDomain ?? '(all domains)'
+  console.log(`\n### ${name}  HTTP ${p.status}${id}`)
   console.log(body)
 }
 
