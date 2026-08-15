@@ -280,9 +280,22 @@ export function verdictLine(probes: Probe[]): string {
       'answers and MEMBER_SHARE_INFO still does not, it is stuck rather than slow.'
     )
   }
+  // Only claim the controls were silent if the controls were actually asked. A run of
+  // `--domain MEMBER_SHARE_INFO` alone printed "no domain returned anything, controls
+  // included" having probed no control at all — asserting the very thing that makes
+  // the sentence worth saying. Same disease as ADR 0040's, one branch further down.
+  const controlsProbed = CONTROL_DOMAINS.filter((d) => named(d))
+  if (controlsProbed.length === 0) {
+    return (
+      `VERDICT: inconclusive — only ${target.domain ?? 'one domain'} was probed and it returned nothing. ` +
+      'That alone cannot separate a refused token from an uncollated domain from a missing archive. ' +
+      'Run `npm run probe-linkedin` with no --domain for the full set.'
+    )
+  }
   return (
-    'VERDICT: no domain returned anything, controls included, and nothing was refused. ' +
-    'The archive does not exist rather than being late — past a day of this, use the DMA support form.'
+    `VERDICT: no domain returned anything — ${controlsProbed.length} control(s) included — and nothing ` +
+    'was refused. The archive does not exist rather than being late; past a day of this, use the DMA ' +
+    'support form.'
   )
 }
 
@@ -368,12 +381,63 @@ export interface ChangelogState {
   status: number
   /** `quiet` only when LinkedIn answered; a refused token is `unreadable`. */
   state: 'events' | 'quiet' | 'unreadable'
+  /**
+   * True when the caller stopped paging before the changelog ran out.
+   *
+   * The first version of this reported `0 post create(s)` from a single `count=10`
+   * request and read as a survey of the 28-day window. It was the ten OLDEST events
+   * in it. "No posts in the changelog" and "no posts in the first ten events" are
+   * different claims and only the second was observed — so a partial read now says
+   * so, and `postEvents` is never quoted as a finding without it.
+   */
+  truncated: boolean
   events: number
   /** Distinct `resourceName` values seen, with counts. */
   resources: Map<string, number>
   postEvents: number
   oldest: Date | null
   newest: Date | null
+}
+
+/**
+ * Fold a page of changelog events into a running total.
+ *
+ * The changelog pages by `startTime` rather than by index, and the docs say to use
+ * the previous response's latest `processedAt` — so accumulating is the caller's job
+ * and this is where the pages meet.
+ */
+export function mergeChangelog(a: ChangelogState, b: ChangelogState): ChangelogState {
+  if (a.state === 'unreadable' || a.events === 0) return { ...b, truncated: b.truncated }
+  if (b.state !== 'events') return a
+
+  const resources = new Map(a.resources)
+  for (const [name, n] of b.resources) resources.set(name, (resources.get(name) ?? 0) + n)
+
+  const times = [a.oldest, a.newest, b.oldest, b.newest].filter((d): d is Date => d !== null)
+  return {
+    status: b.status,
+    state: 'events',
+    truncated: b.truncated,
+    events: a.events + b.events,
+    resources,
+    postEvents: a.postEvents + b.postEvents,
+    oldest: times.length > 0 ? new Date(Math.min(...times.map((d) => d.getTime()))) : null,
+    newest: times.length > 0 ? new Date(Math.max(...times.map((d) => d.getTime()))) : null,
+  }
+}
+
+/** The `processedAt` to hand the next request, per the docs' own pagination advice. */
+export function nextChangelogStart(trace: DmaTrace): number | null {
+  try {
+    const elements = JSON.parse(trace.body)?.elements
+    if (!Array.isArray(elements) || elements.length === 0) return null
+    const times = elements
+      .map((e: any) => e?.processedAt)
+      .filter((t: unknown): t is number => typeof t === 'number' && t > 0)
+    return times.length > 0 ? Math.max(...times) : null
+  } catch {
+    return null
+  }
 }
 
 /** Resource names that mean "a post", however LinkedIn spells them. */
@@ -384,6 +448,7 @@ export function readChangelog(trace: DmaTrace): ChangelogState {
   const empty: ChangelogState = {
     status: trace.status,
     state: ok ? 'quiet' : 'unreadable',
+    truncated: false,
     events: 0,
     resources: new Map(),
     postEvents: 0,
@@ -417,6 +482,7 @@ export function readChangelog(trace: DmaTrace): ChangelogState {
   return {
     status: trace.status,
     state: 'events',
+    truncated: false,
     events: elements.length,
     resources,
     postEvents,

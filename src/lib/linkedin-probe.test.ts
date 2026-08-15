@@ -16,7 +16,8 @@ vi.mock('../db/client.js', () => ({ getDb }))
 
 const {
   classify, verdictLine, tallyByDomain, pagingTotal, unseenDomains,
-  readAuthorization, readChangelog, DEFAULT_DOMAINS, ALL_DOMAINS,
+  readAuthorization, readChangelog, mergeChangelog, nextChangelogStart,
+  DEFAULT_DOMAINS, ALL_DOMAINS,
 } = await import('./linkedin-probe.js')
 
 const trace = (domain: string | null, status: number, body: unknown) => ({
@@ -410,5 +411,67 @@ describe('readChangelog', () => {
     expect(readChangelog(dma(200, { elements: [] })).state).toBe('quiet')
     expect(readChangelog(dma(401, { message: 'nope' })).state).toBe('unreadable')
     expect(readChangelog(dma(200, '<html>')).state).toBe('unreadable')
+  })
+})
+
+// Both of these were over-claims caught in a real run: the verdict said "controls
+// included" having probed no control, and the changelog reported "0 post create(s)"
+// from the ten oldest events of a 28-day window. See ADR 0044.
+describe('claims the run has not earned', () => {
+  it('will not say the controls were silent when no control was probed', () => {
+    const line = verdictLine([classify(trace('MEMBER_SHARE_INFO', 404, NO_DATA))])
+    expect(line).toMatch(/inconclusive/)
+    expect(line).not.toMatch(/controls included/)
+    expect(line).toMatch(/full set/)
+  })
+
+  it('does say it once the controls actually answered nothing', () => {
+    const line = verdictLine([
+      classify(trace('PROFILE', 404, NO_DATA)),
+      classify(trace('REGISTRATION', 404, NO_DATA)),
+      classify(trace('MEMBER_SHARE_INFO', 404, NO_DATA)),
+    ])
+    expect(line).toMatch(/archive does not exist/)
+    expect(line).toMatch(/2 control\(s\) included/)
+  })
+})
+
+describe('changelog paging', () => {
+  const page = (events: unknown[]) => dma(200, { elements: events })
+  const ev = (resourceName: string, method: string, t: number) =>
+    ({ resourceName, method, capturedAt: t, processedAt: t + 1000 })
+
+  it('hands back the latest processedAt as the next cursor', () => {
+    expect(nextChangelogStart(page([ev('messages', 'CREATE', 1000), ev('messages', 'CREATE', 3000)])))
+      .toBe(4000)
+    // No events, no cursor — and null rather than 0, which would restart from epoch.
+    expect(nextChangelogStart(page([]))).toBeNull()
+    expect(nextChangelogStart(dma(200, '<html>'))).toBeNull()
+  })
+
+  it('sums events, resources and post creates across pages', () => {
+    const a = readChangelog(page([ev('socialActions/likes', 'CREATE', 1000)]))
+    const b = readChangelog(page([ev('ugcPosts', 'CREATE', 5000), ev('socialActions/likes', 'CREATE', 6000)]))
+    const merged = mergeChangelog(a, b)
+
+    expect(merged.events).toBe(3)
+    expect(merged.postEvents).toBe(1)
+    expect(merged.resources.get('socialActions/likes')).toBe(2)
+    // The window widens across pages rather than tracking only the newest page.
+    expect(merged.oldest?.getTime()).toBe(1000)
+    expect(merged.newest?.getTime()).toBe(6000)
+  })
+
+  it('keeps an unreadable or empty first page from swallowing a real second one', () => {
+    const real = readChangelog(page([ev('ugcPosts', 'CREATE', 5000)]))
+    expect(mergeChangelog(readChangelog(dma(401, {})), real).events).toBe(1)
+    expect(mergeChangelog(readChangelog(page([])), real).events).toBe(1)
+  })
+
+  it('carries the truncated flag, so a capped read is never quoted as a survey', () => {
+    const capped = { ...readChangelog(page([ev('messages', 'CREATE', 1000)])), truncated: true }
+    expect(mergeChangelog(capped, readChangelog(page([ev('messages', 'CREATE', 2000)]))).truncated)
+      .toBe(false)
+    expect(readChangelog(page([ev('messages', 'CREATE', 1000)])).truncated).toBe(false)
   })
 })

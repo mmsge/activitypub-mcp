@@ -713,8 +713,8 @@ Every run opens with two lines that come from outside the snapshot endpoint enti
   developer application the consent is bound to. Everything else can only observe the
   consent's *products*, so this is the one place an unregistered or misbound consent
   would show up.
-- **Changelog** — `GET /rest/memberChangeLogs?q=memberAndApplication`, with a count of
-  how many of the events are post creates. ADR 0033 ruled this API out because its window
+- **Changelog** — `GET /rest/memberChangeLogs?q=memberAndApplication`, paged at the API's
+  maximum `count=50` for up to 20 pages, with a count of how many events are post creates. ADR 0033 ruled this API out because its window
   is 28 days and it starts empty at consent, so it can neither backfill nor survive
   downtime. That holds only while the snapshot is expected to work: if `MEMBER_SHARE_INFO`
   never arrives, forward-only beats nothing, and this line says whether the route would

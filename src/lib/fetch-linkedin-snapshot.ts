@@ -234,8 +234,22 @@ export const MEMBER_AUTHORIZATIONS_URL =
  * while the snapshot was expected to work. It does not hold now that the snapshot
  * provably has no `MEMBER_SHARE_INFO` to give: forward-only beats nothing.
  */
-export const MEMBER_CHANGELOG_URL =
-  'https://api.linkedin.com/rest/memberChangeLogs?q=memberAndApplication&count=10'
+const CHANGELOG_URL = 'https://api.linkedin.com/rest/memberChangeLogs'
+
+/**
+ * One page of changelog events.
+ *
+ * `count` is capped at 50 by the API — anything outside [1,50] is a 400 carrying the
+ * recommended value. Paged by `startTime` (epoch ms), not by index: the docs say to
+ * pass the previous response's latest `processedAt`, and that the same event will
+ * reappear on the next request, so the caller must expect one page of overlap rather
+ * than treat a repeat as a loop.
+ */
+export function changelogUrl(startTime?: number | null, count = 50): string {
+  const params = new URLSearchParams({ q: 'memberAndApplication', count: String(count) })
+  if (startTime) params.set('startTime', String(startTime))
+  return `${CHANGELOG_URL}?${params.toString()}`
+}
 
 /** The trace as stored: same fields, body clipped to a bounded excerpt. */
 function clip(trace: SnapshotTrace): SnapshotTrace {
