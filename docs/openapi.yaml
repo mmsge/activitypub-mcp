@@ -3070,6 +3070,19 @@ paths:
         when posts actually last arrived, a different question from when the job
         last ran.
 
+        `last_note`, `last_http_status` and `last_http_body` are written on every
+        attempt, not only on failures — `last_error` and `last_status` stay empty
+        while a source succeeds and returns nothing, which is precisely the state
+        `awaiting_data` describes. `last_note` says what the run concluded and on
+        what evidence, including the control-domain probe that separates a refused
+        token from a collation delay.
+
+        `join_health` reports whether the two halves are meeting. Content and
+        performance are joined on an id extracted from each source's own URL
+        spelling, so a namespace mismatch fills both tables and joins nothing
+        while every query still returns rows: `matched: 0` with non-zero counts on
+        both sides is that failure, not a backlog.
+
         REST aggregates publicly-visible posts only, so its figures can differ
         from the MCP tool's.
       operationId: getLinkedinStatsGet

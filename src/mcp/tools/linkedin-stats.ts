@@ -7,6 +7,7 @@ import {
   getSourceHealth,
   LINKEDIN_SOURCE,
 } from '../../lib/source-health.js'
+import { linkedinJoinHealth } from '../../lib/linkedin-join.js'
 import { publicVisibilityCondition } from './linkedin-posts.js'
 import type { QueryScope } from './scope.js'
 
@@ -148,7 +149,10 @@ export async function getLinkedinStats(
     ORDER BY 1
   `)]
 
-  const health = await getSourceHealth(LINKEDIN_SOURCE)
+  const [health, join] = await Promise.all([
+    getSourceHealth(LINKEDIN_SOURCE),
+    linkedinJoinHealth(),
+  ])
   // Twice the poll interval: one missed run is a blip, two is a pattern. Derived
   // from the cadence rather than from an assumed token lifetime, because LinkedIn
   // documents no expiry for a self-serve DMA token.
@@ -199,7 +203,22 @@ export async function getLinkedinStats(
       last_error: health?.lastError ?? null,
       last_status: health?.lastStatus ?? null,
       consecutive_failures: health?.consecutiveFailures ?? 0,
+      // The three below are written on EVERY attempt, not only failures. A source
+      // that succeeds and returns nothing — this one's actual steady state — left
+      // `last_error` and `last_status` null, which reads as "no problems" and is
+      // really "no evidence either way". `last_note` says what the run concluded
+      // and on what, including the control-domain probe that separates a refused
+      // token from a collation delay. See ADR 0039.
+      last_note: health?.lastNote ?? null,
+      last_http_status: health?.lastHttpStatus ?? null,
+      last_http_body: health?.lastHttpBody ?? null,
       poll_interval_hours: config.LINKEDIN_SYNC_INTERVAL_HOURS,
     },
+    // Whether the two halves are actually meeting. They are joined on an id
+    // extracted from each source's own URL spelling, so a namespace mismatch
+    // (share vs ugcPost vs activity) fills both tables and joins nothing, with
+    // every query still returning rows. `matched: 0` against non-zero counts on
+    // both sides is that failure; otherwise these are just backlog counts.
+    join_health: join,
   }
 }

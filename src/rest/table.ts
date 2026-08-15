@@ -459,7 +459,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/linkedin-stats',
     name: 'get_linkedin_stats',
-    description: "Aggregate LinkedIn performance, including the median engagement rate per weekday (Europe/Oslo, over each post's latest observation). Every by_weekday bucket carries `n` so thin buckets are visible. totals carry p25/p75 for impressions and rate. source_health reports whether the DMA token is still working. REST aggregates publicly-visible posts only, so its figures can differ from MCP's.",
+    description: "Aggregate LinkedIn performance, including the median engagement rate per weekday (Europe/Oslo, over each post's latest observation). Every by_weekday bucket carries `n` so thin buckets are visible. totals carry p25/p75 for impressions and rate. source_health reports whether the DMA token is still working, with last_note carrying the last attempt's verdict and evidence; join_health reports whether the content and performance halves are actually meeting. REST aggregates publicly-visible posts only, so its figures can differ from MCP's.",
     schema: getLinkedinStatsSchema,
     handler: publicOnly(getLinkedinStats),
     numbers: [],

@@ -225,6 +225,13 @@
       "when": 1786696624353,
       "tag": "0031_trip_posts_follow_a_renamed_object",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1786783024353,
+      "tag": "0032_source_attempt_trace",
+      "breakpoints": true
     }
   ]
 }

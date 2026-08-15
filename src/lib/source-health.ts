@@ -34,6 +34,48 @@ export interface SourceHealth {
   itemsLastRun: number | null
   lastDataAt: Date | null
   notifiedAt: Date | null
+  lastHttpStatus: number | null
+  lastHttpBody: string | null
+  lastNote: string | null
+}
+
+/**
+ * What the last attempt actually got back, recorded whether or not it was a
+ * failure.
+ *
+ * `lastStatus`/`lastError` are failure-only by design — `deriveTokenStatus` reads
+ * `lastStatus` to decide `unauthorized`, so a 404 from a healthy end-of-crawl must
+ * never land there. The consequence, unnoticed until a source spent four days
+ * succeeding and producing nothing, is that a run which never fails leaves no
+ * evidence at all: status null, error null, failures 0, and no way to tell an
+ * empty archive from a still-collating one from a 200 that returned `[]`.
+ *
+ * So this is stored alongside rather than instead: the terminal HTTP status and
+ * body of every attempt, plus one line of prose saying what the run concluded and
+ * on what evidence. See ADR 0039.
+ */
+export interface AttemptTrace {
+  /** Terminal HTTP status. 0 means no response arrived at all. */
+  status: number
+  /** Its body, verbatim; clipped on write. */
+  body: string | null
+  /** What the run concluded, in one line, for a human. */
+  note: string
+}
+
+/** Bound on the persisted body, so one HTML error page cannot bloat the row. */
+const MAX_STORED_BODY = 4000
+
+function traceSet(trace: AttemptTrace | undefined) {
+  if (!trace) return {}
+  return {
+    lastHttpStatus: trace.status,
+    lastHttpBody:
+      trace.body === null || trace.body.length <= MAX_STORED_BODY
+        ? trace.body
+        : `${trace.body.slice(0, MAX_STORED_BODY)}… [${trace.body.length} bytes]`,
+    lastNote: trace.note,
+  }
 }
 
 /**
@@ -104,7 +146,7 @@ export async function recordAttempt(source: string): Promise<void> {
  * `hiddenAt`, and ADR 0033 for `firstSeenAt`. Extracted and exported so a test can
  * assert the absence.
  */
-export function successSet(items: number, now: Date) {
+export function successSet(items: number, now: Date, trace?: AttemptTrace) {
   return {
     lastSuccessAt: now,
     lastError: null,
@@ -115,16 +157,21 @@ export function successSet(items: number, now: Date) {
     // silenced forever by one push months ago.
     notifiedAt: null,
     updatedAt: now,
+    ...traceSet(trace),
     ...(items > 0 ? { lastDataAt: now } : {}),
   }
 }
 
 /** A run that completed. Clears the error state and the notification latch. */
-export async function recordSuccess(source: string, items: number): Promise<void> {
+export async function recordSuccess(
+  source: string,
+  items: number,
+  trace?: AttemptTrace,
+): Promise<void> {
   const db = getDb()
   const now = new Date()
   const prior = await getSourceHealth(source)
-  const set = successSet(items, now)
+  const set = successSet(items, now, trace)
 
   await db
     .insert(sourceSyncState)
@@ -154,32 +201,25 @@ export async function recordFailure(
   source: string,
   status: number,
   message: string,
+  trace?: AttemptTrace,
 ): Promise<void> {
   const db = getDb()
   const now = new Date()
   const prior = await getSourceHealth(source)
   const failures = (prior?.consecutiveFailures ?? 0) + 1
+  const set = {
+    lastAttemptAt: now,
+    lastError: message,
+    lastStatus: status,
+    consecutiveFailures: failures,
+    updatedAt: now,
+    ...traceSet(trace ?? { status, body: message, note: `Failed with HTTP ${status}` }),
+  }
 
   await db
     .insert(sourceSyncState)
-    .values({
-      source,
-      lastAttemptAt: now,
-      lastError: message,
-      lastStatus: status,
-      consecutiveFailures: failures,
-      updatedAt: now,
-    })
-    .onConflictDoUpdate({
-      target: sourceSyncState.source,
-      set: {
-        lastAttemptAt: now,
-        lastError: message,
-        lastStatus: status,
-        consecutiveFailures: failures,
-        updatedAt: now,
-      },
-    })
+    .values({ source, ...set })
+    .onConflictDoUpdate({ target: sourceSyncState.source, set })
 
   logger.error({ source, status, failures, message }, 'Source sync failed')
 

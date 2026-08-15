@@ -1,0 +1,141 @@
+// The probe's job is to say WHICH STAGE is failing — auth and consent, fetch, or
+// parse and join — from one pass over the domains. It is the hand-written curl loop
+// from ADR 0034 turned into something runnable, and the verdict is the whole point
+// of running it, so the verdict is what gets tested.
+//
+// Why a set of domains rather than the one that matters: a single 404 has four
+// plausible explanations (wrong scope, wrong app, a uniquely broken domain, an
+// unfinished collation job) and one response cannot separate them. The seam between
+// the profile-shaped domains and the activity-shaped ones can. See ADR 0039.
+import { describe, it, expect, vi } from 'vitest'
+
+const getDb = vi.fn(() => {
+  throw new Error('getDb() should not be called — the probe writes nothing and reads no table')
+})
+vi.mock('../db/client.js', () => ({ getDb }))
+
+const { classify, verdictLine, DEFAULT_DOMAINS, ALL_DOMAINS } = await import('./linkedin-probe.js')
+
+const trace = (domain: string | null, status: number, body: unknown) => ({
+  url: `https://api.linkedin.com/rest/memberSnapshotData?q=criteria&domain=${domain}&start=0`,
+  domain,
+  start: 0,
+  status,
+  body: typeof body === 'string' ? body : JSON.stringify(body),
+  headers: {} as Record<string, string>,
+  durationMs: 5,
+})
+
+const NO_DATA = { message: 'No data found for this domain and memberId', status: 404 }
+const shares = (items: unknown[]) => ({
+  elements: [{ snapshotDomain: 'MEMBER_SHARE_INFO', snapshotData: items }],
+})
+const SHARE = {
+  Date: '2026-05-21 08:04:13',
+  ShareLink: 'https://www.linkedin.com/feed/update/urn:li:activity:7462903540748034050',
+  ShareCommentary: 'KI-buzzwords',
+  Visibility: 'MEMBER_NETWORK',
+}
+
+describe('classify', () => {
+  it('reads the no-data terminator before the status, as the poller does', () => {
+    // It arrives AS a 404. Reading status first would call the natural end of every
+    // successful crawl a failure.
+    const p = classify(trace('MEMBER_SHARE_INFO', 404, NO_DATA))
+    expect(p.verdict).toBe('no_data')
+  })
+
+  it('names a refused token rather than folding it into "no data"', () => {
+    expect(classify(trace('PROFILE', 401, { message: 'Invalid access token' })).verdict)
+      .toBe('unauthorized')
+    expect(classify(trace('PROFILE', 403, { message: 'Not enough permissions' })).verdict)
+      .toBe('unauthorized')
+  })
+
+  it('names a 426 separately — that is the pinned version, not the archive', () => {
+    expect(classify(trace('PROFILE', 426, { message: 'NONEXISTENT_VERSION' })).verdict).toBe('version')
+  })
+
+  it('reports a 200 with an empty snapshotData as no data, not as data', () => {
+    expect(classify(trace('MEMBER_SHARE_INFO', 200, shares([]))).verdict).toBe('no_data')
+  })
+
+  it('derives the post keys the poller would derive', () => {
+    const p = classify(trace('MEMBER_SHARE_INFO', 200, shares([SHARE])))
+    expect(p.verdict).toBe('data')
+    expect(p.items).toBe(1)
+    // "Did anything arrive" and "would it have joined" are different questions.
+    expect(p.keys).toEqual(['7462903540748034050'])
+  })
+
+  it('reports records with no readable key as data with no keys', () => {
+    const p = classify(trace('MEMBER_SHARE_INFO', 200, shares([{ Date: '2026-05-21 08:04:13' }])))
+    expect(p.verdict).toBe('data')
+    expect(p.items).toBe(1)
+    expect(p.keys).toEqual([])
+  })
+
+  it('does not mistake an HTML error page for an empty archive', () => {
+    expect(classify(trace('PROFILE', 200, '<html>oops</html>')).verdict).toBe('unreadable')
+  })
+})
+
+describe('verdictLine', () => {
+  const control = (status: number, body: unknown) => classify(trace('PROFILE', status, body))
+  const target = (status: number, body: unknown) => classify(trace('MEMBER_SHARE_INFO', status, body))
+
+  it('blames auth first — a refused token explains every 404 under it', () => {
+    const line = verdictLine([control(401, { message: 'Invalid access token' }), target(404, NO_DATA)])
+    expect(line).toMatch(/VERDICT: auth/)
+    expect(line).toMatch(/Re-mint/)
+  })
+
+  it('blames the pinned version when anything answered 426', () => {
+    expect(verdictLine([target(426, { message: 'NONEXISTENT_VERSION' })])).toMatch(/VERDICT: fetch/)
+  })
+
+  it('clears auth and fetch when the controls answer and the target does not', () => {
+    const line = verdictLine([control(200, { elements: [{ snapshotData: [{ 'First Name': 'M' }] }] }), target(404, NO_DATA)])
+    expect(line).toMatch(/neither auth nor fetch/)
+    // The one action a frustrated operator is most likely to take is the one that
+    // could set the clock back (ADR 0034).
+    expect(line).toMatch(/Do NOT re-mint/)
+  })
+
+  it('calls a wholly silent archive a different problem from one slow domain', () => {
+    const line = verdictLine([control(404, NO_DATA), target(404, NO_DATA)])
+    expect(line).toMatch(/archive does not exist/)
+    expect(line).not.toMatch(/neither auth nor fetch/)
+  })
+
+  it('blames the parse when records arrive but no key can be read from them', () => {
+    const line = verdictLine([target(200, shares([{ Date: '2026-05-21 08:04:13' }]))])
+    expect(line).toMatch(/VERDICT: parse/)
+  })
+
+  it('clears every stage when the target returns usable records', () => {
+    const line = verdictLine([target(200, shares([SHARE]))])
+    expect(line).toMatch(/fetch and parse are both fine/)
+    expect(line).toMatch(/1 usable key/)
+  })
+
+  it('says so rather than guessing when the target was not probed', () => {
+    expect(verdictLine([control(200, { elements: [{ snapshotData: [{ a: 1 }] }] })]))
+      .toMatch(/was not probed/)
+  })
+})
+
+describe('the probed domain set', () => {
+  it('spans the seam — controls, the target, and the other activity domains', () => {
+    expect(DEFAULT_DOMAINS).toContain('PROFILE')
+    expect(DEFAULT_DOMAINS).toContain('MEMBER_SHARE_INFO')
+    expect(DEFAULT_DOMAINS).toContain('ALL_COMMENTS')
+  })
+
+  it('lists every domain LinkedIn documents, in the case LinkedIn documents', () => {
+    expect(ALL_DOMAINS).toContain('MEMBER_SHARE_INFO')
+    expect(ALL_DOMAINS).not.toContain('member_share_info')
+    expect(new Set(ALL_DOMAINS).size).toBe(ALL_DOMAINS.length)
+    for (const d of DEFAULT_DOMAINS) expect(ALL_DOMAINS).toContain(d)
+  })
+})

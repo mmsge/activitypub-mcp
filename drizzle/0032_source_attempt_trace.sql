@@ -1,0 +1,39 @@
+-- What the last attempt actually got back, whatever it was classified as.
+--
+-- `source_sync_state` already recorded `last_status` and `last_error`, but only
+-- `recordFailure` ever wrote them — so a source whose every run *succeeded and
+-- returned nothing* reported `last_status: NULL, last_error: NULL,
+-- consecutive_failures: 0` forever. That is exactly the LinkedIn snapshot's
+-- steady state (ADR 0034), and it is the one state where you most want the
+-- evidence: a 200 with an empty archive, a 404 "not collated yet" and a 404 "you
+-- have paged past the end" are three different situations, and all three left the
+-- same blank row behind.
+--
+-- These three columns are written on EVERY attempt, success or failure:
+--
+--   last_http_status  the terminal response's status — 0 when no response arrived
+--                     at all (timeout, DNS, TLS). Distinct from `last_status`,
+--                     which stays failure-only because `deriveTokenStatus` reads
+--                     it to decide `unauthorized` and must not see a 404 from a
+--                     perfectly healthy end-of-crawl.
+--   last_http_body    that response's body, clipped. LinkedIn's error envelope is
+--                     the diagnosis; paraphrasing it into a log line and dropping
+--                     it was the actual mistake.
+--   last_note         one line of prose saying what the run concluded and on what
+--                     evidence, including the control-domain probe. This is what a
+--                     human reads first.
+--
+-- The control probe is the other half. An empty crawl of MEMBER_SHARE_INFO used to
+-- be recorded as a plain success, which is indistinguishable from a dead token
+-- whose 401 happened to carry a "no data found" body, and from an archive that was
+-- never built. So when the target domain comes back empty and the source has never
+-- once held data, the job now asks a control domain (PROFILE) the same question.
+-- Its answer separates the three: control 200-with-rows means the token and consent
+-- are good and the domain genuinely is not collated yet; control 401/403 means the
+-- token is refused and the run is recorded as the failure it is; control empty too
+-- means the whole archive is missing, which is not "one slow domain".
+--
+-- See ADR 0039, which amends 0033 and 0034.
+ALTER TABLE "source_sync_state" ADD COLUMN "last_http_status" integer;--> statement-breakpoint
+ALTER TABLE "source_sync_state" ADD COLUMN "last_http_body" text;--> statement-breakpoint
+ALTER TABLE "source_sync_state" ADD COLUMN "last_note" text;

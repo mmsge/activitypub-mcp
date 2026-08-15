@@ -22,11 +22,23 @@ try {
     {
       last_success: health?.lastSuccessAt?.toISOString() ?? '(never)',
       last_attempt: health?.lastAttemptAt?.toISOString() ?? '(never)',
+      last_data: health?.lastDataAt?.toISOString() ?? '(never)',
       posts_upserted: health?.itemsLastRun ?? 0,
       consecutive_failures: health?.consecutiveFailures ?? 0,
+      http_status: health?.lastHttpStatus ?? '',
       last_error: health?.lastError ?? '',
     },
   ])
+
+  // The verdict in prose, and the response it rests on. Printed rather than left
+  // in a column because a run that succeeds and ingests nothing is this source's
+  // normal state, and the table above says nothing about which of the several
+  // reasons for that it was. See ADR 0039.
+  if (health?.lastNote) console.log(`\n${health.lastNote}`)
+  if (health?.lastHttpBody) console.log(`\nLast response body:\n${health.lastHttpBody}\n`)
+  if (!health?.lastDataAt) {
+    console.log('Run `npm run probe-linkedin` to see every domain at once, raw.\n')
+  }
 
   // A failed run is reported through the sync state rather than by throwing, so
   // exit non-zero on it explicitly — otherwise a dead token looks like success to
