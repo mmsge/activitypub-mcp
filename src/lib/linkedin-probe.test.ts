@@ -94,12 +94,47 @@ describe('verdictLine', () => {
     expect(verdictLine([target(426, { message: 'NONEXISTENT_VERSION' })])).toMatch(/VERDICT: fetch/)
   })
 
-  it('clears auth and fetch when the controls answer and the target does not', () => {
+  it('reads controls-only silence as collation still running', () => {
     const line = verdictLine([control(200, { elements: [{ snapshotData: [{ 'First Name': 'M' }] }] }), target(404, NO_DATA)])
     expect(line).toMatch(/neither auth nor fetch/)
     // The one action a frustrated operator is most likely to take is the one that
     // could set the clock back (ADR 0034).
     expect(line).toMatch(/Do NOT re-mint/)
+    // And it must say what would change the reading, or it is unfalsifiable.
+    expect(line).toMatch(/peer activity domain/)
+  })
+
+  it('calls it STUCK the moment a peer activity domain answers — this is the real 2026-08-15 run', () => {
+    // Controls 200, ALL_LIKES / ALL_COMMENTS / INSTANT_REPOSTS 200 with data,
+    // MEMBER_SHARE_INFO and ARTICLES 404. Activity collation had demonstrably
+    // finished; the previous verdict still said "not collated yet, keep waiting",
+    // which is the failure ADR 0040 records.
+    const line = verdictLine([
+      control(200, { elements: [{ snapshotData: [{ 'First Name': 'M' }] }] }),
+      classify(trace('REGISTRATION', 200, { elements: [{ snapshotData: [{ 'Registered At': '9/27/12' }] }] })),
+      target(404, NO_DATA),
+      classify(trace('ARTICLES', 404, NO_DATA)),
+      classify(trace('ALL_LIKES', 200, { elements: [{ snapshotData: [{ Link: 'x', Type: 'LIKE' }] }] })),
+      classify(trace('ALL_COMMENTS', 200, { elements: [{ snapshotData: [{ Message: 'hei' }] }] })),
+      classify(trace('INSTANT_REPOSTS', 200, { elements: [{ snapshotData: [{ Link: 'y' }] }] })),
+    ])
+
+    expect(line).toMatch(/STUCK/)
+    expect(line).toMatch(/not a wait/i)
+    expect(line).toMatch(/support form/i)
+    expect(line).toContain('ALL_LIKES')
+    expect(line).not.toMatch(/neither auth nor fetch/)
+  })
+
+  it('still blames auth first even when peers have data', () => {
+    // A refused token somewhere in the run explains every 404 under it, whatever
+    // else answered.
+    const line = verdictLine([
+      control(401, { message: 'Invalid access token' }),
+      classify(trace('ALL_LIKES', 200, { elements: [{ snapshotData: [{ Link: 'x' }] }] })),
+      target(404, NO_DATA),
+    ])
+    expect(line).toMatch(/VERDICT: auth/)
   })
 
   it('calls a wholly silent archive a different problem from one slow domain', () => {

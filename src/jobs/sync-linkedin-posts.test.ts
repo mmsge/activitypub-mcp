@@ -128,17 +128,33 @@ describe('classifyEmptyCrawl', () => {
     durationMs: 12,
   }
 
-  function control(body: unknown, status = 200) {
-    vi.stubGlobal('fetch', vi.fn(async () => ({
-      ok: status >= 200 && status < 300,
-      status,
-      statusText: 'x',
-      text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
-    })))
+  /**
+   * Answers keyed by domain, so a test can say what PROFILE and ALL_COMMENTS each
+   * returned. The classifier asks PROFILE first and only asks the peer when PROFILE
+   * came back with data.
+   */
+  function replies(byDomain: Record<string, { status?: number; body: unknown }>) {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const domain = new URL(url).searchParams.get('domain') ?? ''
+      const r = byDomain[domain] ?? { status: 404, body: NO_DATA }
+      const status = r.status ?? 200
+      return {
+        ok: status >= 200 && status < 300,
+        status,
+        statusText: 'x',
+        text: async () => (typeof r.body === 'string' ? r.body : JSON.stringify(r.body)),
+      }
+    }))
   }
 
+  const control = (body: unknown, status = 200) => replies({ PROFILE: { status, body } })
+
+  const NO_DATA = { message: 'No data found for this domain and memberId.', status: 404 }
   const profilePage = {
     elements: [{ snapshotDomain: 'PROFILE', snapshotData: [{ 'First Name': 'Markus' }] }],
+  }
+  const commentsPage = {
+    elements: [{ snapshotDomain: 'ALL_COMMENTS', snapshotData: [{ Message: 'hei', Date: '2026-07-03 07:23:54' }] }],
   }
 
   afterEach(() => { vi.unstubAllGlobals() })
@@ -162,16 +178,52 @@ describe('classifyEmptyCrawl', () => {
     expect((await classifyEmptyCrawl('tok', target)).kind).toBe('auth')
   })
 
-  it('confirms awaiting_data with positive evidence when the control answers', async () => {
-    control(profilePage)
+  it('will not reassert the collation story on a control alone', async () => {
+    // PROFILE answering proves the token and the archive. It proves NOTHING about
+    // collation, because profile-shaped domains are collated FIRST — they answer
+    // while the activity ones are still assembling, and they go on answering long
+    // after collation has finished. Reading only PROFILE is how "not collated yet"
+    // survived five days past the point it was true. See ADR 0040.
+    replies({ PROFILE: { body: profilePage } })
     const v = await classifyEmptyCrawl('tok', target)
 
     expect(v.kind).toBe('awaiting')
     expect(v.note).toContain('PROFILE')
-    expect(v.note).toMatch(/not collated yet/i)
+    expect(v.note).toContain('ALL_COMMENTS')
+    expect(v.note).toMatch(/does not settle it/i)
+    // An empty peer is consistent with a member who simply has no comments, so the
+    // note must not claim collation is the reason.
+    expect(v.note).not.toMatch(/not collated yet/i)
     // The stored body is the TARGET's — it is the response being explained.
     expect(v.trace.body).toContain('No data found')
     expect(v.trace.status).toBe(404)
+  })
+
+  it('calls it STUCK when a peer activity domain has data and the target does not', async () => {
+    // The reading that was actually true on 2026-08-15: ALL_LIKES, ALL_COMMENTS and
+    // INSTANT_REPOSTS had all filled in while MEMBER_SHARE_INFO stayed 404. Activity
+    // collation was over; one domain was missing. Waiting could not fix that, and the
+    // state was still telling its reader to wait.
+    replies({ PROFILE: { body: profilePage }, ALL_COMMENTS: { body: commentsPage } })
+    const v = await classifyEmptyCrawl('tok', target)
+
+    expect(v.kind).toBe('stuck')
+    expect(v.note).toMatch(/FINISHED/)
+    expect(v.note).toMatch(/Not a wait/i)
+    expect(v.note).toMatch(/support form/i)
+    // Must not send the operator to the one action that could set the clock back.
+    expect(v.note).not.toMatch(/re-mint(?!ing cannot)/i)
+  })
+
+  it('still asks the peer only when the control actually answered', async () => {
+    // No point spending a request on a peer when the archive itself is missing.
+    const fn = vi.fn(async () => ({
+      ok: false, status: 404, statusText: 'x', text: async () => JSON.stringify(NO_DATA),
+    }))
+    vi.stubGlobal('fetch', fn)
+
+    expect((await classifyEmptyCrawl('tok', target)).kind).toBe('empty_archive')
+    expect(fn).toHaveBeenCalledTimes(1)
   })
 
   it('separates a missing archive from one slow domain', async () => {

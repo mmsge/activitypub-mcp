@@ -637,15 +637,26 @@ the posts actually arrived.
 
 **But read the note beside the badge before waiting it out.** *Awaiting data* on its own
 only means no row has ever arrived; it is not a statement about the token. So on a run
-that finds nothing, the poller asks `PROFILE` as a control and stores what both answered,
-in `last_note` (dashboard, `get_linkedin_stats`, and the `sync-linkedin` script):
+that finds nothing, the poller asks `PROFILE` (does the archive exist and is the token
+good?) and then `ALL_COMMENTS` (has collation actually finished?), and stores what they
+answered in `last_note` (dashboard, `get_linkedin_stats`, and the `sync-linkedin` script):
 
-- *control returned records* — token, scope and consent are all verified good, and the
-  domain genuinely is not collated yet. Nothing to fix.
-- *control returned 401/403* — the token is refused. This is recorded as a **failure**,
-  not as patience: the badge turns red and the ntfy push fires.
-- *control was empty too* — the whole snapshot is missing rather than one domain being
-  slow, which is a different problem and does not clear itself.
+- *`PROFILE` returned 401/403* — the token is refused. Recorded as a **failure**, not as
+  patience: the badge turns red and the ntfy push fires.
+- *`PROFILE` empty too* — the whole snapshot is missing rather than one domain being slow.
+  A different problem, and it does not clear itself.
+- *`ALL_COMMENTS` returned records* — activity collation has **finished** and this domain
+  alone is missing. Not a wait: waiting cannot fix it and the token is demonstrably good,
+  so re-minting cannot either. Report it via the DMA support form.
+- *`ALL_COMMENTS` empty as well* — inconclusive, and said so rather than guessed. It is
+  equally consistent with collation still running and with the member simply having no
+  comments. Run the probe for the full seam.
+
+`PROFILE` alone deliberately does **not** confirm "still collating". Profile-shaped domains
+are collated *first*, so they answer while the activity ones are still assembling and go on
+answering long after collation has finished — testing that claim against them is a check
+that cannot come out false, which is how the explanation survived five days past the point
+it was true. See [ADR 0040](docs/decision-records/0040-the-wait-was-over-and-the-state-still-said-wait.md).
 
 **Do not re-mint the token to try to hurry it along.** LinkedIn creates the snapshot at
 the moment of consent, so a fresh consent plausibly restarts the collation rather than
