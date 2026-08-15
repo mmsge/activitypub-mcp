@@ -50,9 +50,25 @@ export const ALL_DOMAINS = [
   'SAVED_JOBS', 'SAVED_JOB_ALERTS', 'SEARCHES', 'SECURITY_CHALLENGE_PIPE', 'SKILLS',
   'TALENT_QUESTION_SAVED_RESPONSE', 'TEST_SCORES', 'TRUSTED_GRAPH',
   'VOLUNTEERING_EXPERIENCES',
+  // Not in LinkedIn's published domain table; observed answering in a real walk on
+  // 2026-08-15. The list is documentation plus what the archive actually returned,
+  // because the documentation is demonstrably not exhaustive. See ADR 0042.
+  'WHATSAPP_NUMBERS', 'MEMBER_HASHTAG',
 ]
 
 const NO_DATA_RE = /no data found/i
+
+/**
+ * How many distinct domains a walk must have produced before its silence about one
+ * of them counts as evidence.
+ *
+ * A walk cut short after two pages proves nothing. A real one on this archive
+ * returned records for 42 domains — profile, activity, messaging, ads, the lot —
+ * which is comprehensive enough that a domain missing from it is missing from the
+ * archive. Set well below 42 so a smaller account still clears it, and well above a
+ * handful so a truncated run does not.
+ */
+const WALK_COVERAGE_FLOOR = 15
 
 export type ProbeVerdict = 'data' | 'no_data' | 'unauthorized' | 'version' | 'error' | 'unreadable'
 
@@ -146,6 +162,26 @@ export function pagingTotal(probe: Probe): number | null {
   }
 }
 
+/**
+ * Documented domains that never appeared in a run.
+ *
+ * Printed after a walk because the unfiltered query's coverage is **not documented**,
+ * and should not be assumed total: "did not appear in this walk" and "is not in the
+ * archive" are different claims, and only the first is observed. Listing what was
+ * never seen keeps that distinction in front of whoever reads the tally — including
+ * when a domain that answers perfectly well by name is absent from the walk, which
+ * would otherwise look like evidence of something it is not. See ADR 0042.
+ */
+export function unseenDomains(probes: Probe[]): string[] {
+  // Case-folded on both sides. The domain is case-SENSITIVE on the way in — LinkedIn
+  // says so and returns nothing on the wrong case — but it does not echo the same
+  // spelling on the way out: a real walk answered `login` and `Events` for the
+  // domains documented as `LOGIN` and `EVENTS`. Comparing verbatim would report two
+  // domains as never seen while their records sat in the tally above. See ADR 0042.
+  const seen = new Set([...tallyByDomain(probes).keys()].map((d) => d.toLowerCase()))
+  return ALL_DOMAINS.filter((d) => !seen.has(d.toLowerCase()))
+}
+
 /** Records seen per domain across a run, keyed by what LinkedIn said it answered with. */
 export function tallyByDomain(probes: Probe[]): Map<string, number> {
   const out = new Map<string, number>()
@@ -177,13 +213,33 @@ export function verdictLine(probes: Probe[]): string {
   )
   const target = viaWalk ?? named(TARGET_DOMAIN)
 
+  /** Domains the unfiltered walk actually produced records for. */
+  const walkedDomains = new Set(
+    probes
+      .filter((p) => p.domain === null && p.verdict === 'data' && p.snapshotDomain)
+      .map((p) => p.snapshotDomain as string),
+  )
+
   if (probes.some((p) => p.verdict === 'unauthorized')) {
     return 'VERDICT: auth. The token is refused (401/403). Re-mint it — this is not a collation delay.'
   }
   if (probes.some((p) => p.verdict === 'version')) {
     return 'VERDICT: fetch. A 426 means Linkedin-Version is not 202312, which is the only value this endpoint accepts.'
   }
-  if (!target) return 'VERDICT: (MEMBER_SHARE_INFO was not probed in this run.)'
+  // A walk that produced records for many domains and never once produced the target
+  // is not "the target was not probed" — it is the archive answering, comprehensively,
+  // that it does not hold that domain. Stated before the not-probed fallback, which
+  // would otherwise throw away the strongest evidence this tool can gather.
+  if (!target?.items && walkedDomains.size >= WALK_COVERAGE_FLOOR) {
+    return (
+      `VERDICT: ABSENT FROM THE ARCHIVE — the unfiltered walk returned records for ` +
+      `${walkedDomains.size} domains and ${TARGET_DOMAIN} was not among them. Asking for it by name ` +
+      '404s and asking for everything does not produce it either, so there is no route to this data ' +
+      'and no workaround to build. LinkedIn has not generated it. Report it via the DMA support form ' +
+      '(https://www.linkedin.com/help/linkedin/ask/dsapi) with an x-li-uuid from this run.'
+    )
+  }
+  if (!target) return `VERDICT: (${TARGET_DOMAIN} was not probed in this run.)`
 
   if (target.verdict === 'data') {
     if (viaWalk) {

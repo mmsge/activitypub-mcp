@@ -14,7 +14,7 @@ const getDb = vi.fn(() => {
 })
 vi.mock('../db/client.js', () => ({ getDb }))
 
-const { classify, verdictLine, tallyByDomain, pagingTotal, DEFAULT_DOMAINS, ALL_DOMAINS } =
+const { classify, verdictLine, tallyByDomain, pagingTotal, unseenDomains, DEFAULT_DOMAINS, ALL_DOMAINS } =
   await import('./linkedin-probe.js')
 
 const trace = (domain: string | null, status: number, body: unknown) => ({
@@ -233,5 +233,93 @@ describe('the all-domain walk', () => {
     // ADR 0033 is emphatic this count must never terminate anything.
     expect(pagingTotal(walkPage('LOGIN', [{ a: 1 }]))).toBeNull()
     expect(pagingTotal(classify(trace(null, 200, '<html>')))).toBeNull()
+  })
+})
+
+describe('unseenDomains', () => {
+  const walkPage = (domain: string, items: unknown[]) =>
+    classify(trace(null, 200, { elements: [{ snapshotDomain: domain, snapshotData: items }] }))
+
+  it('lists what a walk never showed, so absence stays a claim about the walk', () => {
+    // The unfiltered query's coverage is not documented. Reporting only what WAS
+    // seen would let a reader slide from "absent from the walk" to "absent from the
+    // archive", which are different claims and only the first is observed.
+    const unseen = unseenDomains([walkPage('LOGIN', [{ a: 1 }]), walkPage('INBOX', [{ b: 2 }])])
+    expect(unseen).not.toContain('LOGIN')
+    expect(unseen).not.toContain('INBOX')
+    expect(unseen).toContain('MEMBER_SHARE_INFO')
+    expect(unseen.length).toBe(ALL_DOMAINS.length - 2)
+  })
+
+  it('counts a domain that answered by name as seen', () => {
+    expect(unseenDomains([classify(trace('PROFILE', 200, {
+      elements: [{ snapshotDomain: 'PROFILE', snapshotData: [{ 'First Name': 'M' }] }],
+    }))])).not.toContain('PROFILE')
+  })
+
+  it('does not count a domain that answered with nothing', () => {
+    expect(unseenDomains([classify(trace('ARTICLES', 404, NO_DATA))])).toContain('ARTICLES')
+  })
+})
+
+// The real walk of 2026-08-15: 42 domains returned records — profile, activity,
+// messaging, ads, the lot — and MEMBER_SHARE_INFO was not one of them. Asking by name
+// 404s and asking for everything does not produce it either, which is as close to
+// proof of absence as this API allows. The verdict said "(MEMBER_SHARE_INFO was not
+// probed in this run.)" and threw that away. See ADR 0042.
+describe('a completed walk that never shows the target', () => {
+  const walkPage = (domain: string) =>
+    classify(trace(null, 200, { elements: [{ snapshotDomain: domain, snapshotData: [{ a: 1 }] }] }))
+  const wideWalk = [
+    'ALL_LIKES', 'INBOX', 'ADS_CLICKED', 'CONNECTIONS', 'ENDORSEMENTS', 'INVITATIONS',
+    'SECURITY_CHALLENGE_PIPE', 'LEARNING', 'COMPANY_FOLLOWS', 'RICH_MEDIA', 'ALL_COMMENTS',
+    'SKILLS', 'MEMBER_FOLLOWING', 'login', 'RECEIPTS_LBP', 'POSITIONS', 'PROFILE',
+  ].map(walkPage)
+
+  it('calls it ABSENT FROM THE ARCHIVE rather than "not probed"', () => {
+    const line = verdictLine(wideWalk)
+    expect(line).toMatch(/ABSENT FROM THE ARCHIVE/)
+    expect(line).toMatch(/no workaround to build/)
+    expect(line).not.toMatch(/was not probed/)
+  })
+
+  it('holds even when the named lookup 404d alongside it', () => {
+    expect(verdictLine([...wideWalk, classify(trace('MEMBER_SHARE_INFO', 404, NO_DATA))]))
+      .toMatch(/ABSENT FROM THE ARCHIVE/)
+  })
+
+  it('will not conclude absence from a walk too short to mean anything', () => {
+    // Two pages prove nothing. Silence has to be earned.
+    expect(verdictLine([walkPage('LOGIN'), walkPage('INBOX')])).toMatch(/was not probed/)
+  })
+
+  it('still yields to a walk page that DID carry the target', () => {
+    expect(verdictLine([...wideWalk, classify(trace(null, 200, {
+      elements: [{ snapshotDomain: 'MEMBER_SHARE_INFO', snapshotData: [SHARE] }],
+    }))])).toMatch(/WORKAROUND FOUND/)
+  })
+
+  it('still blames auth ahead of it', () => {
+    expect(verdictLine([...wideWalk, classify(trace('PROFILE', 401, { message: 'nope' }))]))
+      .toMatch(/VERDICT: auth/)
+  })
+})
+
+describe('the domain list against what a real archive returned', () => {
+  it('carries the domains LinkedIn answered with but never documented', () => {
+    // The published table is not exhaustive; a real walk produced both of these.
+    expect(ALL_DOMAINS).toContain('WHATSAPP_NUMBERS')
+    expect(ALL_DOMAINS).toContain('MEMBER_HASHTAG')
+  })
+
+  it('does not report a domain as unseen because LinkedIn changed its case', () => {
+    // The walk answered `login` and `Events` for LOGIN and EVENTS. The domain is
+    // case-sensitive on the way IN; the label coming back is not the same spelling.
+    const unseen = unseenDomains([
+      classify(trace(null, 200, { elements: [{ snapshotDomain: 'login', snapshotData: [{ a: 1 }] }] })),
+      classify(trace(null, 200, { elements: [{ snapshotDomain: 'Events', snapshotData: [{ a: 1 }] }] })),
+    ])
+    expect(unseen).not.toContain('LOGIN')
+    expect(unseen).not.toContain('EVENTS')
   })
 })

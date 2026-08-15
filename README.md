@@ -695,7 +695,15 @@ only the unfiltered walk answers the second. `--pages N` walks it and prints a p
 tally of records, keyed on what LinkedIn said it answered with rather than what was asked
 for. If a domain that 404s by name turns up in the walk, the data is reachable and only the
 lookup is broken — the run says `WORKAROUND FOUND`.
-See [ADR 0041](docs/decision-records/0041-ask-the-archive-what-it-holds-not-whether-a-name-answers.md).
+
+A walk prints **no raw bodies** unless you ask for them: `INBOX` alone returns ~740 kB per
+page, and 60 of those bury the tally that is the reason to walk. Pass `--full` for the
+bodies or `--json out.json` to keep them without reading them. The tally also lists the
+domains it did **not** see, because the unfiltered query's coverage is undocumented — "did
+not appear in this walk" and "is not in the archive" are different claims, and only the
+first is observed.
+See [ADR 0041](docs/decision-records/0041-ask-the-archive-what-it-holds-not-whether-a-name-answers.md)
+and [0042](docs/decision-records/0042-a-diagnostic-nobody-can-read-is-not-a-diagnostic.md).
 
 It probes the controls and the activity domains together on purpose. One domain answering
 404 has four plausible explanations — wrong scope, wrong app, a uniquely broken domain, a
