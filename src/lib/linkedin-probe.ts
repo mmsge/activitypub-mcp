@@ -17,11 +17,16 @@ import type { SnapshotTrace } from './fetch-linkedin-snapshot.js'
  *
  * A single domain answering 404 has four plausible explanations — wrong scope,
  * wrong app, a uniquely broken domain, or a collation job that has not finished —
- * and one response cannot separate them. The seam between profile-shaped and
- * activity-shaped domains can: five simultaneous failures along one seam is one
- * upstream job that has not run, and it rules out the other three at once. That
- * seam is the evidence ADR 0034 was built on, and it took a hand-written curl loop
- * to find. This is that loop, kept.
+ * and one response cannot separate them. A set can, and *which* set matters:
+ *
+ *  - The **controls** are profile-shaped. They answer earliest, so their answering
+ *    proves the token, the scope, the consent and the archive's existence.
+ *  - The **peers** are the other activity-shaped domains — the ones that were 404
+ *    alongside `MEMBER_SHARE_INFO` in ADR 0034's probe. They are the load-bearing
+ *    ones, because they are what "not collated yet" is a claim *about*. A peer
+ *    returning data disproves it outright; the controls cannot, and reading only
+ *    the controls is exactly how that hypothesis survived five days too long
+ *    (ADR 0040).
  */
 export const CONTROL_DOMAINS = ['PROFILE', 'REGISTRATION', 'RICH_MEDIA']
 export const TARGET_DOMAIN = 'MEMBER_SHARE_INFO'
@@ -137,11 +142,27 @@ export function verdictLine(probes: Probe[]): string {
       : `VERDICT: fetch and parse are both fine — ${target.items} record(s), ${target.keys.length} usable key(s). ` +
           'If the archive is still empty, the failure is downstream of here.'
   }
+
+  // Checked BEFORE the controls. A profile-shaped domain answering only proves the
+  // archive exists; a *peer activity* domain answering proves LinkedIn has finished
+  // collating activity data for this member, which is the exact claim
+  // "not collated yet" rests on. See ADR 0040 — this is the reading that was wrong.
+  const peers = ACTIVITY_DOMAINS.filter(has)
+  if (peers.length > 0) {
+    return (
+      `VERDICT: upstream and STUCK, not a wait — ${peers.join(', ')} returned data, so LinkedIn has ` +
+      'finished collating activity data for this member and MEMBER_SHARE_INFO alone is missing. Waiting ' +
+      'longer will not fix it and re-minting cannot (the token is demonstrably good). This is the DMA ' +
+      'support form: https://www.linkedin.com/help/linkedin/ask/dsapi — quote the x-li-uuid below.'
+    )
+  }
   if (CONTROL_DOMAINS.some(has)) {
     return (
-      'VERDICT: neither auth nor fetch — the control domains answer with data while MEMBER_SHARE_INFO does not. ' +
-      'The token, scope and consent are good and LinkedIn has not collated the activity domains yet. ' +
-      'Do NOT re-mint the token: the snapshot is built at the moment of consent, so re-consenting can restart the clock.'
+      'VERDICT: neither auth nor fetch — the profile-shaped domains answer with data while every ' +
+      'activity-shaped one does not. The token, scope and consent are good and LinkedIn has not collated ' +
+      'the activity domains yet. Do NOT re-mint the token: the snapshot is built at the moment of consent, ' +
+      'so re-consenting can restart the clock. Re-run this in a few hours; if a peer activity domain ' +
+      'answers and MEMBER_SHARE_INFO still does not, it is stuck rather than slow.'
     )
   }
   return (

@@ -55,6 +55,34 @@ const DOMAIN = 'MEMBER_SHARE_INFO'
 const CONTROL_DOMAIN = 'PROFILE'
 
 /**
+ * The second control, and the one that actually settles it.
+ *
+ * `PROFILE` answering proves the token and the archive. It does NOT prove anything
+ * about collation, because profile-shaped domains are collated first — they answer
+ * while the activity ones are still being assembled, which is the whole shape of
+ * ADR 0034's evidence. Reading only `PROFILE` therefore yields "not collated yet"
+ * indefinitely, including long after collation has finished. That is precisely what
+ * happened: five days on, `ALL_LIKES`, `ALL_COMMENTS` and `INSTANT_REPOSTS` had all
+ * filled in while `MEMBER_SHARE_INFO` stayed 404 — the wait was over and the state
+ * still said to keep waiting (ADR 0040).
+ *
+ * So the poller asks a *peer* as well: an activity-shaped domain that was 404
+ * alongside the target in the original probe. The inference is deliberately
+ * one-sided, because the evidence is:
+ *
+ *  - a peer **with data** proves collation of activity data has completed for this
+ *    member, so the target is stuck rather than late — actionable, and no amount of
+ *    waiting or re-minting will change it;
+ *  - a peer **empty** proves nothing either way. A member can legitimately have no
+ *    reposts and no comments. It is reported as inconclusive, not as "still
+ *    collating".
+ *
+ * `ALL_COMMENTS` over `INSTANT_REPOSTS`: likelier to be non-empty for an active
+ * member, and an order of magnitude smaller than `ALL_LIKES`.
+ */
+const PEER_DOMAIN = 'ALL_COMMENTS'
+
+/**
  * Hook for the adjacent domains (ALL_COMMENTS, ALL_LIKES, INSTANT_REPOSTS,
  * ALL_VOTES) — same endpoint, same quirks, different `domain=`. Deliberately not
  * wired up: those record activity Markus *performed* ("Comments you've made",
@@ -222,6 +250,7 @@ function describe(trace: SnapshotTrace): string {
  */
 export type EmptyVerdict =
   | { kind: 'auth'; status: number; note: string; trace: AttemptTrace }
+  | { kind: 'stuck'; note: string; trace: AttemptTrace }
   | { kind: 'awaiting'; note: string; trace: AttemptTrace }
   | { kind: 'empty_archive'; note: string; trace: AttemptTrace }
   | { kind: 'inconclusive'; note: string; trace: AttemptTrace }
@@ -233,8 +262,10 @@ export async function classifyEmptyCrawl(
   const control = await fetchSnapshotPage(token, CONTROL_DOMAIN, 0)
   const head = `${DOMAIN}: returned no records (${describe(target)}).`
   // The body kept is the TARGET's — that is the response being explained. The
-  // control's verdict goes in the note beside it.
+  // controls' verdicts go in the note beside it.
   const body = target.body
+  const at = (status: number, note: string, bodyText: string | null = body) =>
+    ({ status, body: bodyText, note }) as AttemptTrace
 
   if (control.kind === 'error') {
     const detail = `${CONTROL_DOMAIN}: ${describe(control.trace)}`
@@ -244,24 +275,43 @@ export async function classifyEmptyCrawl(
         kind: 'auth',
         status: control.status,
         note,
-        trace: { status: control.status, body: control.trace.body, note },
+        trace: at(control.status, note, control.trace.body),
       }
     }
     const note = `${head} ${detail} → control inconclusive, cannot tell a collation delay from an upstream fault.`
-    return { kind: 'inconclusive', note, trace: { status: target.status, body, note } }
+    return { kind: 'inconclusive', note, trace: at(target.status, note) }
   }
 
-  if (control.kind === 'data') {
+  if (control.kind === 'end') {
     const note =
-      `${head} ${CONTROL_DOMAIN}: HTTP ${control.trace.status} with ${control.items.length} record(s) ` +
-      '→ token, scope and consent are all good; this domain is not collated yet. Do NOT re-mint the token.'
-    return { kind: 'awaiting', note, trace: { status: target.status, body, note } }
+      `${head} ${CONTROL_DOMAIN}: ${describe(control.trace)} — empty as well → the whole snapshot is missing, ` +
+      'not just this domain. Past a day of this, it is a stuck collation job rather than a slow one (DMA support form).'
+    return { kind: 'empty_archive', note, trace: at(target.status, note) }
   }
 
+  // The archive exists and the token is good. The remaining question is whether
+  // LinkedIn is still working or has finished and left this one domain out — and
+  // only a peer activity domain can answer that.
+  const controlDetail = `${CONTROL_DOMAIN}: HTTP ${control.trace.status} with ${control.items.length} record(s)`
+  const peer = await fetchSnapshotPage(token, PEER_DOMAIN, 0)
+
+  if (peer.kind === 'data') {
+    const note =
+      `${head} ${controlDetail}; ${PEER_DOMAIN}: HTTP ${peer.trace.status} with ${peer.items.length} record(s) ` +
+      '→ activity collation has FINISHED for this member and this domain alone is missing. Not a wait: ' +
+      'waiting longer will not fix it and the token is demonstrably good, so re-minting cannot either. ' +
+      'Report it via the DMA support form (https://www.linkedin.com/help/linkedin/ask/dsapi).'
+    return { kind: 'stuck', note, trace: at(target.status, note) }
+  }
+
+  // A peer that is empty proves nothing — a member can legitimately have no
+  // comments. Say inconclusive rather than reasserting the collation story.
   const note =
-    `${head} ${CONTROL_DOMAIN}: ${describe(control.trace)} — empty as well → the whole snapshot is missing, ` +
-    'not just this domain. Past a day of this, it is a stuck collation job rather than a slow one (DMA support form).'
-  return { kind: 'empty_archive', note, trace: { status: target.status, body, note } }
+    `${head} ${controlDetail}; ${PEER_DOMAIN}: ${describe(peer.trace)} → token, scope and consent are all ` +
+    'good. The peer is empty too, which is consistent with collation still running AND with the member ' +
+    'simply having none — it does not settle it. Do NOT re-mint the token; run `npm run probe-linkedin` ' +
+    'for the full seam across every activity domain.'
+  return { kind: 'awaiting', note, trace: at(target.status, note) }
 }
 
 export async function syncLinkedinPosts(): Promise<void> {
@@ -307,7 +357,11 @@ export async function syncLinkedinPosts(): Promise<void> {
       await recordFailure(LINKEDIN_SOURCE, verdict.status, verdict.note, verdict.trace)
       return
     }
-    logger.warn({ domain: DOMAIN, verdict: verdict.kind, url: crawl.trace.url }, verdict.note)
+    // `stuck` is logged at error level: the run completed correctly, so it is not a
+    // failure and must not turn the badge red or fire the token alert — but it is
+    // the one non-auth outcome that will never clear itself, and it needs a human.
+    const log = verdict.kind === 'stuck' ? logger.error.bind(logger) : logger.warn.bind(logger)
+    log({ domain: DOMAIN, verdict: verdict.kind, url: crawl.trace.url }, verdict.note)
     await recordSuccess(LINKEDIN_SOURCE, 0, verdict.trace)
     return
   }
