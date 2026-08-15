@@ -1,5 +1,5 @@
 import { toPostRow } from '../jobs/sync-linkedin-posts.js'
-import type { SnapshotTrace } from './fetch-linkedin-snapshot.js'
+import type { DmaTrace, SnapshotTrace } from './fetch-linkedin-snapshot.js'
 
 /**
  * Reading a set of raw snapshot responses as a diagnosis.
@@ -284,4 +284,143 @@ export function verdictLine(probes: Probe[]): string {
     'VERDICT: no domain returned anything, controls included, and nothing was refused. ' +
     'The archive does not exist rather than being late — past a day of this, use the DMA support form.'
   )
+}
+
+// ---------------------------------------------------------------------------
+// The two endpoints the snapshot work never touched. See ADR 0043.
+// ---------------------------------------------------------------------------
+
+/**
+ * What `memberAuthorizations?q=memberAndApplication` says about the consent.
+ *
+ * This is the only call that reports on the consent ITSELF rather than on data
+ * derived from it. `regulatedAt` is the moment LinkedIn began monitoring and
+ * archiving for this member; `scopes` should contain `DMA`. An empty `elements`
+ * array means the authorisation never registered at all — the last standing
+ * explanation for a partially-generated archive, and one nothing built so far could
+ * see, because every other check reads a *product* of the consent and can only
+ * report its absence.
+ */
+export interface AuthorizationState {
+  status: number
+  /**
+   * Three states, not a boolean.
+   *
+   * `absent` is a claim about LinkedIn's records and may only be made when LinkedIn
+   * actually answered: a 401 says the token was refused and says nothing whatever
+   * about whether a consent exists. Collapsing those two into `registered: false`
+   * would manufacture a finding out of an auth failure — the same shape of mistake
+   * as ADR 0040's, where a check was read as evidence for something it could not
+   * test.
+   */
+  state: 'registered' | 'absent' | 'unreadable'
+  regulatedAt: Date | null
+  scopes: string[]
+  /** The developer application the consent is bound to, as a URN. */
+  application: string | null
+}
+
+export function readAuthorization(trace: DmaTrace): AuthorizationState {
+  const ok = trace.status >= 200 && trace.status < 300
+  const base: AuthorizationState = {
+    status: trace.status,
+    state: ok ? 'absent' : 'unreadable',
+    regulatedAt: null,
+    scopes: [],
+    application: null,
+  }
+
+  let parsed: any
+  try {
+    parsed = JSON.parse(trace.body)
+  } catch {
+    return { ...base, state: 'unreadable' }
+  }
+
+  const el = parsed?.elements?.[0]
+  if (!el) return base
+
+  const ms = el.regulatedAt
+  return {
+    status: trace.status,
+    state: 'registered',
+    // Epoch milliseconds. Guarded rather than trusted: a zero or a string here would
+    // otherwise render as 1970 and read as a real answer.
+    regulatedAt: typeof ms === 'number' && ms > 0 ? new Date(ms) : null,
+    scopes: Array.isArray(el.memberComplianceScopes) ? el.memberComplianceScopes : [],
+    application: el.memberComplianceAuthorizationKey?.developerApplication ?? null,
+  }
+}
+
+/**
+ * What the changelog holds — the other route to post content this product offers.
+ *
+ * ADR 0033 ruled the Changelog API out: a 28-day window that starts empty at consent
+ * can neither backfill nor survive downtime. That was right while the snapshot was
+ * expected to arrive. It stops being right once the snapshot provably has no
+ * `MEMBER_SHARE_INFO` to give, because forward-only beats nothing at all.
+ *
+ * `postEvents` counts CREATEs on share-shaped resources. It is the number that says
+ * whether this route would actually carry his posts, as opposed to only his messages
+ * and reactions.
+ */
+export interface ChangelogState {
+  status: number
+  /** `quiet` only when LinkedIn answered; a refused token is `unreadable`. */
+  state: 'events' | 'quiet' | 'unreadable'
+  events: number
+  /** Distinct `resourceName` values seen, with counts. */
+  resources: Map<string, number>
+  postEvents: number
+  oldest: Date | null
+  newest: Date | null
+}
+
+/** Resource names that mean "a post", however LinkedIn spells them. */
+const POST_RESOURCE_RE = /(ugcPosts?|shares?|posts?)$/i
+
+export function readChangelog(trace: DmaTrace): ChangelogState {
+  const ok = trace.status >= 200 && trace.status < 300
+  const empty: ChangelogState = {
+    status: trace.status,
+    state: ok ? 'quiet' : 'unreadable',
+    events: 0,
+    resources: new Map(),
+    postEvents: 0,
+    oldest: null,
+    newest: null,
+  }
+
+  let parsed: any
+  try {
+    parsed = JSON.parse(trace.body)
+  } catch {
+    return { ...empty, state: 'unreadable' }
+  }
+
+  const elements = parsed?.elements
+  if (!Array.isArray(elements) || elements.length === 0) return empty
+
+  const resources = new Map<string, number>()
+  let postEvents = 0
+  const times: number[] = []
+
+  for (const e of elements) {
+    const name = typeof e?.resourceName === 'string' ? e.resourceName : '(unnamed)'
+    resources.set(name, (resources.get(name) ?? 0) + 1)
+    if (POST_RESOURCE_RE.test(name) && e?.method === 'CREATE') postEvents++
+    // capturedAt is the documented one to use for "when did this happen" — the docs
+    // warn that some activities carry no created/lastModified time of their own.
+    if (typeof e?.capturedAt === 'number' && e.capturedAt > 0) times.push(e.capturedAt)
+  }
+
+  return {
+    status: trace.status,
+    state: 'events',
+    events: elements.length,
+    resources,
+    postEvents,
+    oldest: times.length > 0 ? new Date(Math.min(...times)) : null,
+    newest: times.length > 0 ? new Date(Math.max(...times)) : null,
+  }
 }

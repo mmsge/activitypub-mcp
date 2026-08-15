@@ -27,12 +27,19 @@
 //   docker compose exec app npm run probe-linkedin -- --json out.json    # the whole run as JSON
 import { writeFile } from 'node:fs/promises'
 import { config } from '../src/config.js'
-import { probeSnapshotDomain } from '../src/lib/fetch-linkedin-snapshot.js'
+import {
+  dmaRequest,
+  probeSnapshotDomain,
+  MEMBER_AUTHORIZATIONS_URL,
+  MEMBER_CHANGELOG_URL,
+} from '../src/lib/fetch-linkedin-snapshot.js'
 import {
   ALL_DOMAINS,
   DEFAULT_DOMAINS,
   TARGET_DOMAIN,
   unseenDomains,
+  readAuthorization,
+  readChangelog,
   classify,
   pagingTotal,
   tallyByDomain,
@@ -124,6 +131,41 @@ if (!token) {
 
 const span = pages === 1 ? `page index ${start}` : `page indices ${start}–${start + pages - 1}`
 console.log(`Probing ${domains.length} domain(s) at ${span}, Linkedin-Version 202312\n`)
+
+// Two requests before the domains, because they answer questions no amount of
+// snapshot probing can. `memberAuthorizations` reports on the CONSENT itself —
+// whether LinkedIn registered it and when — and the changelog is the only other
+// route this product offers to post content. Both went unexercised for as long as
+// the snapshot was assumed to be on its way. See ADR 0043.
+const authTrace = await dmaRequest(token, MEMBER_AUTHORIZATIONS_URL)
+const auth = readAuthorization(authTrace)
+console.log(
+  auth.state === 'registered'
+    ? `Consent:   registered ${auth.regulatedAt?.toISOString() ?? '(no timestamp)'}` +
+        `  scopes: ${auth.scopes.join(', ') || '(none)'}  app: ${auth.application ?? '(unknown)'}`
+    : auth.state === 'absent'
+      ? 'Consent:   NOT REGISTERED — LinkedIn answered and has no authorisation on record for this token,' +
+        ' which would explain an archive that was never fully generated.'
+      : `Consent:   could not be read (HTTP ${auth.status}) — this says nothing either way about the consent.`,
+)
+
+const changelogTrace = await dmaRequest(token, MEMBER_CHANGELOG_URL)
+const changelog = readChangelog(changelogTrace)
+const resourceList = [...changelog.resources]
+  .sort((a, b) => b[1] - a[1])
+  .map(([name, n]) => `${name}×${n}`)
+  .join(', ')
+console.log(
+  changelog.state === 'events'
+    ? `Changelog: ${changelog.events} event(s), ${changelog.postEvents} post create(s)` +
+        `  ${changelog.oldest?.toISOString().slice(0, 10) ?? '?'} → ${changelog.newest?.toISOString().slice(0, 10) ?? '?'}` +
+        `\n           ${resourceList}`
+    : changelog.state === 'quiet'
+      ? 'Changelog: LinkedIn answered with no events. This route only ever carries activity from the moment' +
+        ' of consent onward, so nothing here means nothing has happened since — not that it is broken.'
+      : `Changelog: could not be read (HTTP ${changelog.status}).`,
+)
+console.log()
 
 const probes: Probe[] = []
 for (const domain of domains) {

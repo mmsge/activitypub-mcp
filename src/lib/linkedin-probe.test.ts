@@ -14,8 +14,10 @@ const getDb = vi.fn(() => {
 })
 vi.mock('../db/client.js', () => ({ getDb }))
 
-const { classify, verdictLine, tallyByDomain, pagingTotal, unseenDomains, DEFAULT_DOMAINS, ALL_DOMAINS } =
-  await import('./linkedin-probe.js')
+const {
+  classify, verdictLine, tallyByDomain, pagingTotal, unseenDomains,
+  readAuthorization, readChangelog, DEFAULT_DOMAINS, ALL_DOMAINS,
+} = await import('./linkedin-probe.js')
 
 const trace = (domain: string | null, status: number, body: unknown) => ({
   url: `https://api.linkedin.com/rest/memberSnapshotData?q=criteria&domain=${domain}&start=0`,
@@ -321,5 +323,92 @@ describe('the domain list against what a real archive returned', () => {
     ])
     expect(unseen).not.toContain('LOGIN')
     expect(unseen).not.toContain('EVENTS')
+  })
+})
+
+// Two endpoints the snapshot work never touched. `memberAuthorizations` is the only
+// call that reports on the CONSENT itself rather than on data derived from it, and
+// the changelog is the only other route to post content this product offers. See
+// ADR 0043.
+const dma = (status: number, body: unknown) => ({
+  url: 'https://api.linkedin.com/rest/x',
+  status,
+  body: typeof body === 'string' ? body : JSON.stringify(body),
+  headers: {} as Record<string, string>,
+  durationMs: 5,
+})
+
+describe('readAuthorization', () => {
+  const registered = {
+    elements: [{
+      memberComplianceAuthorizationKey: {
+        developerApplication: 'urn:li:developerApplication:123456',
+        member: 'urn:li:person:123ABC',
+      },
+      regulatedAt: 1786406400000,
+      memberComplianceScopes: ['DMA'],
+    }],
+  }
+
+  it('reads the consent timestamp, scopes and application', () => {
+    const a = readAuthorization(dma(200, registered))
+    expect(a.state).toBe('registered')
+    expect(a.regulatedAt?.toISOString()).toBe('2026-08-11T00:00:00.000Z')
+    expect(a.scopes).toEqual(['DMA'])
+    expect(a.application).toBe('urn:li:developerApplication:123456')
+  })
+
+  it('calls an empty elements array ABSENT — LinkedIn answered and holds no consent', () => {
+    expect(readAuthorization(dma(200, { elements: [] })).state).toBe('absent')
+  })
+
+  it('will NOT call a refused token an absent consent', () => {
+    // The ADR 0040 mistake in miniature: a 401 says the token was refused and says
+    // nothing whatever about whether a consent exists. Collapsing the two would
+    // manufacture a finding out of an auth failure.
+    const a = readAuthorization(dma(401, { message: 'Invalid access token' }))
+    expect(a.state).toBe('unreadable')
+    expect(a.state).not.toBe('absent')
+  })
+
+  it('does not render a missing timestamp as 1970', () => {
+    const a = readAuthorization(dma(200, { elements: [{ regulatedAt: 0, memberComplianceScopes: ['DMA'] }] }))
+    expect(a.state).toBe('registered')
+    expect(a.regulatedAt).toBeNull()
+  })
+})
+
+describe('readChangelog', () => {
+  const events = {
+    elements: [
+      { resourceName: 'ugcPosts', method: 'CREATE', capturedAt: 1786406400000 },
+      { resourceName: 'ugcPosts', method: 'DELETE', capturedAt: 1786492800000 },
+      { resourceName: 'messages', method: 'CREATE', capturedAt: 1786320000000 },
+      { resourceName: 'socialActions/likes', method: 'CREATE', capturedAt: 1786579200000 },
+    ],
+  }
+
+  it('counts post CREATEs apart from everything else the changelog carries', () => {
+    const c = readChangelog(dma(200, events))
+    expect(c.state).toBe('events')
+    expect(c.events).toBe(4)
+    // A DELETE on a post is not a post arriving, and a message is not a post.
+    expect(c.postEvents).toBe(1)
+    expect(c.resources.get('ugcPosts')).toBe(2)
+    expect(c.resources.get('messages')).toBe(1)
+  })
+
+  it('reports the window it actually saw, from capturedAt', () => {
+    const c = readChangelog(dma(200, events))
+    expect(c.oldest?.toISOString().slice(0, 10)).toBe('2026-08-10')
+    expect(c.newest?.toISOString().slice(0, 10)).toBe('2026-08-13')
+  })
+
+  it('distinguishes a quiet changelog from an unreadable one', () => {
+    // Quiet is a real answer — nothing has happened since consent. Unreadable is not
+    // an answer at all, and must not be reported as one.
+    expect(readChangelog(dma(200, { elements: [] })).state).toBe('quiet')
+    expect(readChangelog(dma(401, { message: 'nope' })).state).toBe('unreadable')
+    expect(readChangelog(dma(200, '<html>')).state).toBe('unreadable')
   })
 })

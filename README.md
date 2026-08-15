@@ -705,6 +705,24 @@ first is observed.
 See [ADR 0041](docs/decision-records/0041-ask-the-archive-what-it-holds-not-whether-a-name-answers.md)
 and [0042](docs/decision-records/0042-a-diagnostic-nobody-can-read-is-not-a-diagnostic.md).
 
+Every run opens with two lines that come from outside the snapshot endpoint entirely:
+
+- **Consent** — `GET /rest/memberAuthorizations?q=memberAndApplication`, the only call
+  that reports on the consent *itself* rather than on data derived from it. It gives
+  `regulatedAt` (when LinkedIn began archiving for this member), the scopes, and the
+  developer application the consent is bound to. Everything else can only observe the
+  consent's *products*, so this is the one place an unregistered or misbound consent
+  would show up.
+- **Changelog** — `GET /rest/memberChangeLogs?q=memberAndApplication`, with a count of
+  how many of the events are post creates. ADR 0033 ruled this API out because its window
+  is 28 days and it starts empty at consent, so it can neither backfill nor survive
+  downtime. That holds only while the snapshot is expected to work: if `MEMBER_SHARE_INFO`
+  never arrives, forward-only beats nothing, and this line says whether the route would
+  actually carry his posts.
+
+Both report `could not be read` rather than a verdict when the token is refused — a 401
+says nothing either way about what LinkedIn holds.
+
 It probes the controls and the activity domains together on purpose. One domain answering
 404 has four plausible explanations — wrong scope, wrong app, a uniquely broken domain, a
 collation job that has not finished — and one response cannot separate them; the seam
