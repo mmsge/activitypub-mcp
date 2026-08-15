@@ -31,7 +31,7 @@ import {
   dmaRequest,
   probeSnapshotDomain,
   MEMBER_AUTHORIZATIONS_URL,
-  MEMBER_CHANGELOG_URL,
+  changelogUrl,
 } from '../src/lib/fetch-linkedin-snapshot.js'
 import {
   ALL_DOMAINS,
@@ -40,6 +40,8 @@ import {
   unseenDomains,
   readAuthorization,
   readChangelog,
+  mergeChangelog,
+  nextChangelogStart,
   classify,
   pagingTotal,
   tallyByDomain,
@@ -54,6 +56,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** How much of a body is printed without `--full`. */
 const PREVIEW = 1200
+
+/**
+ * Changelog pages to walk. 50 events each, so 20 pages is 1000 events across a
+ * 28-day window — comfortably more than an active member generates, and bounded so a
+ * busy account cannot turn the opening line of a diagnostic into a crawl.
+ */
+const CHANGELOG_MAX_PAGES = 20
 
 /**
  * Ceiling on `--pages`. Generous — an all-domain walk of this archive reported 59
@@ -149,15 +158,35 @@ console.log(
       : `Consent:   could not be read (HTTP ${auth.status}) — this says nothing either way about the consent.`,
 )
 
-const changelogTrace = await dmaRequest(token, MEMBER_CHANGELOG_URL)
-const changelog = readChangelog(changelogTrace)
+// Paged rather than sampled. One count=10 request reported "0 post create(s)" and
+// read as a survey of the 28-day window; it was the ten OLDEST events in it. See ADR 0044.
+const firstChangelogTrace = await dmaRequest(token, changelogUrl())
+let changelog = readChangelog(firstChangelogTrace)
+let cursor = nextChangelogStart(firstChangelogTrace)
+
+for (let i = 1; i < CHANGELOG_MAX_PAGES && cursor && changelog.state === 'events'; i++) {
+  await sleep(DELAY_MS)
+  const trace = await dmaRequest(token, changelogUrl(cursor))
+  const page = readChangelog(trace)
+  if (page.state !== 'events') break
+
+  // The docs warn the boundary event repeats on the next request, so a page whose
+  // cursor has not moved is the end of the data rather than a loop to keep chasing.
+  const next = nextChangelogStart(trace)
+  if (next === null || next === cursor) break
+
+  changelog = mergeChangelog(changelog, page)
+  cursor = next
+  if (i === CHANGELOG_MAX_PAGES - 1) changelog = { ...changelog, truncated: true }
+}
 const resourceList = [...changelog.resources]
   .sort((a, b) => b[1] - a[1])
   .map(([name, n]) => `${name}×${n}`)
   .join(', ')
 console.log(
   changelog.state === 'events'
-    ? `Changelog: ${changelog.events} event(s), ${changelog.postEvents} post create(s)` +
+    ? `Changelog: ${changelog.events} event(s)${changelog.truncated ? '+ (stopped at the page cap)' : ''}, ` +
+        `${changelog.postEvents} post create(s)` +
         `  ${changelog.oldest?.toISOString().slice(0, 10) ?? '?'} → ${changelog.newest?.toISOString().slice(0, 10) ?? '?'}` +
         `\n           ${resourceList}`
     : changelog.state === 'quiet'
@@ -267,7 +296,7 @@ if (json) {
 
 // Said twice when raw bodies came between: the first copy is where a reader looks,
 // the second is what survives when the bodies scrolled the first one away.
-if (shown.length > 0) summarise()
+if (shown.length > 1) summarise()
 
 // A refused token is the one outcome a caller (or a cron) should be able to act on
 // without reading the output.
