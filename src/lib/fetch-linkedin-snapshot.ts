@@ -68,18 +68,22 @@ const NO_DATA_RE = /no data found/i
  */
 const TRACE_HEADERS = ['x-li-uuid', 'x-li-fabric', 'x-li-pop', 'x-restli-protocol-version']
 
-/** What actually happened on the wire, independent of how it was classified. */
-export interface SnapshotTrace {
+/** One DMA request's outcome, independent of which endpoint it was. */
+export interface DmaTrace {
   url: string
-  /** Null when the request asked for every domain at once. */
-  domain: string | null
-  start: number
   /** 0 when no response was received at all — timeout, DNS, TLS. */
   status: number
   /** The response body, verbatim. LinkedIn's error text *is* the diagnosis. */
   body: string
   headers: Record<string, string>
   durationMs: number
+}
+
+/** A snapshot request's outcome: a DMA trace plus which page of which domain it was. */
+export interface SnapshotTrace extends DmaTrace {
+  /** Null when the request asked for every domain at once. */
+  domain: string | null
+  start: number
 }
 
 export type SnapshotPage =
@@ -156,25 +160,43 @@ export async function probeSnapshotDomain(
   domain: string | null,
   start = 0,
 ): Promise<SnapshotTrace> {
-  const url = snapshotUrl(domain, start)
+  const trace = await dmaRequest(token, snapshotUrl(domain, start))
+  return { ...trace, domain, start }
+}
+
+/**
+ * Any DMA endpoint, same headers, same timeout, same trace.
+ *
+ * `memberSnapshotData` is not the only one that matters. `memberAuthorizations`
+ * answers a question nothing else can — whether LinkedIn has actually registered the
+ * consent, and since when — and `memberChangeLogs` is the only other route to post
+ * content this product offers. Both were unexercised while the snapshot was assumed
+ * to be on its way. See ADR 0043.
+ */
+export async function dmaRequest(
+  token: string,
+  url: string,
+  init: { method?: string; body?: string } = {},
+): Promise<DmaTrace> {
   const startedAt = Date.now()
 
   let res: Response
   try {
     res = await fetch(url, {
+      method: init.method ?? 'GET',
       headers: {
         Authorization: `Bearer ${token}`,
         'Linkedin-Version': LINKEDIN_VERSION,
         Accept: 'application/json',
+        'Content-Type': 'application/json',
         'User-Agent': `activitypub-mcp/1.0 (+https://${config.APP_DOMAIN})`,
       },
+      body: init.body,
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     })
   } catch (e) {
     return {
       url,
-      domain,
-      start,
       status: 0,
       body: (e as Error).message,
       headers: {},
@@ -182,17 +204,38 @@ export async function probeSnapshotDomain(
     }
   }
 
-  const body = await res.text()
   return {
     url,
-    domain,
-    start,
     status: res.status,
-    body,
+    body: await res.text(),
     headers: readHeaders(res),
     durationMs: Date.now() - startedAt,
   }
 }
+
+/**
+ * Has LinkedIn actually registered the member's consent, and since when?
+ *
+ * `regulatedAt` is the timestamp from which this member's activity is monitored and
+ * archived, and `memberComplianceScopes` should hold `DMA`. An empty `elements` array
+ * means the authorisation never registered — which is the one remaining explanation
+ * for a partially-generated archive that nothing we had built could see. Documented
+ * under the Changelog API as the "member FINDER" call, but it describes the consent,
+ * not the changelog.
+ */
+export const MEMBER_AUTHORIZATIONS_URL =
+  'https://api.linkedin.com/rest/memberAuthorizations?q=memberAndApplication'
+
+/**
+ * Changelog events, newest first — the other route to post content.
+ *
+ * ADR 0033 ruled this out because its window is 28 days and it starts empty at
+ * consent, so it can neither backfill nor survive downtime. That reasoning held
+ * while the snapshot was expected to work. It does not hold now that the snapshot
+ * provably has no `MEMBER_SHARE_INFO` to give: forward-only beats nothing.
+ */
+export const MEMBER_CHANGELOG_URL =
+  'https://api.linkedin.com/rest/memberChangeLogs?q=memberAndApplication&count=10'
 
 /** The trace as stored: same fields, body clipped to a bounded excerpt. */
 function clip(trace: SnapshotTrace): SnapshotTrace {

@@ -14,8 +14,10 @@ const getDb = vi.fn(() => {
 })
 vi.mock('../db/client.js', () => ({ getDb }))
 
-const { classify, verdictLine, tallyByDomain, pagingTotal, DEFAULT_DOMAINS, ALL_DOMAINS } =
-  await import('./linkedin-probe.js')
+const {
+  classify, verdictLine, tallyByDomain, pagingTotal, unseenDomains,
+  readAuthorization, readChangelog, DEFAULT_DOMAINS, ALL_DOMAINS,
+} = await import('./linkedin-probe.js')
 
 const trace = (domain: string | null, status: number, body: unknown) => ({
   url: `https://api.linkedin.com/rest/memberSnapshotData?q=criteria&domain=${domain}&start=0`,
@@ -233,5 +235,180 @@ describe('the all-domain walk', () => {
     // ADR 0033 is emphatic this count must never terminate anything.
     expect(pagingTotal(walkPage('LOGIN', [{ a: 1 }]))).toBeNull()
     expect(pagingTotal(classify(trace(null, 200, '<html>')))).toBeNull()
+  })
+})
+
+describe('unseenDomains', () => {
+  const walkPage = (domain: string, items: unknown[]) =>
+    classify(trace(null, 200, { elements: [{ snapshotDomain: domain, snapshotData: items }] }))
+
+  it('lists what a walk never showed, so absence stays a claim about the walk', () => {
+    // The unfiltered query's coverage is not documented. Reporting only what WAS
+    // seen would let a reader slide from "absent from the walk" to "absent from the
+    // archive", which are different claims and only the first is observed.
+    const unseen = unseenDomains([walkPage('LOGIN', [{ a: 1 }]), walkPage('INBOX', [{ b: 2 }])])
+    expect(unseen).not.toContain('LOGIN')
+    expect(unseen).not.toContain('INBOX')
+    expect(unseen).toContain('MEMBER_SHARE_INFO')
+    expect(unseen.length).toBe(ALL_DOMAINS.length - 2)
+  })
+
+  it('counts a domain that answered by name as seen', () => {
+    expect(unseenDomains([classify(trace('PROFILE', 200, {
+      elements: [{ snapshotDomain: 'PROFILE', snapshotData: [{ 'First Name': 'M' }] }],
+    }))])).not.toContain('PROFILE')
+  })
+
+  it('does not count a domain that answered with nothing', () => {
+    expect(unseenDomains([classify(trace('ARTICLES', 404, NO_DATA))])).toContain('ARTICLES')
+  })
+})
+
+// The real walk of 2026-08-15: 42 domains returned records — profile, activity,
+// messaging, ads, the lot — and MEMBER_SHARE_INFO was not one of them. Asking by name
+// 404s and asking for everything does not produce it either, which is as close to
+// proof of absence as this API allows. The verdict said "(MEMBER_SHARE_INFO was not
+// probed in this run.)" and threw that away. See ADR 0042.
+describe('a completed walk that never shows the target', () => {
+  const walkPage = (domain: string) =>
+    classify(trace(null, 200, { elements: [{ snapshotDomain: domain, snapshotData: [{ a: 1 }] }] }))
+  const wideWalk = [
+    'ALL_LIKES', 'INBOX', 'ADS_CLICKED', 'CONNECTIONS', 'ENDORSEMENTS', 'INVITATIONS',
+    'SECURITY_CHALLENGE_PIPE', 'LEARNING', 'COMPANY_FOLLOWS', 'RICH_MEDIA', 'ALL_COMMENTS',
+    'SKILLS', 'MEMBER_FOLLOWING', 'login', 'RECEIPTS_LBP', 'POSITIONS', 'PROFILE',
+  ].map(walkPage)
+
+  it('calls it ABSENT FROM THE ARCHIVE rather than "not probed"', () => {
+    const line = verdictLine(wideWalk)
+    expect(line).toMatch(/ABSENT FROM THE ARCHIVE/)
+    expect(line).toMatch(/no workaround to build/)
+    expect(line).not.toMatch(/was not probed/)
+  })
+
+  it('holds even when the named lookup 404d alongside it', () => {
+    expect(verdictLine([...wideWalk, classify(trace('MEMBER_SHARE_INFO', 404, NO_DATA))]))
+      .toMatch(/ABSENT FROM THE ARCHIVE/)
+  })
+
+  it('will not conclude absence from a walk too short to mean anything', () => {
+    // Two pages prove nothing. Silence has to be earned.
+    expect(verdictLine([walkPage('LOGIN'), walkPage('INBOX')])).toMatch(/was not probed/)
+  })
+
+  it('still yields to a walk page that DID carry the target', () => {
+    expect(verdictLine([...wideWalk, classify(trace(null, 200, {
+      elements: [{ snapshotDomain: 'MEMBER_SHARE_INFO', snapshotData: [SHARE] }],
+    }))])).toMatch(/WORKAROUND FOUND/)
+  })
+
+  it('still blames auth ahead of it', () => {
+    expect(verdictLine([...wideWalk, classify(trace('PROFILE', 401, { message: 'nope' }))]))
+      .toMatch(/VERDICT: auth/)
+  })
+})
+
+describe('the domain list against what a real archive returned', () => {
+  it('carries the domains LinkedIn answered with but never documented', () => {
+    // The published table is not exhaustive; a real walk produced both of these.
+    expect(ALL_DOMAINS).toContain('WHATSAPP_NUMBERS')
+    expect(ALL_DOMAINS).toContain('MEMBER_HASHTAG')
+  })
+
+  it('does not report a domain as unseen because LinkedIn changed its case', () => {
+    // The walk answered `login` and `Events` for LOGIN and EVENTS. The domain is
+    // case-sensitive on the way IN; the label coming back is not the same spelling.
+    const unseen = unseenDomains([
+      classify(trace(null, 200, { elements: [{ snapshotDomain: 'login', snapshotData: [{ a: 1 }] }] })),
+      classify(trace(null, 200, { elements: [{ snapshotDomain: 'Events', snapshotData: [{ a: 1 }] }] })),
+    ])
+    expect(unseen).not.toContain('LOGIN')
+    expect(unseen).not.toContain('EVENTS')
+  })
+})
+
+// Two endpoints the snapshot work never touched. `memberAuthorizations` is the only
+// call that reports on the CONSENT itself rather than on data derived from it, and
+// the changelog is the only other route to post content this product offers. See
+// ADR 0043.
+const dma = (status: number, body: unknown) => ({
+  url: 'https://api.linkedin.com/rest/x',
+  status,
+  body: typeof body === 'string' ? body : JSON.stringify(body),
+  headers: {} as Record<string, string>,
+  durationMs: 5,
+})
+
+describe('readAuthorization', () => {
+  const registered = {
+    elements: [{
+      memberComplianceAuthorizationKey: {
+        developerApplication: 'urn:li:developerApplication:123456',
+        member: 'urn:li:person:123ABC',
+      },
+      regulatedAt: 1786406400000,
+      memberComplianceScopes: ['DMA'],
+    }],
+  }
+
+  it('reads the consent timestamp, scopes and application', () => {
+    const a = readAuthorization(dma(200, registered))
+    expect(a.state).toBe('registered')
+    expect(a.regulatedAt?.toISOString()).toBe('2026-08-11T00:00:00.000Z')
+    expect(a.scopes).toEqual(['DMA'])
+    expect(a.application).toBe('urn:li:developerApplication:123456')
+  })
+
+  it('calls an empty elements array ABSENT — LinkedIn answered and holds no consent', () => {
+    expect(readAuthorization(dma(200, { elements: [] })).state).toBe('absent')
+  })
+
+  it('will NOT call a refused token an absent consent', () => {
+    // The ADR 0040 mistake in miniature: a 401 says the token was refused and says
+    // nothing whatever about whether a consent exists. Collapsing the two would
+    // manufacture a finding out of an auth failure.
+    const a = readAuthorization(dma(401, { message: 'Invalid access token' }))
+    expect(a.state).toBe('unreadable')
+    expect(a.state).not.toBe('absent')
+  })
+
+  it('does not render a missing timestamp as 1970', () => {
+    const a = readAuthorization(dma(200, { elements: [{ regulatedAt: 0, memberComplianceScopes: ['DMA'] }] }))
+    expect(a.state).toBe('registered')
+    expect(a.regulatedAt).toBeNull()
+  })
+})
+
+describe('readChangelog', () => {
+  const events = {
+    elements: [
+      { resourceName: 'ugcPosts', method: 'CREATE', capturedAt: 1786406400000 },
+      { resourceName: 'ugcPosts', method: 'DELETE', capturedAt: 1786492800000 },
+      { resourceName: 'messages', method: 'CREATE', capturedAt: 1786320000000 },
+      { resourceName: 'socialActions/likes', method: 'CREATE', capturedAt: 1786579200000 },
+    ],
+  }
+
+  it('counts post CREATEs apart from everything else the changelog carries', () => {
+    const c = readChangelog(dma(200, events))
+    expect(c.state).toBe('events')
+    expect(c.events).toBe(4)
+    // A DELETE on a post is not a post arriving, and a message is not a post.
+    expect(c.postEvents).toBe(1)
+    expect(c.resources.get('ugcPosts')).toBe(2)
+    expect(c.resources.get('messages')).toBe(1)
+  })
+
+  it('reports the window it actually saw, from capturedAt', () => {
+    const c = readChangelog(dma(200, events))
+    expect(c.oldest?.toISOString().slice(0, 10)).toBe('2026-08-10')
+    expect(c.newest?.toISOString().slice(0, 10)).toBe('2026-08-13')
+  })
+
+  it('distinguishes a quiet changelog from an unreadable one', () => {
+    // Quiet is a real answer — nothing has happened since consent. Unreadable is not
+    // an answer at all, and must not be reported as one.
+    expect(readChangelog(dma(200, { elements: [] })).state).toBe('quiet')
+    expect(readChangelog(dma(401, { message: 'nope' })).state).toBe('unreadable')
+    expect(readChangelog(dma(200, '<html>')).state).toBe('unreadable')
   })
 })

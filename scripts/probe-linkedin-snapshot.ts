@@ -27,10 +27,19 @@
 //   docker compose exec app npm run probe-linkedin -- --json out.json    # the whole run as JSON
 import { writeFile } from 'node:fs/promises'
 import { config } from '../src/config.js'
-import { probeSnapshotDomain } from '../src/lib/fetch-linkedin-snapshot.js'
+import {
+  dmaRequest,
+  probeSnapshotDomain,
+  MEMBER_AUTHORIZATIONS_URL,
+  MEMBER_CHANGELOG_URL,
+} from '../src/lib/fetch-linkedin-snapshot.js'
 import {
   ALL_DOMAINS,
   DEFAULT_DOMAINS,
+  TARGET_DOMAIN,
+  unseenDomains,
+  readAuthorization,
+  readChangelog,
   classify,
   pagingTotal,
   tallyByDomain,
@@ -123,6 +132,41 @@ if (!token) {
 const span = pages === 1 ? `page index ${start}` : `page indices ${start}–${start + pages - 1}`
 console.log(`Probing ${domains.length} domain(s) at ${span}, Linkedin-Version 202312\n`)
 
+// Two requests before the domains, because they answer questions no amount of
+// snapshot probing can. `memberAuthorizations` reports on the CONSENT itself —
+// whether LinkedIn registered it and when — and the changelog is the only other
+// route this product offers to post content. Both went unexercised for as long as
+// the snapshot was assumed to be on its way. See ADR 0043.
+const authTrace = await dmaRequest(token, MEMBER_AUTHORIZATIONS_URL)
+const auth = readAuthorization(authTrace)
+console.log(
+  auth.state === 'registered'
+    ? `Consent:   registered ${auth.regulatedAt?.toISOString() ?? '(no timestamp)'}` +
+        `  scopes: ${auth.scopes.join(', ') || '(none)'}  app: ${auth.application ?? '(unknown)'}`
+    : auth.state === 'absent'
+      ? 'Consent:   NOT REGISTERED — LinkedIn answered and has no authorisation on record for this token,' +
+        ' which would explain an archive that was never fully generated.'
+      : `Consent:   could not be read (HTTP ${auth.status}) — this says nothing either way about the consent.`,
+)
+
+const changelogTrace = await dmaRequest(token, MEMBER_CHANGELOG_URL)
+const changelog = readChangelog(changelogTrace)
+const resourceList = [...changelog.resources]
+  .sort((a, b) => b[1] - a[1])
+  .map(([name, n]) => `${name}×${n}`)
+  .join(', ')
+console.log(
+  changelog.state === 'events'
+    ? `Changelog: ${changelog.events} event(s), ${changelog.postEvents} post create(s)` +
+        `  ${changelog.oldest?.toISOString().slice(0, 10) ?? '?'} → ${changelog.newest?.toISOString().slice(0, 10) ?? '?'}` +
+        `\n           ${resourceList}`
+    : changelog.state === 'quiet'
+      ? 'Changelog: LinkedIn answered with no events. This route only ever carries activity from the moment' +
+        ' of consent onward, so nothing here means nothing has happened since — not that it is broken.'
+      : `Changelog: could not be read (HTTP ${changelog.status}).`,
+)
+console.log()
+
 const probes: Probe[] = []
 for (const domain of domains) {
   for (let i = 0; i < pages; i++) {
@@ -154,25 +198,56 @@ for (const domain of domains) {
   }
 }
 
-if (pages > 1) {
-  console.log('\n--- records per domain --------------------------------------------------')
-  const tally = [...tallyByDomain(probes)].sort((a, b) => b[1] - a[1])
-  if (tally.length === 0) console.log('(nothing returned any records)')
-  for (const [domain, count] of tally) console.log(`${domain.padEnd(32)} ${String(count).padStart(6)}`)
-  const target = tally.find(([d]) => d === 'MEMBER_SHARE_INFO')
-  console.log(
-    target
-      ? `\nMEMBER_SHARE_INFO IS present in this walk (${target[1]} record(s)).`
-      : '\nMEMBER_SHARE_INFO did not appear in this walk.',
-  )
+/** The tally and the verdict, printed last so a long run cannot push them out of reach. */
+function summarise() {
+  if (pages > 1) {
+    console.log('\n--- records per domain --------------------------------------------------')
+    const tally = [...tallyByDomain(probes)].sort((a, b) => b[1] - a[1])
+    if (tally.length === 0) console.log('(nothing returned any records)')
+    for (const [domain, count] of tally) console.log(`${domain.padEnd(32)} ${String(count).padStart(6)}`)
+
+    // Which domains were never seen at all. The walk's coverage is not documented
+    // and turned out not to be every domain, so "absent from the walk" and "absent
+    // from the archive" are different claims and only the first is observed here.
+    const unseen = unseenDomains(probes)
+    console.log(`\nDomains seen: ${tally.length}. Not seen in this walk: ${unseen.length}`)
+    if (unseen.length > 0) console.log(unseen.join(', '))
+
+    const target = tally.find(([d]) => d === TARGET_DOMAIN)
+    console.log(
+      target
+        ? `\n${TARGET_DOMAIN} IS present in this walk (${target[1]} record(s)).`
+        : `\n${TARGET_DOMAIN} did not appear in this walk.`,
+    )
+  }
+  console.log(`\n${verdictLine(probes)}\n`)
 }
 
-console.log(`\n${verdictLine(probes)}\n`)
+summarise()
 
-console.log('--- raw responses -------------------------------------------------------')
-const shown = full ? probes : probes.filter((p) => p.verdict !== 'no_data' || probes.length <= 12)
+// A walk's raw bodies are not the deliverable — the tally above is. Sixty pages of
+// LinkedIn's inbox and connection list ran to hundreds of kilobytes and pushed the
+// tally off the top of the terminal, past what a scrollback or a clipboard holds,
+// which made the one useful line the hardest to reach. So a walk prints bodies only
+// on request; a single-page probe still prints them, because there the body IS the
+// deliverable. See ADR 0042.
+const walking = pages > 1
+const shown = full
+  ? probes
+  : walking
+    ? []
+    : probes.filter((p) => p.verdict !== 'no_data' || probes.length <= 12)
+
+if (shown.length > 0 || !walking) {
+  console.log('--- raw responses -------------------------------------------------------')
+}
 if (shown.length < probes.length) {
-  console.log(`(${probes.length - shown.length} empty page(s) omitted; --full prints everything)`)
+  const omitted = probes.length - shown.length
+  console.log(
+    walking && shown.length === 0
+      ? `(${omitted} page(s) of raw bodies not printed — pass --full for them, or --json out.json to keep them)`
+      : `(${omitted} empty page(s) omitted; --full prints everything)`,
+  )
 }
 for (const p of shown) {
   const body =
@@ -189,6 +264,10 @@ if (json) {
   await writeFile(json, JSON.stringify({ start, probedAt: new Date().toISOString(), probes }, null, 2))
   console.log(`\nWrote ${json}`)
 }
+
+// Said twice when raw bodies came between: the first copy is where a reader looks,
+// the second is what survives when the bodies scrolled the first one away.
+if (shown.length > 0) summarise()
 
 // A refused token is the one outcome a caller (or a cron) should be able to act on
 // without reading the output.
