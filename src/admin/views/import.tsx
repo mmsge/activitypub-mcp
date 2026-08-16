@@ -45,8 +45,11 @@ export const ImportPage: FC<{ error?: string }> = ({ error }) => (
     <div class="section">
       <h2>Train Trips (CSV)</h2>
       <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-        Upload a <strong>viaduct.world</strong> CSV export of your train journeys. Re-importing the
-        same export is safe — existing trips are skipped via a content hash.
+        Upload a <strong>viaduct.world</strong> CSV export of your train journeys. A trip is
+        identified by its departure time and its two stations, so re-exporting a leg after
+        travelling it <em>updates</em> the stored one — filling in the train code, the delay and
+        the real distance, and moving it from Planned to Completed — rather than storing it a
+        second time. Re-importing an unchanged export writes nothing at all.
       </p>
       <form method="post" action="/admin/import/trips" enctype="multipart/form-data">
         <div class="filters">
@@ -115,7 +118,9 @@ export const ImportPage: FC<{ error?: string }> = ({ error }) => (
 )
 
 export const ImportResultPage: FC<{
-  result: ImportResult
+  // `updated` only comes from the trips importer, which matches an incoming trip to the
+  // stored one and refreshes it in place (ADR 0048). The other importers insert or skip.
+  result: ImportResult & { updated?: number }
   actor: string
 }> = ({ result, actor }) => (
   <Layout title="Import Result">
@@ -131,6 +136,12 @@ export const ImportResultPage: FC<{
         <div class="num" style="color: #4ade80;">{result.imported}</div>
         <div class="label">Imported</div>
       </div>
+      {result.updated !== undefined && (
+        <div class="card">
+          <div class="num" style="color: #60a5fa;">{result.updated}</div>
+          <div class="label">Updated in place</div>
+        </div>
+      )}
       <div class="card">
         <div class="num" style="color: #888;">{result.skipped}</div>
         <div class="label">Skipped (already exist)</div>

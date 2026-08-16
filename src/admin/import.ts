@@ -1,6 +1,7 @@
-import { eq, inArray, sql } from 'drizzle-orm'
+import { eq, inArray, sql, type SQL } from 'drizzle-orm'
+import type { PgColumn } from 'drizzle-orm/pg-core'
 import { getDb } from '../db/client.js'
-import { activities, actors, linkedinPostMetrics, trainTrips } from '../db/schema.js'
+import { activities, actors, linkedinPostMetrics, trainTrips, tripRoutes } from '../db/schema.js'
 import { processActivity } from '../activitypub/inbox.js'
 import { fetchActor } from '../lib/fetch-actor.js'
 import { logger } from '../lib/logger.js'
@@ -183,21 +184,136 @@ export async function crawlOutbox(actorUrl: string): Promise<unknown[]> {
 export interface TripImportResult {
   total: number
   inserted: number
-  skipped: number
+  /** Matched an existing trip and carried something new into it. */
+  updated: number
+  /** Matched an existing trip and had nothing to add, or repeated a row in the file. */
+  unchanged: number
 }
 
 /**
- * Bulk-insert parsed train trips, deduped by the content hash. Absolute instants
- * are computed in Postgres from the local wall-clock + IANA zone so DST and
- * overnight legs resolve correctly. Re-importing the same export is a no-op.
+ * Attributes of a trip, as opposed to the trip itself — every one of them may arrive
+ * better on a later export. `coalesce(excluded.c, stored.c)` throughout: an incoming
+ * null is silence, not an erasure, so an export that happens not to name the operator
+ * leaves the stored one alone.
+ *
+ * `status` is in this list rather than beside it because the rule is the same one:
+ * the incoming value wins, and only a null defers. That is what moves a leg from
+ * Planned to Completed on re-export, which ADR 0031 recorded as impossible.
+ *
+ * `trainCode` is here too, and that is the point of ADR 0048 — it used to be half the
+ * identity, which is why the same journey was stored twice.
+ */
+const REFRESHABLE = [
+  'journey', 'trainCode', 'lineNumber', 'trainName', 'operator', 'mode', 'travelClass',
+  'seatType', 'seat', 'coach', 'reason', 'continent', 'notes', 'ticket',
+  'distanceKm', 'delay', 'departureDelay', 'price', 'savings', 'currency', 'tags',
+  'status',
+] as const
+
+/** NOT NULL DEFAULT false, so an absent flag reads as false and there is no null to
+ *  coalesce through. Any export claiming the amenity carries it. */
+const AMENITIES = ['cycling', 'wifi', 'diningCar', 'night', 'replacement', 'reservation'] as const
+
+const incoming = (col: PgColumn): SQL => sql`excluded.${sql.identifier(col.name)}`
+
+/**
+ * The upsert's SET clause and the guard that keeps a repeat import from writing at all,
+ * built from one pass over the same column lists so the two cannot drift apart. Without
+ * the guard, re-importing an unchanged export would rewrite every row with its own
+ * values — no visible difference, but not the no-op the import claims to be.
+ */
+export function tripUpsertRules(): { set: Record<string, SQL>; setWhere: SQL } {
+  const set: Record<string, SQL> = {}
+  const changed: SQL[] = []
+  const rule = (key: string, col: PgColumn, next: SQL) => {
+    set[key] = next
+    changed.push(sql`${next} is distinct from ${col}`)
+  }
+
+  for (const key of REFRESHABLE) {
+    const col = trainTrips[key] as PgColumn
+    rule(key, col, sql`coalesce(${incoming(col)}, ${col})`)
+  }
+  for (const key of AMENITIES) {
+    const col = trainTrips[key] as PgColumn
+    rule(key, col, sql`(${col} or ${incoming(col)})`)
+  }
+
+  // Arrival moves as a unit, keyed on the incoming instant being present, so the wall
+  // clock, the instant and the zone it was computed in can never come from different
+  // exports and disagree.
+  const hasArrival = sql`${incoming(trainTrips.arrivalAt)} is not null`
+  for (const key of ['arrivalAt', 'arrivalLocal', 'toTz'] as const) {
+    const col = trainTrips[key] as PgColumn
+    rule(key, col, sql`case when ${hasArrival} then ${incoming(col)} else ${col} end`)
+  }
+
+  // Provenance follows the newest export rather than being merged: `raw` says where the
+  // current status came from, and a spliced-together row would describe no export that
+  // was ever delivered.
+  rule('raw', trainTrips.raw as PgColumn, incoming(trainTrips.raw as PgColumn))
+
+  return { set, setWhere: sql.join(changed, sql` or `) }
+}
+
+/**
+ * The identity upsert, built without touching the connection so its shape can be
+ * asserted in a test. A trip IS `(from_station, to_station, departure_at)` — see
+ * ADR 0048 and the unique index the target names.
+ */
+export function buildTrainTripsUpsert(values: unknown[]) {
+  const { set, setWhere } = tripUpsertRules()
+  return getDb()
+    .insert(trainTrips)
+    .values(values as never)
+    .onConflictDoUpdate({
+      target: [trainTrips.fromStation, trainTrips.toStation, trainTrips.departureAt],
+      set: set as never,
+      setWhere,
+    })
+    .returning({
+      id: trainTrips.id,
+      fromStation: trainTrips.fromStation,
+      toStation: trainTrips.toStation,
+      departureAt: trainTrips.departureAt,
+      journey: trainTrips.journey,
+      trainCode: trainTrips.trainCode,
+      status: trainTrips.status,
+      // `xmax` is 0 on a tuple this statement inserted and the current xid on one it
+      // updated — the only way to tell an insert from a match after the fact.
+      inserted: sql<boolean>`(xmax = 0)`,
+    })
+}
+
+/**
+ * Import parsed train trips, updating a matching trip in place rather than storing it
+ * twice. Absolute instants are computed in Postgres from the local wall-clock + IANA
+ * zone so DST and overnight legs resolve correctly. Re-importing the same export writes
+ * nothing at all.
  */
 export async function importTrainTrips(rows: TripRow[]): Promise<TripImportResult> {
   const total = rows.length
-  if (total === 0) return { total: 0, inserted: 0, skipped: 0 }
+  if (total === 0) return { total: 0, inserted: 0, updated: 0, unchanged: 0 }
 
-  // Drop in-file duplicates so the single INSERT has no repeated conflict targets.
+  // Drop in-file duplicates so the single statement never reaches the same stored row
+  // twice — Postgres rejects that outright ("ON CONFLICT DO UPDATE command cannot affect
+  // row a second time"). Keyed on what `departure_at` is derived from, which is the
+  // identity tuple spelled in the columns the CSV actually carries.
   const seen = new Set<string>()
-  const unique = rows.filter((r) => (seen.has(r.dedupeKey) ? false : (seen.add(r.dedupeKey), true)))
+  const unique = rows.filter((r) => {
+    const key = [r.fromStation, r.toStation, r.departureLocal, r.fromTz].join(' ')
+    return seen.has(key) ? false : (seen.add(key), true)
+  })
+
+  const assumed = rows.filter((r) => r.tzAssumed).length
+  if (assumed > 0) {
+    // Identity is compared on the instant, so an export that stopped naming the origin
+    // zone would shift every departure by the local offset and split each trip in two.
+    logger.warn(
+      { rows: assumed, of: total, assumed: 'UTC' },
+      'Trip rows named no origin timezone; the assumed zone decides their departure instant',
+    )
+  }
 
   const db = getDb()
   const values = unique.map((r) => ({
@@ -238,19 +354,44 @@ export async function importTrainTrips(rows: TripRow[]): Promise<TripImportResul
     status: r.status,
     tags: r.tags,
     raw: r.raw,
-    dedupeKey: r.dedupeKey,
   }))
 
-  const inserted = await db
-    .insert(trainTrips)
-    .values(values as any)
-    .onConflictDoNothing({ target: trainTrips.dedupeKey })
-    .returning({ id: trainTrips.id })
+  const written = await buildTrainTripsUpsert(values)
 
-  // New trips can claim posts already in the archive, so re-derive now rather than
-  // leaving the join an hour stale after an import. Non-fatal: the import
-  // succeeded either way, and the hourly tick will pick it up.
-  if (inserted.length > 0) {
+  // One line per row that actually moved. Verbose on purpose for the first import after
+  // ADR 0048: a leg that inserts when it should have matched is the failure this change
+  // is guarding against, and it is only cheap to spot if it was logged.
+  for (const w of written) {
+    logger.info(
+      {
+        id: w.id,
+        from: w.fromStation,
+        to: w.toStation,
+        departureAt: w.departureAt,
+        journey: w.journey,
+        trainCode: w.trainCode,
+        status: w.status,
+      },
+      w.inserted ? 'Trip inserted' : 'Trip matched an existing record and was updated',
+    )
+  }
+
+  const inserted = written.filter((w) => w.inserted).length
+  const updated = written.length - inserted
+
+  // A matched trip keeps its id, so its cached route survives — and may now be scaled
+  // against a distance that just changed. resolveTripLines only revisits a trip whose
+  // trip_routes row is missing or predates the current registry version, so without this
+  // nothing would ever recompute `scale_factor` or the per-line kilometres.
+  const updatedIds = written.filter((w) => !w.inserted).map((w) => w.id)
+  if (updatedIds.length > 0) {
+    await db.delete(tripRoutes).where(inArray(tripRoutes.tripId, updatedIds))
+  }
+
+  // New trips can claim posts already in the archive, and a refreshed arrival moves an
+  // existing trip's window, so re-derive now rather than leaving the join an hour stale.
+  // Non-fatal: the import succeeded either way, and the hourly tick will pick it up.
+  if (written.length > 0) {
     try {
       await linkTripPosts()
     } catch (e) {
@@ -258,7 +399,9 @@ export async function importTrainTrips(rows: TripRow[]): Promise<TripImportResul
     }
   }
 
-  return { total, inserted: inserted.length, skipped: total - inserted.length }
+  // Rows repeated within the file collapse into whichever copy was written, so they land
+  // in `unchanged` alongside the trips that had nothing new to offer.
+  return { total, inserted, updated, unchanged: total - inserted - updated }
 }
 
 export interface LinkedinImportResult {

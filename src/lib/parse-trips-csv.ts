@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto'
 import { parse } from 'csv-parse/sync'
 
 /**
@@ -6,6 +5,12 @@ import { parse } from 'csv-parse/sync'
  * departure/arrival instants are NOT computed here — `departureLocal`/`arrivalLocal`
  * are wall-clock strings that the importer converts to timestamptz in Postgres via
  * `... AT TIME ZONE <tz>`, which handles DST and overnight legs correctly.
+ *
+ * Nothing here decides which stored trip a row IS. Identity is
+ * `(from_station, to_station, departure_at)`, enforced by a unique index and applied
+ * by the importer's upsert (ADR 0048). This file used to carry a SHA-256 of the
+ * identifying fields, train code among them — which is exactly what split one journey
+ * into a Planned row and a Completed one.
  */
 export interface TripRow {
   fromStation: string
@@ -43,7 +48,14 @@ export interface TripRow {
   status: string | null
   tags: string[] | null
   raw: Record<string, string>
-  dedupeKey: string
+  /**
+   * The export named no origin timezone and `DEFAULT_TZ` was assumed. Carried so the
+   * importer can say so out loud: the assumed zone goes straight into `departure_at`,
+   * and identity is compared on `departure_at`, so an export that stopped emitting
+   * `from_station_tz` would shift every instant by the local offset and quietly split
+   * each trip in two — the one failure mode the tuple key cannot absorb.
+   */
+  tzAssumed: boolean
 }
 
 const DEFAULT_TZ = 'UTC'
@@ -99,14 +111,11 @@ export function parseTrainTripsCsv(text: string): TripRow[] {
     const departureLocal = localTimestamp(r.departure_date, r.departure_time)
     if (!fromStation || !toStation || !departureLocal) continue
 
-    const fromTz = str(r.from_station_tz) ?? DEFAULT_TZ
+    const declaredFromTz = str(r.from_station_tz)
+    const fromTz = declaredFromTz ?? DEFAULT_TZ
     const toTz = str(r.to_station_tz) ?? fromTz
     const trainCode = str(r.train_code)
     const tagsRaw = str(r.tags)
-
-    const dedupeKey = createHash('sha256')
-      .update([fromStation, toStation, departureLocal, trainCode ?? '', r.journey ?? ''].join('|'))
-      .digest('hex')
 
     rows.push({
       fromStation,
@@ -144,7 +153,7 @@ export function parseTrainTripsCsv(text: string): TripRow[] {
       status: str(r.status),
       tags: tagsRaw ? tagsRaw.split(',').map((s) => s.trim()).filter(Boolean) : null,
       raw: r,
-      dedupeKey,
+      tzAssumed: declaredFromTz === null,
     })
   }
   return rows
