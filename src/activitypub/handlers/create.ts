@@ -282,6 +282,12 @@ function extractReadingStatus(obj: AnyObject, bwType: string): string | null {
     ?? obj.shelf as string
     ?? null
   if (shelf) {
+    // Ordered, and stopped first — the words nest, so "stopped-reading" contains
+    // "reading" and would otherwise be stored as `reading`. This is the copy that
+    // puts the value on disk, so getting the order wrong here is the only one of
+    // the three that survives a restart. Mirrors normalizeReadingStatus in
+    // lib/bookwyrm-reading.ts; the two must stay in step.
+    if (shelf.includes('stopped')) return 'stopped-reading'
     if (shelf.includes('to-read') || shelf.includes('want-to-read')) return 'to-read'
     if (shelf.includes('reading')) return 'reading'
     if (shelf.includes('read')) return 'read'

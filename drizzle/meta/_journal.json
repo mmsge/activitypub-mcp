@@ -232,6 +232,13 @@
       "when": 1786783024353,
       "tag": "0032_source_attempt_trace",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1786869424353,
+      "tag": "0033_bookwyrm_shelf_marks",
+      "breakpoints": true
     }
   ]
 }

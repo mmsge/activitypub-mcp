@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import {
   classifyReadingEvent,
   collapseReadingEvents,
@@ -6,6 +7,7 @@ import {
   indexCollapsedBooks,
   normalizeTitle,
   normalizeReadingStatus,
+  readingEventTypeCondition,
   type ReadingEvent,
   type DerivedReadingEvent,
 } from './bookwyrm-reading.js'
@@ -361,7 +363,7 @@ describe('collapseReadingEvents — review as finish + cycle-derived dates', () 
 describe('deriveReadingCycles', () => {
   const ev = (
     type: ReadingEvent['event_type'],
-    rs: 'read' | 'reading' | 'to-read' | null,
+    rs: ReadingEvent['reading_status'],
     at: string,
   ): DerivedReadingEvent =>
     derived({ event_type: type, book_title: 'B', reading_status: rs }, { at })
@@ -411,6 +413,113 @@ describe('deriveReadingCycles', () => {
       derived({ event_type: 'started_reading', book_title: 'B', reading_status: 'reading' }),
     ])
     expect(cycles).toHaveLength(0)
+  })
+
+  it('a stop closes the open cycle without recording a finish', () => {
+    const cycles = deriveReadingCycles([
+      ev('started_reading', 'reading', '2026-01-01T00:00:00Z'),
+      ev('stopped_reading', null, '2026-02-01T00:00:00Z'),
+    ])
+    expect(cycles).toHaveLength(1)
+    expect(cycles[0].started?.toISOString().slice(0, 10)).toBe('2026-01-01')
+    expect(cycles[0].finished).toBeNull()
+    expect(cycles[0].abandoned?.toISOString().slice(0, 10)).toBe('2026-02-01')
+  })
+
+  it('a stop with nothing open and no prior cycle is an abandoned-only cycle', () => {
+    const cycles = deriveReadingCycles([ev('stopped_reading', null, '2026-02-01T00:00:00Z')])
+    expect(cycles).toHaveLength(1)
+    expect(cycles[0]).toMatchObject({ started: null, finished: null, cycle: 1 })
+    expect(cycles[0].abandoned?.toISOString().slice(0, 10)).toBe('2026-02-01')
+  })
+
+  it('picking a book back up after a stop opens a new cycle', () => {
+    // Structurally the same as a reread, and rightly so: he read part of it, put
+    // it down, and came back. Both facts survive.
+    const cycles = deriveReadingCycles([
+      ev('started_reading', 'reading', '2026-01-01T00:00:00Z'),
+      ev('stopped_reading', null, '2026-02-01T00:00:00Z'),
+      ev('started_reading', 'reading', '2026-05-01T00:00:00Z'),
+      ev('finished_reading', 'read', '2026-05-20T00:00:00Z'),
+    ])
+    expect(cycles).toHaveLength(2)
+    expect(cycles[0].abandoned?.toISOString().slice(0, 10)).toBe('2026-02-01')
+    expect(cycles[0].finished).toBeNull()
+    expect(cycles[1].finished?.toISOString().slice(0, 10)).toBe('2026-05-20')
+    expect(cycles[1].abandoned).toBeNull()
+  })
+
+  it('a stop after an already-closed cycle is ignored', () => {
+    // The mirror of the post-finish-comment rule: without an intervening start
+    // there is no cycle for it to close.
+    const cycles = deriveReadingCycles([
+      ev('started_reading', 'reading', '2026-01-01T00:00:00Z'),
+      ev('finished_reading', 'read', '2026-01-10T00:00:00Z'),
+      ev('stopped_reading', null, '2026-01-20T00:00:00Z'),
+    ])
+    expect(cycles).toHaveLength(1)
+    expect(cycles[0].finished?.toISOString().slice(0, 10)).toBe('2026-01-10')
+    expect(cycles[0].abandoned).toBeNull()
+  })
+
+  it('a readingStatus of stopped-reading is a stop, not a start', () => {
+    // The bug in one assertion: 'stopped-reading' contains 'reading', so this
+    // used to open a cycle that could never close.
+    const cycles = deriveReadingCycles([
+      ev('comment', 'stopped-reading', '2026-02-01T00:00:00Z'),
+    ])
+    expect(cycles).toHaveLength(1)
+    expect(cycles[0].abandoned).not.toBeNull()
+    expect(cycles[0].started).toBeNull()
+  })
+})
+
+describe('the stopped-reading shelf', () => {
+  it('normalizes the bare word and the shelf URL, and never to reading', () => {
+    for (const v of ['stopped-reading', 'https://bookwyrm.social/user/mvrkws/books/stopped-reading']) {
+      expect(normalizeReadingStatus(v)).toBe('stopped-reading')
+      expect(normalizeReadingStatus(v)).not.toBe('reading')
+    }
+  })
+
+  it('classifies the real generatednote BookWyrm sends for a stop', () => {
+    // Verbatim from https://bookwyrm.social/user/mvrkws/generatednote/8981219 —
+    // content plus the Edition tag that carries the book URL. No readingStatus
+    // field: the shelf is nowhere but the sentence, which is why the phrase match
+    // has to exist at all.
+    const event = classifyReadingEvent({
+      apId: 'https://bookwyrm.social/user/mvrkws/generatednote/8981219',
+      content: 'Markus 🌱 stopped reading Brief Interviews with Hideous Men',
+      tags: [{ type: 'Edition', href: 'https://bookwyrm.social/book/64541', name: '@Brief Interviews with Hideous Men' }],
+      attachments: null,
+    })
+    expect(event?.event_type).toBe('stopped_reading')
+    expect(event?.bookwyrm_book_url).toBe('https://bookwyrm.social/book/64541')
+    expect(event?.book_title).toBe('Brief Interviews with Hideous Men')
+  })
+
+  it('collapses to the stopped-reading shelf', () => {
+    const [book] = collapseReadingEvents([
+      derived({ event_type: 'started_reading', book_title: 'B', reading_status: 'reading' }, { at: '2026-01-01T00:00:00Z' }),
+      derived({ event_type: 'stopped_reading', book_title: 'B', reading_status: null }, { at: '2026-02-01T00:00:00Z' }),
+    ])
+    expect(book.shelf).toBe('stopped-reading')
+    expect(book.finished).toBeNull()
+    expect(book.abandoned?.toISOString().slice(0, 10)).toBe('2026-02-01')
+  })
+
+  it('the note arm of the SQL twin no longer swallows a stop', () => {
+    // readingEventTypeCondition claims to be the inverse of classifyReadingEvent.
+    // If `note` does not exclude the stop phrase the two arms overlap, a stop note
+    // comes back under both event types, and the counts stop adding up.
+    // The phrases are bound parameters, so assert on the params rather than the
+    // rendered SQL — which is the honest place they live.
+    const params = (x: unknown) => new PgDialect().sqlToQuery(x as never).params
+    expect(params(readingEventTypeCondition('stopped_reading'))).toContain('%stopped reading%')
+    expect(params(readingEventTypeCondition('note'))).toContain('%stopped reading%')
+    // And the exclusion really is negated, not just present.
+    const noteSql = new PgDialect().sqlToQuery(readingEventTypeCondition('note') as never).sql
+    expect(noteSql.toLowerCase()).toContain('not like')
   })
 })
 

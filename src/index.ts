@@ -21,6 +21,7 @@ import { syncNeodbMetadata } from './jobs/sync-neodb-metadata.js'
 import { syncGigMetadata } from './jobs/sync-gig-metadata.js'
 import { backfillGigs } from './jobs/backfill-gigs.js'
 import { syncReadingHistory } from './jobs/sync-reading-history.js'
+import { syncBookwyrmShelves } from './jobs/sync-bookwyrm-shelves.js'
 import { syncGardenContent } from './jobs/sync-garden-content.js'
 import { syncLinkedinPosts } from './jobs/sync-linkedin-posts.js'
 import { backfillContentText } from './jobs/backfill-content-text.js'
@@ -90,12 +91,19 @@ async function main() {
     logger.error(e, 'Scrobble sync failed on startup')
   }
 
-  // Backfill BookWyrm reading history + enrich book metadata (no-ops unless
-  // BOOKWYRM_ACTORS / referenced books are present). Run in the background so a
-  // slow first crawl doesn't block startup.
+  // Backfill BookWyrm reading history + shelf membership + enrich book metadata
+  // (no-ops unless BOOKWYRM_ACTORS / referenced books are present). Run in the
+  // background so a slow first crawl doesn't block startup.
+  //
+  // The shelf pull runs on startup and not only on the 6-hourly timer for the same
+  // reason the LinkedIn sync does: setInterval's first fire is six hours away, and
+  // until bookwyrm_shelf_marks has rows /api/v1/books?shelf= refuses to answer.
+  // A deploy would otherwise leave every shelf-filtered caller broken for a quarter
+  // of a day.
   void (async () => {
     try {
       await syncReadingHistory()
+      await syncBookwyrmShelves()
       await syncBookMetadata()
     } catch (e) {
       logger.error(e, 'Reading sync failed on startup')

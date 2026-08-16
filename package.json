@@ -16,6 +16,7 @@
     "link-trip-posts": "tsx scripts/link-trip-posts.ts",
     "sync-weather": "tsx scripts/sync-weather.ts",
     "resolve-lines": "tsx scripts/resolve-trip-lines.ts",
+    "sync-bookwyrm-shelves": "tsx scripts/sync-bookwyrm-shelves.ts",
     "sync-linkedin": "tsx scripts/sync-linkedin.ts",
     "probe-linkedin": "tsx scripts/probe-linkedin-snapshot.ts",
     "visibility-audit": "tsx scripts/visibility-audit.ts",

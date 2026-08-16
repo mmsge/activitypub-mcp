@@ -18,6 +18,7 @@ import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pa
 const eventTypeEnum = z.enum([
   'started_reading',
   'finished_reading',
+  'stopped_reading',
   'review',
   'rating',
   'comment',

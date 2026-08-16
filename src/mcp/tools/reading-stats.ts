@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { SHELVES, type Shelf } from '../../lib/fetch-bookwyrm-shelf.js'
 import { getDb } from '../../db/client.js'
 import { bookMetadata } from '../../db/schema.js'
 import { inArray } from 'drizzle-orm'
@@ -15,8 +16,8 @@ const NON_PROSE_FORMATS = new Set(['GraphicNovel', 'Comic', 'AudiobookFormat', '
 
 export const getReadingStatsSchema = z.object({
   actor_handle: z.string().describe('Actor handle (@user@domain) or full actor URL'),
-  status: z.enum(['reading', 'read', 'to-read']).default('read')
-    .describe('Which shelf to aggregate. Defaults to "read" (finished books).'),
+  status: z.enum(SHELVES).default('read')
+    .describe('Which shelf to aggregate. Defaults to "read" (finished books). "stopped-reading" aggregates the ones he gave up on.'),
   year: z.number().int().optional()
     .describe('Scope to books finished in this calendar year. Omit for all-time.'),
   from: z.string().optional().describe('Only count books finished at or after this ISO date'),
@@ -39,7 +40,7 @@ export interface BookForStats {
   title: string | null
   author: string | null
   url: string | null
-  shelf: 'reading' | 'read' | 'to-read' | null
+  shelf: Shelf | null
   finished: Date | null
   rating: string | null
   pages: number | null
