@@ -210,7 +210,8 @@ paths:
         - $ref: "#/components/parameters/ActorHandleRequired"
         - name: status
           in: query
-          schema: { type: string, enum: [reading, read, to-read] }
+          schema:
+            { type: string, enum: [reading, read, to-read, stopped-reading] }
         - name: limit
           in: query
           schema: { type: integer, minimum: 1, maximum: 50, default: 10 }
@@ -248,7 +249,11 @@ paths:
               properties:
                 include_hidden: { type: boolean, default: false }
                 actor_handle: { type: string }
-                status: { type: string, enum: [reading, read, to-read] }
+                status:
+                  {
+                    type: string,
+                    enum: [reading, read, to-read, stopped-reading],
+                  }
                 limit: { type: integer, minimum: 1, maximum: 50, default: 10 }
                 use_live: { type: boolean, default: true }
       responses:
@@ -1881,7 +1886,11 @@ paths:
             name: status,
             in: query,
             schema:
-              { type: string, enum: [reading, read, to-read], default: read },
+              {
+                type: string,
+                enum: [reading, read, to-read, stopped-reading],
+                default: read,
+              },
           }
         - {
             name: year,
@@ -1940,7 +1949,7 @@ paths:
                 status:
                   {
                     type: string,
-                    enum: [reading, read, to-read],
+                    enum: [reading, read, to-read, stopped-reading],
                     default: read,
                   }
                 year: { type: integer }
@@ -2187,11 +2196,19 @@ paths:
       description: |
         The cached BookWyrm book catalogue as a paginated list of compact rows
         (book_url, title, subtitle, author, series, pages, physical_format, isbn13/isbn10,
-        pub_year, language, publisher, cover_url, subjects, fetched_at). Call
-        `/book-details` for the full record (description, provenance) of one
-        book. Filter by `title` (partial match), `author` (partial match), `format`,
-        `language`, `series` (partial match), or `subject` (partial match
-        against any subject/genre).
+        pub_year, language, publisher, cover_url, subjects, shelf, shelves,
+        fetched_at). Call `/book-details` for the full record (description,
+        provenance) of one book. Filter by `title` (partial match), `author`
+        (partial match), `format`, `language`, `series` (partial match),
+        `subject` (partial match against any subject/genre), or `shelf`.
+
+        **This endpoint is a per-edition bibliographic cache, not a shelf.**
+        Unfiltered it returns every book ever enriched — including ones still
+        being read and ones started and put down. Pass `shelf=read` for finished
+        books only. A `shelf` filter returns 404 rather than an empty page when
+        shelf membership has not been synced yet, because an empty page cannot be
+        told apart from "no books are on that shelf".
+
         Most-recently-enriched first by default; each response carries `total`
         (matching books across all pages) and a `next_cursor` for deep traversal.
       operationId: getBooksGet
@@ -2220,6 +2237,18 @@ paths:
           in: query
           description: Case-insensitive partial match against any of the book's subjects.
           schema: { type: string }
+        - name: shelf
+          in: query
+          description: >-
+            Books a tracked BookWyrm actor currently has on this shelf.
+            `stopped-reading` is the ones started and put down without finishing;
+            `unknown` is the inverse of all four — cached editions with no live
+            shelf membership. Omit for every cached book regardless of shelf.
+          schema:
+            {
+              type: string,
+              enum: [read, reading, to-read, stopped-reading, unknown],
+            }
         - $ref: "#/components/parameters/SortOrder"
         - name: limit
           in: query
@@ -2260,6 +2289,11 @@ paths:
                 language: { type: string }
                 series: { type: string }
                 subject: { type: string }
+                shelf:
+                  {
+                    type: string,
+                    enum: [read, reading, to-read, stopped-reading, unknown],
+                  }
                 sort_order: { type: string, enum: [asc, desc], default: desc }
                 limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
                 page: { type: integer, minimum: 1, default: 1 }
@@ -2331,6 +2365,24 @@ paths:
             e.g. "kino" finds everything marked "Sett på kino.". Free text — never
             parsed into categories.
           schema: { type: string }
+        - name: status
+          in: query
+          description: >
+            Only items whose NEWEST live mark carries this status. Positive, so it
+            REQUIRES a tracked mark: an item enriched before the mark store existed has
+            no status and is not returned. For "only what I actually finished", prefer
+            `exclude_status`.
+          schema:
+            { type: string, enum: [wishlist, progress, complete, dropped] }
+        - name: exclude_status
+          in: query
+          description: >
+            Comma-separated statuses to drop, e.g. `dropped,progress`. Items with no
+            tracked mark are KEPT — this removes only what is positively known, which is
+            the safe direction given the mark store does not cover every enriched item.
+          schema: { type: array, items: { type: string } }
+          style: form
+          explode: false
         - name: watched_from
           in: query
           description: >
@@ -2408,6 +2460,12 @@ paths:
                 genre: { type: string }
                 imdb: { type: string }
                 mark_comment: { type: string }
+                status:
+                  {
+                    type: string,
+                    enum: [wishlist, progress, complete, dropped],
+                  }
+                exclude_status: { type: array, items: { type: string } }
                 watched_from: { type: string }
                 watched_to: { type: string }
                 watched_year: { type: integer, minimum: 1000, maximum: 9999 }
@@ -3698,7 +3756,11 @@ components:
         title: { type: [string, "null"] }
         authors: { type: [string, "null"] }
         cover: { type: [string, "null"] }
-        shelf: { type: [string, "null"], enum: [reading, read, to-read, null] }
+        shelf:
+          {
+            type: [string, "null"],
+            enum: [reading, read, to-read, stopped-reading, null],
+          }
         started_date:
           {
             type: [string, "null"],
@@ -3742,6 +3804,17 @@ components:
         publisher: { type: [string, "null"] }
         cover_url: { type: [string, "null"] }
         subjects: { type: [array, "null"], items: { type: string } }
+        shelf:
+          type: [string, "null"]
+          enum: [read, reading, to-read, stopped-reading, null]
+          description: >-
+            The shelf a tracked BookWyrm actor has this book on. Null when the book
+            has no live shelf membership, or when two tracked actors disagree — read
+            `shelves` to tell those apart.
+        shelves:
+          type: array
+          items: { type: string }
+          description: Every distinct live shelf this book sits on, across all tracked actors.
         fetched_at: { type: [string, "null"], format: date-time }
 
     BooksResponse:
@@ -3763,6 +3836,7 @@ components:
             language: { type: [string, "null"] }
             series: { type: [string, "null"] }
             subject: { type: [string, "null"] }
+            shelf: { type: [string, "null"] }
         books:
           type: array
           items: { $ref: "#/components/schemas/BookSummary" }
@@ -3808,6 +3882,22 @@ components:
             Every distinct shelf date across the item's live marks, newest first, deleted
             marks excluded — plural like `mark_titles`/`mark_comments`, because an item can
             be re-watched or marked by more than one actor. [] when none.
+        status:
+          type: [string, "null"]
+          enum: [wishlist, progress, complete, dropped, null]
+          description: >
+            The shelf state the item's NEWEST live mark carries. null when no live mark is
+            tracked for the item — which is not the same as "not finished": items enriched
+            before the mark store existed are grandfathered in and carry no status at all.
+        status_raw:
+          type: [string, "null"]
+          description: The same mark's verb exactly as NeoDB sent it, so an unmapped one is never lost.
+        statuses:
+          type: array
+          items: { type: string }
+          description: >
+            Every live mark's status, newest first — plural like `watched_dates`, because
+            a re-mark is exactly how "progress" becomes "complete". [] when none.
         year: { type: [integer, "null"] }
         season_number: { type: [integer, "null"] }
         episode_count: { type: [integer, "null"] }
@@ -3857,6 +3947,8 @@ components:
             genre: { type: [string, "null"] }
             imdb: { type: [string, "null"] }
             mark_comment: { type: [string, "null"] }
+            status: { type: [string, "null"] }
+            exclude_status: { type: [array, "null"], items: { type: string } }
             watched_from: { type: [string, "null"] }
             watched_to: { type: [string, "null"] }
             watched_year: { type: [integer, "null"] }
@@ -4167,6 +4259,22 @@ components:
             Every distinct shelf date across the item's live marks, newest first, deleted
             marks excluded — plural like `mark_titles`/`mark_comments`, because an item can
             be re-watched or marked by more than one actor. [] when none.
+        status:
+          type: [string, "null"]
+          enum: [wishlist, progress, complete, dropped, null]
+          description: >
+            The shelf state the item's NEWEST live mark carries. null when no live mark is
+            tracked for the item — which is not the same as "not finished": items enriched
+            before the mark store existed are grandfathered in and carry no status at all.
+        status_raw:
+          type: [string, "null"]
+          description: The same mark's verb exactly as NeoDB sent it, so an unmapped one is never lost.
+        statuses:
+          type: array
+          items: { type: string }
+          description: >
+            Every live mark's status, newest first — plural like `watched_dates`, because
+            a re-mark is exactly how "progress" becomes "complete". [] when none.
         year: { type: [integer, "null"] }
         season_number: { type: [integer, "null"] }
         episode_count: { type: [integer, "null"] }
@@ -4422,6 +4530,7 @@ components:
         [
           started_reading,
           finished_reading,
+          stopped_reading,
           review,
           rating,
           comment,
