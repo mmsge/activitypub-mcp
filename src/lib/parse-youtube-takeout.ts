@@ -91,10 +91,25 @@ export interface ParseProblem {
   sample: string
 }
 
+/**
+ * A value the parser changed on the way through, and what it changed it to.
+ *
+ * Distinct from a ParseProblem: the row is kept. But the archive no longer says exactly
+ * what the source said, so the caller is told rather than left to discover it.
+ */
+export interface ParseNormalisation {
+  index: number
+  kind: string
+  from: string
+  to: string
+}
+
 export interface ParseResult {
   total: number
   rows: WatchRow[]
   problems: ParseProblem[]
+  /** Values the parser altered. Reported, never silent. */
+  normalisations: ParseNormalisation[]
 }
 
 export interface ParseOptions {
@@ -186,32 +201,59 @@ function normaliseLocalTime(raw: string): string | null {
 }
 
 /**
- * Whether a shape-valid wall clock is an actual moment.
+ * The greatest hour an "extended hour" timestamp may carry.
  *
- * `\d{2}:\d{2}:\d{2}` happily matches `30:30:00`, and the real archive contains exactly
- * that — one entry stamped `2025-05-19T30:30:00`. Hour 30 is not a time. Left to the
- * database it surfaces as `date/time field value out of range` in the middle of an insert,
- * tens of thousands of rows into an import; caught here it is one named problem in the
- * pre-flight report, before anything is written.
- *
- * Round-tripping through Date.UTC is what does the work: JavaScript happily ROLLS OVER an
- * out-of-range component (hour 30 becomes 06:30 the next day, February 30th becomes March
- * 2nd), so comparing every component back against the input rejects impossible times and
- * impossible calendar dates alike. Note the rollover is not a reading we could adopt —
- * nothing in the source says `30:30` was meant as the small hours of the 20th, and
- * inventing that would be a guess written into the archive.
+ * 24-47 means "this many hours into the stated day", i.e. the small hours of the day
+ * after. 48 would be two days out, which no such notation means and which is far more
+ * likely to be corruption than a convention.
  */
-export function isRealLocalTime(local: string): boolean {
+export const MAX_EXTENDED_HOUR = 47
+
+const pad = (n: number, w = 2) => String(n).padStart(w, '0')
+
+const formatLocal = (at: Date): string =>
+  `${pad(at.getUTCFullYear(), 4)}-${pad(at.getUTCMonth() + 1)}-${pad(at.getUTCDate())}` +
+  `T${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())}:${pad(at.getUTCSeconds())}`
+
+/**
+ * Turn a shape-valid wall clock into the moment it denotes, or null if it denotes none.
+ *
+ * Two jobs, because `\d{2}:\d{2}:\d{2}` matches strings that are not times.
+ *
+ * **Range.** February 30th, month 13 and minute 60 are rejected. The check is a
+ * round-trip through Date.UTC: JavaScript ROLLS OVER an out-of-range component rather
+ * than refusing it, so comparing every component back is what catches them.
+ *
+ * **Extended hours.** The archive contains one entry stamped `2025-05-19T30:30:00`. Hour
+ * 30 is not an hour, but 24-47 is the well-known "this many hours into the stated day"
+ * notation, and here it is corroborated rather than assumed: the export is ordered
+ * strictly newest-first, and that entry sits between 14:28 on the 19th and 07:51 on the
+ * 20th — exactly where 06:30 on the 20th belongs, and nowhere else. So it is rolled into
+ * the following day and the caller is TOLD, via ParseResult.normalisations. Declared,
+ * never silent; the import prints it on its own line.
+ *
+ * Only the hour may be extended. A minute of 60 or a February 30th is corruption with no
+ * such convention behind it and stays a rejection.
+ */
+export function resolveLocalTime(local: string): { local: string; rolled: boolean } | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/.exec(local)
-  if (!m) return false
+  if (!m) return null
   const [y, mo, d, hh, mi, ss] = m.slice(1).map(Number) as [number, number, number, number, number, number]
-  const at = new Date(Date.UTC(y, mo - 1, d, hh, mi, ss))
-  return at.getUTCFullYear() === y
-    && at.getUTCMonth() === mo - 1
-    && at.getUTCDate() === d
-    && at.getUTCHours() === hh
-    && at.getUTCMinutes() === mi
-    && at.getUTCSeconds() === ss
+
+  if (mi > 59 || ss > 59 || hh > MAX_EXTENDED_HOUR) return null
+
+  // The calendar date must be real on its own terms, before any hour is applied.
+  const day = new Date(Date.UTC(y, mo - 1, d))
+  if (day.getUTCFullYear() !== y || day.getUTCMonth() !== mo - 1 || day.getUTCDate() !== d) {
+    return null
+  }
+
+  if (hh < 24) return { local, rolled: false }
+
+  // Date.UTC does the rollover, which is what makes month and year boundaries correct:
+  // 30:30 on the 31st lands on the 1st of the next month, and on 31 December in the next
+  // year, without any arithmetic here to get wrong.
+  return { local: formatLocal(new Date(Date.UTC(y, mo - 1, d, hh, mi, ss))), rolled: true }
 }
 
 /**
@@ -226,6 +268,7 @@ export function parseYoutubeWatchHistory(
 ): ParseResult {
   const rows: WatchRow[] = []
   const problems: ParseProblem[] = []
+  const normalisations: ParseNormalisation[] = []
 
   entries.forEach((entry, index) => {
     const problem = (reason: string, sample: string) => {
@@ -276,16 +319,27 @@ export function parseYoutubeWatchHistory(
       problem('no time', titleUrl)
       return
     }
-    const watchedAtLocal = normaliseLocalTime(rawTime)
-    if (!watchedAtLocal) {
+    const shaped = normaliseLocalTime(rawTime)
+    if (!shaped) {
       problem('time is not a bare local wall clock', rawTime)
       return
     }
-    // Shape is not validity. Rejected here rather than by Postgres mid-insert.
-    if (!isRealLocalTime(watchedAtLocal)) {
+    // Shape is not validity. Resolved here rather than left to fail inside Postgres tens
+    // of thousands of rows into an insert.
+    const resolved = resolveLocalTime(shaped)
+    if (!resolved) {
       problem('time is not a real date or time', rawTime)
       return
     }
+    if (resolved.rolled) {
+      normalisations.push({
+        index,
+        kind: 'extended hour rolled into the following day',
+        from: shaped,
+        to: resolved.local,
+      })
+    }
+    const watchedAtLocal = resolved.local
 
     const account = str(e.account) ?? opts.defaultAccount
     if (!account) {
@@ -345,7 +399,7 @@ export function parseYoutubeWatchHistory(
     })
   })
 
-  return { total: entries.length, rows, problems }
+  return { total: entries.length, rows, problems, normalisations }
 }
 
 /** Problem counts by reason, newest-largest first — what the importer prints. */

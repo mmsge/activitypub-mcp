@@ -7,7 +7,7 @@ import {
   watchDedupeKey,
   isShort,
   summariseProblems,
-  isRealLocalTime,
+  resolveLocalTime,
   SHORTS_MAX_SECONDS,
 } from './parse-youtube-takeout.js'
 
@@ -353,49 +353,84 @@ describe('summariseProblems', () => {
   })
 })
 
-describe('isRealLocalTime', () => {
-  it('accepts ordinary moments', () => {
-    expect(isRealLocalTime('2026-08-16T18:08:00')).toBe(true)
-    expect(isRealLocalTime('2024-02-29T23:59:59')).toBe(true) // a real leap day
-    expect(isRealLocalTime('2010-10-15T00:00:00')).toBe(true)
+describe('resolveLocalTime', () => {
+  const at = (t: string) => resolveLocalTime(t)?.local ?? null
+
+  it('passes an ordinary moment through untouched', () => {
+    expect(resolveLocalTime('2026-08-16T18:08:00')).toEqual({ local: '2026-08-16T18:08:00', rolled: false })
+    expect(resolveLocalTime('2024-02-29T23:59:59')).toEqual({ local: '2024-02-29T23:59:59', rolled: false }) // a real leap day
   })
 
-  it('rejects an hour that is not an hour', () => {
-    // The real archive contains exactly this: one entry stamped 2025-05-19T30:30:00.
-    // The shape check passes it; only a range check does not.
-    expect(isRealLocalTime('2025-05-19T30:30:00')).toBe(false)
-    expect(isRealLocalTime('2025-05-19T24:00:00')).toBe(false)
+  it('rolls an extended hour into the following day, and says it did', () => {
+    // The archive contains exactly this, and the export's own newest-first ordering places
+    // it between 14:28 on the 19th and 07:51 on the 20th — where 06:30 on the 20th belongs.
+    expect(resolveLocalTime('2025-05-19T30:30:00')).toEqual({ local: '2025-05-20T06:30:00', rolled: true })
+    expect(resolveLocalTime('2025-05-19T24:00:00')).toEqual({ local: '2025-05-20T00:00:00', rolled: true })
+    expect(resolveLocalTime('2025-05-19T47:59:59')).toEqual({ local: '2025-05-20T23:59:59', rolled: true })
   })
 
-  it('rejects impossible minutes and seconds', () => {
-    expect(isRealLocalTime('2025-05-19T10:60:00')).toBe(false)
-    expect(isRealLocalTime('2025-05-19T10:30:99')).toBe(false)
+  it('carries a rolled hour across a month and a year boundary', () => {
+    // Date.UTC does this arithmetic so the module does not have to get it wrong.
+    expect(at('2025-01-31T25:00:00')).toBe('2025-02-01T01:00:00')
+    expect(at('2025-12-31T30:30:00')).toBe('2026-01-01T06:30:00')
+    expect(at('2024-02-28T25:00:00')).toBe('2024-02-29T01:00:00') // into a leap day
   })
 
-  it('rejects impossible calendar dates', () => {
-    expect(isRealLocalTime('2025-02-30T12:00:00')).toBe(false)
-    expect(isRealLocalTime('2025-13-01T12:00:00')).toBe(false)
-    expect(isRealLocalTime('2025-00-10T12:00:00')).toBe(false)
-    expect(isRealLocalTime('2023-02-29T12:00:00')).toBe(false) // not a leap year
+  it('refuses an hour beyond the convention', () => {
+    // 24-47 means "into the next day". 48 would be two days out, which the notation does
+    // not mean and which is far likelier to be corruption.
+    expect(resolveLocalTime('2025-05-19T48:00:00')).toBeNull()
+    expect(resolveLocalTime('2025-05-19T99:00:00')).toBeNull()
   })
 
-  it('does NOT silently adopt the rollover reading', () => {
-    // Date.UTC turns hour 30 into 06:30 the next day. Nothing in the source says that is
-    // what was meant, so the row is rejected rather than quietly relocated to another day.
-    const { rows, problems } = parseYoutubeWatchHistory([entry({ time: '2025-05-19T30:30:00' })])
-    expect(rows).toEqual([])
-    expect(problems[0]!.reason).toBe('time is not a real date or time')
+  it('never extends anything but the hour', () => {
+    // A minute of 60 or a February 30th has no convention behind it — that is corruption.
+    expect(resolveLocalTime('2025-05-19T10:60:00')).toBeNull()
+    expect(resolveLocalTime('2025-05-19T10:30:99')).toBeNull()
+    expect(resolveLocalTime('2025-02-30T12:00:00')).toBeNull()
+    expect(resolveLocalTime('2025-13-01T12:00:00')).toBeNull()
+    expect(resolveLocalTime('2025-00-10T12:00:00')).toBeNull()
+    expect(resolveLocalTime('2023-02-29T12:00:00')).toBeNull() // not a leap year
   })
+})
 
-  it('separates an impossible time from a malformed one', () => {
-    // Two different faults deserve two different reasons in the import report.
-    const { problems } = parseYoutubeWatchHistory([
+describe('normalisations', () => {
+  it('keeps the row, moves the time, and REPORTS the change', () => {
+    const { rows, problems, normalisations } = parseYoutubeWatchHistory([
       entry({ time: '2025-05-19T30:30:00' }),
-      entry({ time: 'not a time at all' }),
     ])
-    expect(problems.map((p) => p.reason)).toEqual([
-      'time is not a real date or time',
-      'time is not a bare local wall clock',
+    expect(problems).toEqual([])
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.watchedAtLocal).toBe('2025-05-20T06:30:00')
+    // The archive no longer says exactly what the source said, so the caller is told.
+    expect(normalisations).toEqual([{
+      index: 0,
+      kind: 'extended hour rolled into the following day',
+      from: '2025-05-19T30:30:00',
+      to: '2025-05-20T06:30:00',
+    }])
+  })
+
+  it('keys the row on the ROLLED time, so it dedupes against the day it really belongs to', () => {
+    const { rows } = parseYoutubeWatchHistory([
+      entry({ time: '2025-05-19T30:30:00' }),
+      entry({ time: '2025-05-20T06:30:00' }),
     ])
+    // Same account, same video, same resolved minute — one natural key, not two.
+    expect(new Set(rows.map((r) => r.dedupeKey)).size).toBe(1)
+  })
+
+  it('reports nothing when nothing was changed', () => {
+    const { normalisations } = parseYoutubeWatchHistory([entry()])
+    expect(normalisations).toEqual([])
+  })
+
+  it('still rejects a time that no convention explains', () => {
+    const { rows, problems, normalisations } = parseYoutubeWatchHistory([
+      entry({ time: '2025-02-30T12:00:00' }),
+    ])
+    expect(rows).toEqual([])
+    expect(normalisations).toEqual([])
+    expect(problems[0]!.reason).toBe('time is not a real date or time')
   })
 })

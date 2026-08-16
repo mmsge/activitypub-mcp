@@ -63,7 +63,7 @@ try {
     process.exit(1)
   }
 
-  const { total, rows, problems } = parseYoutubeWatchHistory(parsed, {
+  const { total, rows, problems, normalisations } = parseYoutubeWatchHistory(parsed, {
     defaultAccount: flag('account'),
     defaultSource: flag('source'),
   })
@@ -76,6 +76,24 @@ try {
       console.log(`  ${String(count).padStart(7)}  ${reason}`)
       for (const p of problems.filter((x) => x.reason === reason).slice(0, examplesPerReason)) {
         console.log(`             entry ${p.index}: ${p.sample}`)
+      }
+    }
+  }
+
+  // Values the parser changed. The row is kept, so this is not a problem — but the
+  // archive no longer says exactly what the source said, and that is never left implicit.
+  if (normalisations.length > 0) {
+    console.log(`\n${normalisations.length} timestamps were NORMALISED (kept, but altered):`)
+    const byKind = new Map<string, typeof normalisations>()
+    for (const n of normalisations) {
+      const list = byKind.get(n.kind) ?? []
+      list.push(n)
+      byKind.set(n.kind, list)
+    }
+    for (const [kind, list] of [...byKind].sort((a, b) => b[1].length - a[1].length)) {
+      console.log(`  ${String(list.length).padStart(7)}  ${kind}`)
+      for (const n of list.slice(0, examplesPerReason)) {
+        console.log(`             entry ${n.index}: ${n.from} -> ${n.to}`)
       }
     }
   }

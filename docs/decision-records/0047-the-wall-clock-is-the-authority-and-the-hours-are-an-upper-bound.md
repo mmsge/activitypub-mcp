@@ -174,6 +174,35 @@ its daily quota rediscovering that they are still dead, every day, forever.
   Both counts stay: the tools report `distinct_channels` on the id, which is the better
   identity, with `distinct_channel_names` beside it, and the verify script asserts both so
   the 93-channel gap cannot drift unnoticed.
+- **Hour 30 is not an hour, and the file's own ordering said what it meant.** One entry
+  in the archive is stamped `2025-05-19T30:30:00`. The parser validated the *shape* of a
+  timestamp (`\d{2}:\d{2}:\d{2}`) and never its *range*, so it passed validation and was
+  refused by Postgres — `date/time field value out of range` — 45,000 rows into the first
+  full import.
+
+  Range checking now happens in the parser, where it is one named line in the pre-flight
+  report instead of a database error mid-insert. The check round-trips through `Date.UTC`
+  and compares every component back, because JavaScript **rolls over** an out-of-range
+  component rather than refusing it; that is what catches February 30th and minute 60 too.
+
+  The hour is then treated as a special case, and the reason is evidence rather than
+  convenience. `24`–`47` is the ordinary "this many hours into the stated day" notation,
+  and here it is corroborated: the export is ordered strictly newest-first, and that entry
+  sits between `2025-05-19T14:28` and `2025-05-20T07:51` — exactly where `2025-05-20T06:30`
+  belongs, and nowhere else. So an extended hour is rolled into the following day and the
+  caller is **told**, through `ParseResult.normalisations`, which the import prints on its
+  own line as "kept, but altered". A normalisation is not a problem — the row survives —
+  but the archive no longer says precisely what the source said, and that is never left
+  implicit.
+
+  Only the hour is extendable. A minute of 60 or a February 30th has no such convention
+  behind it and stays a rejection. And the row is keyed on the **rolled** time, so it
+  dedupes against the day it actually belongs to.
+
+  Two things this deliberately does not do. It does not adopt the rollover as a general
+  reading of corrupt data — without the ordering evidence, `30:30` would have stayed a
+  rejection. And it does not repair the upstream scraper, which is where the value should
+  stop being produced; the importer's job is to be honest about what it received.
 - **`least()` ignores nulls, and it corrupted the capped estimate.** PostgreSQL's
   `LEAST`/`GREATEST` skip null arguments instead of propagating them, so
   `least(NULL, 1200)` is **1200**, not NULL — the opposite of almost every other function,
