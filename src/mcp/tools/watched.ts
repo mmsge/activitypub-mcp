@@ -95,7 +95,7 @@ export const latestMarkStatusRawExpr = sql<string | null>`(
  * Positive, so an item we track no mark for does not match. That makes this the
  * wrong filter for "everything I finished" — see `markStatusExcluded` for why.
  */
-function markStatusMatch(status: string): SQL {
+export function markStatusMatch(status: string): SQL {
   return sql`(
     SELECT m.status FROM neodb_marks m
     WHERE m.item_url = ${catalogMetadata.itemUrl}
@@ -116,14 +116,21 @@ function markStatusMatch(status: string): SQL {
  * known to be unfinished rather than select what is positively known to be finished:
  * the first costs a dropped film staying in the list, the second would silently
  * discard every grandfathered title at once.
+ *
+ * `NOT IN ${statuses}` and NOT `<> ALL (${statuses})`. Drizzle renders an embedded
+ * JS array as an already-parenthesised placeholder list — `($1, $2)` — which is
+ * exactly the shape `IN` wants and NOT the shape `ALL` wants. `ALL` needs an array
+ * expression, so wrapping the list in the parens it needs yields `ALL (($1, $2))`,
+ * a row constructor, and Postgres rejects the statement outright. It cost a 500 on
+ * every /api/v1/watched call carrying the filter; the test below pins the rendering.
  */
-function markStatusExcluded(statuses: string[]): SQL {
+export function markStatusExcluded(statuses: string[]): SQL {
   return sql`coalesce((
     SELECT m.status FROM neodb_marks m
     WHERE m.item_url = ${catalogMetadata.itemUrl}
       AND m.deleted_at IS NULL AND m.status IS NOT NULL
     ORDER BY m.published_at DESC NULLS LAST LIMIT 1
-  ), '') <> ALL (${statuses})`
+  ), '') NOT IN ${statuses}`
 }
 
 // Case-insensitive substring match against any live mark comment on the item. Substring

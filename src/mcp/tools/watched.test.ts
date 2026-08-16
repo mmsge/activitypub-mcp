@@ -4,6 +4,8 @@ import {
   getCatalogueDetailsSchema,
   markCommentsExpr,
   markStatusesExpr,
+  markStatusMatch,
+  markStatusExcluded,
   latestMarkStatusExpr,
   latestMarkStatusRawExpr,
   markWatchedDatesExpr,
@@ -293,5 +295,47 @@ describe('the mark status filters', () => {
     // state `dropped` itself was in until this change.
     const filterable = ['wishlist', 'progress', 'complete', 'dropped'].sort()
     expect(Object.keys(MARK_STATUS_MAP).sort()).toEqual(filterable)
+  })
+})
+
+
+describe('the status predicates render as valid SQL', () => {
+  // These are the tests that were missing. The suite above rendered the select-list
+  // *expressions* and parsed the schema, and both passed while `exclude_status`
+  // returned 500 on every call — because nothing rendered the WHERE predicate the
+  // filter actually builds.
+  const render = (x: unknown) => new PgDialect().sqlToQuery(x as never)
+
+  it('excludes with NOT IN, against the placeholder list Drizzle actually emits', () => {
+    // Drizzle renders an embedded JS array as `($1, $2)` — parens included. That is
+    // the shape IN wants. `<> ALL (...)` wants an array expression, so adding the
+    // parens ALL needs produces `ALL (($1, $2))`, a row constructor, and Postgres
+    // rejects the statement. This assertion is the whole point of the test.
+    const q = render(markStatusExcluded(['dropped', 'progress']))
+    expect(q.sql).toContain('NOT IN ($1, $2)')
+    expect(q.sql).not.toContain('ALL')
+    expect(q.sql).not.toContain('(($1')
+    expect(q.params).toEqual(['dropped', 'progress'])
+  })
+
+  it('keeps an item with no tracked mark, via the coalesce to empty string', () => {
+    // The negative filter's entire reason for existing: absence of a mark means
+    // "we do not know", and '' matches nothing in the exclusion list, so it stays.
+    const q = render(markStatusExcluded(['dropped']))
+    expect(q.sql).toContain("coalesce(")
+    expect(q.sql).toContain("''")
+  })
+
+  it('matches positively on the newest mark', () => {
+    const q = render(markStatusMatch('complete'))
+    expect(q.sql).toContain('ORDER BY m.published_at DESC NULLS LAST')
+    expect(q.sql).toContain('LIMIT 1')
+    expect(q.params).toEqual(['complete'])
+  })
+
+  it('correlates both predicates table-qualified', () => {
+    for (const p of [markStatusMatch('complete'), markStatusExcluded(['dropped'])]) {
+      expect(render(p).sql).toContain('"catalog_metadata"."item_url"')
+    }
   })
 })
