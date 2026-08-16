@@ -22,6 +22,7 @@
     "visibility-audit": "tsx scripts/visibility-audit.ts",
     "scrobble-audit": "tsx scripts/scrobble-audit.ts",
     "import-youtube-watches": "tsx scripts/import-youtube-watches.ts",
+    "youtube-import-verify": "tsx scripts/youtube-import-verify.ts",
     "post-breakouts": "tsx scripts/post-breakouts.ts",
     "lint:openapi": "redocly lint docs/openapi.yaml",
     "format:check": "prettier --check docs/openapi.yaml",

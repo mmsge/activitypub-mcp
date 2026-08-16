@@ -542,6 +542,8 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_scrobbles` | "What did I listen to yesterday? Show my Aphex Twin scrobbles." |
 | `get_scrobble_stats` | "Who are my top artists this month? How many tracks have I scrobbled?" |
 | `get_scrobble_race` | "How far behind Taylor Swift is Maisie Peters? When will she overtake?" |
+| `get_youtube_watches` | "What did I watch on YouTube yesterday? Show every Any Austin video I've opened." |
+| `get_youtube_stats` | "Which channels do I watch most? What hour of day do I watch at? How many Shorts?" |
 | `get_post_breakouts` | "Which of my posts are doing unusually well? Where does my engagement bar sit right now? Why haven't I had an alert?" |
 | `get_reading_events` | "Show my reading timeline. When did I start and finish each book? What have I quoted?" |
 | `get_reading_stats` | "What's the average length of the books I read in 2026? How many pages have I read this year? Which subjects do I read most?" |
@@ -754,6 +756,72 @@ non-zero counts on both sides means the join is broken, not that there is a back
 See [ADR 0033](docs/decision-records/0033-linkedin-as-a-source-two-halves-joined-on-the-post-id.md),
 [0034](docs/decision-records/0034-a-successful-empty-crawl-is-not-a-healthy-one.md) and
 [0039](docs/decision-records/0039-a-clean-run-that-explains-nothing-is-not-observability.md).
+
+### YouTube watch history
+
+A YouTube watch archive can be imported from a Google Takeout-shaped `watch-history.json`
+and queried via `get_youtube_watches` (paginated feed) and `get_youtube_stats` (aggregates).
+Unlike the other media sources this one is **imported by hand, not synced** — there is no
+API to poll, only a file that gets exported.
+
+```bash
+# copy the export onto the box, then:
+cd /srv/bot
+npm run import-youtube-watches -- /srv/bot/watch-history.json --dry-run   # parse, report, write nothing
+npm run import-youtube-watches -- /srv/bot/watch-history.json             # for real
+npm run youtube-import-verify                                            # check the numbers
+```
+
+The import is idempotent — the natural key is `(account, video id, local timestamp)` — so
+re-running it over an overlapping file inserts only what is missing. Nothing is dropped
+silently: entries that cannot be parsed are counted by reason, printed with examples, and
+the command exits non-zero. `--account=` and `--source=` supply values for entries that
+carry none (a real Takeout export has no account field); an entry's own values always win.
+
+`npm run youtube-import-verify` is read-only and safe against production. It asserts the
+full archive's expected counts and exits non-zero on any mismatch; `--report` prints the
+same figures without asserting, which is what to use on a partial import.
+
+#### Five things that will produce wrong answers
+
+These are the substance of the dataset, not edge cases, and they are repeated in the tool
+descriptions because that is where a calling model actually reads them.
+
+1. **There is no watch duration anywhere.** `duration_seconds` is the *video's* length.
+   Neither Takeout nor My Activity records how much of a video was watched — only that it
+   was opened. `get_youtube_stats` therefore never returns a single "hours watched" number:
+   every response carries `raw_hours`, `capped_20min_hours` and `excluding_shorts_hours`,
+   all upper bounds, plus `duration_coverage_pct` for the ~11% of rows that have no length
+   at all and contribute zero to all three.
+2. **Shorts dominate and carry no flag.** About 69% of rows with a duration are under 180
+   seconds, median 55s. `duration < 180s` is a heuristic, exposed as the `shorts` filter.
+   A row with *no* duration is **unknown**, never a Short: `shorts=only` demands a known
+   sub-180s duration, `shorts=exclude` keeps unknowns, and `is_short` is `null` rather than
+   `false`.
+3. **11.4% of rows are unresolved** — deleted or private videos with no title and no
+   channel. They are included by default because they are real watch events, but no channel
+   ranking can contain them, so `group_by=channel` reports `excluded_from_ranking` saying
+   how many were left out.
+4. **The two accounts overlap in time.** `rawen100` runs to July 2026 and 533 of its
+   entries fall after `mvrkws` started. This is not a switchover on a single date.
+5. **2025 is not comparable to 2024** — 53,360 watches against 866. A 62x discontinuity
+   that Shorts alone do not explain, and far more likely a change in what was recorded than
+   a change in viewing. Year-on-year comparisons should exclude or annotate it.
+
+#### Times are local wall clock
+
+The export records a bare Europe/Oslo wall clock at minute resolution, with no offset. Each
+row carries both `watched_at_local` (the source's own value — use it for anything
+calendar-shaped) and `watched_at` (the resolved UTC instant, for joining against scrobbles,
+gigs or trips). `from`, `to` and `year` are read as **local** time, and a timezone suffix on
+them is ignored. Year, month and hour-of-day buckets are computed on the local column, so
+they reproduce the source's own counts exactly. See ADR 0047.
+
+#### Not the same as `get_watched`
+
+`get_watched` serves the NeoDB catalogue — films, TV, books and games Markus **marked**.
+`get_youtube_watches` is the raw record of what he **opened** on YouTube, most of which was
+never marked anywhere. The two are separate stores and neither filters the other.
 
 ### Last.fm scrobbles
 
@@ -1112,6 +1180,8 @@ All paths accept `GET`, `QUERY`, and `POST`.
 | `/scrobbles` | `get_scrobbles` | `artist`, `album`, `track`, `from`, `to`, `since`, `sort_order`, `limit`, `page`, `cursor` |
 | `/scrobble-stats` | `get_scrobble_stats` | `artist`, `album`, `track`, `from`, `to`, `since`, `group_by`, `limit` |
 | `/scrobble-race` | `get_scrobble_race` | `leader`, `challenger`, `pace_days` |
+| `/youtube-watches` | `get_youtube_watches` | `account`, `channel`, `title`, `video_id`, `from`, `to`, `year`, `shorts`, `include_unresolved`, `sort_order`, `limit`, `page`, `cursor` |
+| `/youtube-stats` | `get_youtube_stats` | `account`, `channel`, `title`, `video_id`, `from`, `to`, `year`, `shorts`, `include_unresolved`, `group_by`, `limit` |
 | `/post-breakouts` | `get_post_breakouts` | `actor_handle`, `days`, `limit` |
 | `/reading-stats` | `get_reading_stats` | `actor_handle`, `status`, `year`, `from`, `to`, `format`, `author`, `rating`, `group_by`, `limit` |
 | `/reading-pace` | `get_reading_pace` | `actor_handle`, `year`, `from`, `to`, `sort`, `limit` |
