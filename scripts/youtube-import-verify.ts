@@ -138,11 +138,21 @@ try {
   check('most entries in one minute', minute.n, EXPECTED.busiestMinuteEntries)
   report(`  that minute`, `${minute.account} ${minute.at}`)
 
+  // Per VIDEO, not per (account, video). The archive's own figure counts videos, and the
+  // two differ: the most-rewatched video is watched on BOTH accounts, so keying on the
+  // pair splits one 24-watch video into a 20 and a 4 and understates it. The per-account
+  // maximum is reported beside it so the split stays visible rather than looking like a
+  // discrepancy.
   const rewatch = await one<{ n: string; video_id: string }>(`
     SELECT count(*) AS n, video_id FROM youtube_watches
-    GROUP BY account, video_id ORDER BY count(*) DESC, video_id LIMIT 1`)
+    GROUP BY video_id ORDER BY count(*) DESC, video_id LIMIT 1`)
   check('most watches of one video', rewatch.n, EXPECTED.mostRewatched)
   report('  that video', rewatch.video_id)
+
+  const perAccountRewatch = await one<{ n: string; account: string; video_id: string }>(`
+    SELECT count(*) AS n, account, video_id FROM youtube_watches
+    GROUP BY account, video_id ORDER BY count(*) DESC, video_id LIMIT 1`)
+  report('  most by a single account', `${perAccountRewatch.n} (${perAccountRewatch.account} ${perAccountRewatch.video_id})`)
 
   const dupes = await one<{ n: string }>(`
     SELECT count(*) AS n FROM (
