@@ -1211,9 +1211,9 @@ paths:
       summary: Aggregate YouTube watch metrics
       description: |
         Total watches, distinct videos and channels, first/last watch, and a
-        breakdown by channel, year, month, hour_of_day, account or video. Accepts
-        the same filters as `/youtube-watches`, so totals and first/last reflect
-        only matching rows.
+        breakdown by channel, year, month, day, weekday, hour_of_day, account or
+        video. Accepts the same filters as `/youtube-watches`, so totals and
+        first/last reflect only matching rows.
 
         Every response carries its own caveats, and they are not optional garnish:
 
@@ -1229,9 +1229,15 @@ paths:
           the ranking could not include.
         - `distinct_channels` counts channel **ids**, with `distinct_channel_names`
           beside it: a renamed channel has one id and two names.
-        - `year`/`month`/`hour_of_day` come back in calendar order on Europe/Oslo
-          local time; the others rank by watch count. `group_count` shows whether
-          `limit` truncated the breakdown.
+        - `year`/`month`/`day`/`weekday`/`hour_of_day` come back in calendar order
+          on Europe/Oslo local time; the others rank by watch count.
+          `group_count` shows whether `limit` truncated the breakdown. `day`
+          spans ~2,500 buckets archive-wide against a limit of 500, so scope it
+          with `year` or `from`/`to`; `weekday` is ISO numbering, 1=Monday
+          through 7=Sunday.
+        - Every `top` bucket carries `distinct_videos`, `first_watch` and
+          `last_watch` alongside its counts, so a per-channel lifecycle is one
+          call rather than one call per channel.
       operationId: getYoutubeStatsGet
       parameters:
         - { name: account, in: query, schema: { type: string } }
@@ -1259,15 +1265,25 @@ paths:
             schema:
               {
                 type: string,
-                enum: [channel, year, month, hour_of_day, account, video],
+                enum:
+                  [
+                    channel,
+                    year,
+                    month,
+                    day,
+                    weekday,
+                    hour_of_day,
+                    account,
+                    video,
+                  ],
                 default: channel,
               },
           }
         - {
             name: limit,
             in: query,
-            description: Number of buckets. Raise it for month (~190 buckets) or
-              hour_of_day (24).,
+            description: "Number of buckets. Raise it for month (~190 buckets),
+              day (~366 per year) or hour_of_day (24).",
             schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
           }
       responses:
@@ -1307,7 +1323,17 @@ paths:
                 group_by:
                   {
                     type: string,
-                    enum: [channel, year, month, hour_of_day, account, video],
+                    enum:
+                      [
+                        channel,
+                        year,
+                        month,
+                        day,
+                        weekday,
+                        hour_of_day,
+                        account,
+                        video,
+                      ],
                     default: channel,
                   }
                 limit: { type: integer, minimum: 1, maximum: 500, default: 20 }
@@ -5076,7 +5102,8 @@ components:
         watches_without_channel: { type: integer }
         group_by:
           type: string
-          enum: [channel, year, month, hour_of_day, account, video]
+          enum:
+            [channel, year, month, day, weekday, hour_of_day, account, video]
         group_count:
           type: integer
           description:
@@ -5107,6 +5134,21 @@ components:
               watches: { type: integer }
               raw_seconds: { type: integer }
               rows_with_duration: { type: integer }
+              distinct_videos:
+                type: integer
+                description:
+                  Distinct videos behind this bucket's watches. Always 1 for
+                  group_by=video; for a channel it is the difference between
+                  breadth and rewatching.
+              first_watch:
+                type: [string, "null"]
+                description:
+                  Earliest watch in this bucket, as Europe/Oslo local wall clock.
+                  With group_by=channel this is when the channel entered the
+                  archive, so a lifecycle needs no per-channel round trip.
+              last_watch:
+                type: [string, "null"]
+                description: Latest watch in this bucket, same clock.
         timezone: { type: string }
         filters:
           type: object

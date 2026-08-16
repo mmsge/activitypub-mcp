@@ -250,10 +250,10 @@ export async function getYoutubeWatches(input: z.infer<typeof getYoutubeWatchesS
 
 export const getYoutubeStatsSchema = z.object({
   ...filterShape,
-  group_by: z.enum(['channel', 'year', 'month', 'hour_of_day', 'account', 'video']).default('channel')
-    .describe('Breakdown dimension. channel/account/video are ranked by watch count descending; year/month/hour_of_day are returned in CALENDAR order ascending, because a calendar sorted by count is not a calendar. group_count reports how many buckets exist, so truncation by "limit" is visible.'),
+  group_by: z.enum(['channel', 'year', 'month', 'day', 'weekday', 'hour_of_day', 'account', 'video']).default('channel')
+    .describe('Breakdown dimension. channel/account/video are ranked by watch count descending; year/month/day/weekday/hour_of_day are returned in CALENDAR order ascending, because a calendar sorted by count is not a calendar. group_count reports how many buckets exist, so truncation by "limit" is visible. "day" spans ~2,500 buckets across the archive and cannot be fetched whole — scope it with year or from/to. "weekday" is ISO numbering, 1=Monday through 7=Sunday, and carries the short day name as its label.'),
   limit: z.number().int().min(1).max(500).default(20)
-    .describe('How many buckets to return. Raise it for month (~190 buckets across the archive) or hour_of_day (24) — the default of 20 will truncate those.'),
+    .describe('How many buckets to return. Raise it for month (~190 buckets across the archive), day (~366 per year) or hour_of_day (24) — the default of 20 will truncate those.'),
 })
 
 /** Group key and label expressions per dimension, plus whether to rank or order by key. */
@@ -283,6 +283,24 @@ export function groupPlan(groupBy: z.infer<typeof getYoutubeStatsSchema>['group_
       return { key: sql`extract(year from ${youtubeWatches.watchedAtLocal})::int`, label: null, extra: null, rankByCount: false }
     case 'month':
       return { key: sql`to_char(${youtubeWatches.watchedAtLocal}, 'YYYY-MM')`, label: null, extra: null, rankByCount: false }
+    case 'day':
+      // Rendered as text rather than a date so the key sorts correctly as a string and
+      // needs no client-side parsing — and, like every other calendar bucket here, it is
+      // cut on the LOCAL column so no AT TIME ZONE is involved. ~2,500 buckets exist
+      // archive-wide against a limit of 500, so this dimension is meant to be scoped.
+      return { key: sql`to_char(${youtubeWatches.watchedAtLocal}, 'YYYY-MM-DD')`, label: null, extra: null, rankByCount: false }
+    case 'weekday':
+      return {
+        // ISO numbering (1=Monday…7=Sunday) so the week reads Monday-first, which is what
+        // both the calendar and the reader expect here; `dow` would put Sunday at 0.
+        key: sql`extract(isodow from ${youtubeWatches.watchedAtLocal})::int`,
+        // Spelled from a literal array rather than to_char(…,'Dy'), which reads the
+        // server's lc_time and would silently change the label with the container locale.
+        // Aggregated because it is not itself a grouping key.
+        label: sql<string | null>`min((ARRAY['Mon','Tue','Wed','Thu','Fri','Sat','Sun'])[extract(isodow from ${youtubeWatches.watchedAtLocal})::int])`,
+        extra: null,
+        rankByCount: false,
+      }
     case 'hour_of_day':
       return { key: sql`extract(hour from ${youtubeWatches.watchedAtLocal})::int`, label: null, extra: null, rankByCount: false }
   }
@@ -325,6 +343,13 @@ export async function getYoutubeStats(input: z.infer<typeof getYoutubeStatsSchem
       watches: count(),
       rawSeconds: rawSecondsExpr(),
       withDuration: sql<string>`count(*) filter (where ${youtubeWatches.durationSeconds} IS NOT NULL)`,
+      // Per-bucket span and breadth. Read from the LOCAL column for the same reason every
+      // other calendar value here is: it is the source's own wall clock, and a bucket that
+      // needed AT TIME ZONE could be double-converted. Without these, "when did I start
+      // watching this channel" is one filtered round trip per channel.
+      distinctVideos: sql<string>`count(distinct ${youtubeWatches.videoId})`,
+      firstWatch: sql<string | null>`to_char(min(${youtubeWatches.watchedAtLocal}), 'YYYY-MM-DD"T"HH24:MI:SS')`,
+      lastWatch: sql<string | null>`to_char(max(${youtubeWatches.watchedAtLocal}), 'YYYY-MM-DD"T"HH24:MI:SS')`,
     })
     .from(youtubeWatches)
     .where(groupWhere)
@@ -412,6 +437,9 @@ export async function getYoutubeStats(input: z.infer<typeof getYoutubeStatsSchem
       watches: Number(r.watches),
       raw_seconds: Number(r.rawSeconds),
       rows_with_duration: Number(r.withDuration),
+      distinct_videos: Number(r.distinctVideos),
+      first_watch: r.firstWatch,
+      last_watch: r.lastWatch,
     })),
 
     timezone: 'Europe/Oslo',

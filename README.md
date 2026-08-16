@@ -821,8 +821,22 @@ The export records a bare Europe/Oslo wall clock at minute resolution, with no o
 row carries both `watched_at_local` (the source's own value — use it for anything
 calendar-shaped) and `watched_at` (the resolved UTC instant, for joining against scrobbles,
 gigs or trips). `from`, `to` and `year` are read as **local** time, and a timezone suffix on
-them is ignored. Year, month and hour-of-day buckets are computed on the local column, so
-they reproduce the source's own counts exactly. See ADR 0047.
+them is ignored. Every calendar bucket — year, month, day, weekday and hour-of-day — is
+computed on the local column, so they reproduce the source's own counts exactly. See ADR
+0047.
+
+#### Breakdowns carry a span, not just a count
+
+`group_by` takes `channel`, `year`, `month`, `day`, `weekday`, `hour_of_day`, `account` or
+`video`. The calendar dimensions come back in calendar order; the rest rank by watch count.
+`day` spans ~2,500 buckets archive-wide against a `limit` of 500, so scope it with `year` or
+`from`/`to`; `weekday` uses ISO numbering, 1=Monday through 7=Sunday, labelled with the short
+day name from a literal table rather than `to_char`, which would read the server's locale.
+
+Every `top` bucket carries `distinct_videos`, `first_watch` and `last_watch` beside its
+counts. That is what makes a channel *lifecycle* — when a channel entered the archive and
+when it was last watched — a single call over a whole ranking instead of one filtered call
+per channel.
 
 #### Not the same as `get_watched`
 
