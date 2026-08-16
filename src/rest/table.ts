@@ -15,6 +15,10 @@ import {
   getScrobblesSchema, getScrobbles,
   getScrobbleStatsSchema, getScrobbleStats,
 } from '../mcp/tools/scrobbles.js'
+import {
+  getYoutubeWatchesSchema, getYoutubeWatches,
+  getYoutubeStatsSchema, getYoutubeStats,
+} from '../mcp/tools/youtube-watches.js'
 import { getNowPlayingSchema, getNowPlaying } from '../mcp/tools/now-playing.js'
 import {
   getTrainTripsSchema, getTrainTrips,
@@ -197,6 +201,26 @@ export const endpoints: RestEndpoint[] = [
     handler: getScrobbleStats,
     numbers: ['limit'],
     booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/youtube-watches',
+    name: 'get_youtube_watches',
+    description: "Markus' YouTube watch history: ~96,500 watch events across two Google accounts, 2010-2026, from a Google Takeout-shaped export. Distinct from /watched, which serves the NeoDB catalogue of things he MARKED — this is the raw record of what he opened. One row per watch, so a rewatched video appears once per watch. Filter by account, channel (partial), title (partial), video_id (exact), from/to, year, shorts (include|exclude|only) and include_unresolved. Newest-first by default; paginate deeply via next_cursor. Caveats that change the answer: duration_seconds is the VIDEO'S LENGTH, not how much was watched — no watch duration exists in this data; Shorts dominate and are detected only by the duration < 180s heuristic, so is_short is null when the duration is unknown; 11.4% of rows are unresolved with no title and no channel, which the channel and title filters therefore cannot match; and the two accounts overlap in time rather than succeeding one another. Times are Europe/Oslo local wall clock at minute resolution — watched_at_local is the source's own value and from/to/year are read as local.",
+    schema: getYoutubeWatchesSchema,
+    handler: getYoutubeWatches,
+    numbers: ['limit', 'page', 'year'],
+    booleans: ['include_unresolved'],
+    arrays: [],
+  },
+  {
+    path: '/youtube-stats',
+    name: 'get_youtube_stats',
+    description: "Aggregate metrics over the YouTube watch history: total watches, distinct videos and channels, first/last watch, and a breakdown by channel, year, month, hour_of_day, account or video. Accepts the same filters as /youtube-watches, so totals and first/last reflect only matching rows. Every response carries its own caveats and they are not optional garnish: watch_time_estimates returns THREE upper bounds (raw, capped at 20 min, Shorts-excluded) because this data contains NO watch duration at all, with duration_coverage_pct saying what share of rows even had a length; shorts_split keeps unknown_duration as its own bucket rather than folding it into either side; unresolved_watches and watches_without_channel report how much of the result has no title or channel; and with group_by=channel, excluded_from_ranking states how many watches the ranking could not include. distinct_channels counts channel IDS, with distinct_channel_names beside it, since a renamed channel has one id and two names. year/month/hour_of_day come back in calendar order on Europe/Oslo local time; group_count shows whether `limit` truncated the breakdown.",
+    schema: getYoutubeStatsSchema,
+    handler: getYoutubeStats,
+    numbers: ['limit', 'year'],
+    booleans: ['include_unresolved'],
     arrays: [],
   },
   {
