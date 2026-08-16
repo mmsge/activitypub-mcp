@@ -709,6 +709,72 @@ export const scrobbleRaceState = pgTable('scrobble_race_state', {
   uniqueIndex('scrobble_race_pair_idx').on(t.leaderArtist, t.challengerArtist),
 ])
 
+/**
+ * One YouTube watch event, ingested from a Google Takeout-shaped `watch-history.json`.
+ *
+ * **`watched_at_local` is the authority; `watched_at` is derived.** The source records a
+ * bare local wall clock — Europe/Oslo, no offset, minute resolution, seconds always `00`.
+ * A naive parse would read it as UTC and shift every row by an hour or two, so the wall
+ * clock is stored verbatim in a `timestamp` (no tz) and the instant is computed from it at
+ * insert with `AT TIME ZONE 'Europe/Oslo'`, the same two-column shape `train_trips` uses
+ * for `departure_local` / `departure_at`. Calendar work (year/month/hour-of-day buckets,
+ * `from`/`to`/`year` filters) reads the local column so a bucket is never offset-shifted;
+ * ordering and keyset pagination read the instant. See decision record 0047.
+ *
+ * The source carries no offset, so a watch in the repeated hour of the autumn fall-back
+ * resolves to the earlier instant. That costs at most one collapsed row per year, and only
+ * if the same video was watched twice inside that repeated minute.
+ *
+ * **`duration_seconds` is the VIDEO's length, not how much of it was watched.** Neither
+ * Takeout nor My Activity records watch duration anywhere — only that the video was
+ * opened. Every "hours watched" figure derived from this column is a strict upper bound,
+ * which is why `get_youtube_stats` returns three differently-qualified estimates rather
+ * than one number.
+ *
+ * **`unresolved` is terminal.** It marks a deleted, private or otherwise unavailable video
+ * — no title, no channel — and a future enrichment pass must never retry these, or it will
+ * spend its quota on ~11 % of the archive forever.
+ *
+ * Deliberately NOT the place for enrichment. Category, tags and canonical channel metadata
+ * are properties of a video, of which there are ~92k behind ~96k watches; they belong in a
+ * future `youtube_videos` table keyed on `video_id` and joined at query time, not
+ * denormalised across every watch row. `video_id` is indexed to be that join key.
+ */
+export const youtubeWatches = pgTable('youtube_watches', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // Which Google account watched it. Plain text, not an enum: a third account must not
+  // need a migration.
+  account: text('account').notNull(),
+  videoId: text('video_id').notNull(), // the 11-char id — the video's identity
+  videoUrl: text('video_url').notNull(), // `titleUrl` verbatim
+  watchedAtLocal: timestamp('watched_at_local').notNull(),
+  watchedAt: timestamp('watched_at', { withTimezone: true }).notNull(),
+  title: text('title'), // "Watched " prefix stripped; null when unresolved
+  channelName: text('channel_name'), // null when unresolved
+  channelId: text('channel_id'), // UC… from the subtitle URL; null for @handle URLs
+  durationSeconds: integer('duration_seconds'),
+  unresolved: boolean('unresolved').notNull().default(false),
+  // Provenance: 'myactivity-console' for the My Activity scrape, something else for a
+  // real Takeout export. Kept verbatim so a merged file's rows stay distinguishable.
+  source: text('source').notNull(),
+  raw: jsonb('raw').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('youtube_watches_watched_idx').on(t.watchedAt),
+  index('youtube_watches_watched_local_idx').on(t.watchedAtLocal),
+  index('youtube_watches_account_idx').on(t.account),
+  index('youtube_watches_channel_idx').on(t.channelId),
+  index('youtube_watches_channel_name_idx').on(t.channelName),
+  index('youtube_watches_video_idx').on(t.videoId),
+  index('youtube_watches_duration_idx').on(t.durationSeconds),
+  // Takeout has no watch id, so (account, video, wall-clock minute) is the natural key.
+  // All three parts are load-bearing: a video is legitimately rewatched (one of them 24
+  // times), a single minute legitimately holds up to 31 DIFFERENT videos because minute
+  // resolution plus rapid Shorts scrolling collide, and two accounts can hold the same
+  // video in the same minute. Dropping any part of the key discards real watch events.
+  uniqueIndex('youtube_watches_dedupe_idx').on(t.account, t.videoId, t.watchedAtLocal),
+])
+
 // Point-in-time favourite/boost/reply counts for public statuses, read live from
 // each status's ORIGIN instance by the get_engagement tool (REST /api/v1/statuses/:id
 // first, ActivityPub collection totals as fallback). One row per successful read,
