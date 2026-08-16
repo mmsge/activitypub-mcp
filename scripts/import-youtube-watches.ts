@@ -19,8 +19,10 @@
 //
 //   NODE_OPTIONS=--max-old-space-size=2048 npm run import-youtube-watches -- <path>
 //
-// Nothing is dropped silently: every entry that does not become a row is counted by
-// reason and printed, and the run exits non-zero if any entry was rejected, so a
+// Nothing is dropped silently, and nothing aborts the run. An entry that cannot be parsed
+// is counted by reason and printed; a row the DATABASE refuses is isolated to that single
+// row, named, and reported the same way, so one bad row costs one row rather than leaving
+// a 96k-row import half applied. The run exits non-zero if anything did not land, so a
 // malformed file cannot look like a clean import.
 import { readFileSync } from 'node:fs'
 import {
@@ -28,7 +30,7 @@ import {
   summariseProblems,
   isShort,
 } from '../src/lib/parse-youtube-takeout.js'
-import { importYoutubeWatches } from '../src/jobs/import-youtube-watches.js'
+import { importYoutubeWatches, dbReason } from '../src/jobs/import-youtube-watches.js'
 import { closeDb } from '../src/db/client.js'
 
 const argv = process.argv.slice(2)
@@ -106,14 +108,38 @@ try {
   console.log(`  duplicates in file  ${result.duplicatesInFile}`)
   console.log(`  inserted            ${result.inserted}`)
   console.log(`  already present     ${result.skipped}`)
-  if (problems.length > 0) {
-    console.log(`\n${problems.length} entries were NOT imported — see the breakdown above.`)
+  console.log(`  refused by database ${result.failed.length}`)
+
+  // A row the database would not take is isolated and named rather than aborting the run,
+  // so a 96k-row import is never left half-applied by one bad row.
+  if (result.failed.length > 0) {
+    console.log(`\n${result.failed.length} rows were REFUSED BY THE DATABASE:`)
+    const byReason = new Map<string, typeof result.failed>()
+    for (const f of result.failed) {
+      const list = byReason.get(f.reason) ?? []
+      list.push(f)
+      byReason.set(f.reason, list)
+    }
+    for (const [reason, list] of [...byReason].sort((a, b) => b[1].length - a[1].length)) {
+      console.log(`  ${String(list.length).padStart(7)}  ${reason}`)
+      for (const f of list.slice(0, examplesPerReason)) {
+        console.log(`             row ${f.index}: ${f.account} ${f.watchedAtLocal} ${f.videoId}`)
+      }
+    }
+  }
+
+  const notImported = problems.length + result.failed.length
+  if (notImported > 0) {
+    console.log(`\n${notImported} entries did not make it into the database — see above.`)
   }
 
   await closeDb()
-  process.exit(problems.length > 0 ? 1 : 0)
+  process.exit(notImported > 0 ? 1 : 0)
 } catch (e) {
-  console.error(e)
+  // Deliberately not console.error(e): drizzle's wrapper carries the whole failed
+  // statement and every bound parameter, which for a batched insert buries the one useful
+  // sentence under thousands of lines. dbReason walks to the driver error underneath.
+  console.error(`\n${dbReason(e)}`)
   await closeDb().catch(() => {})
   process.exit(1)
 }
