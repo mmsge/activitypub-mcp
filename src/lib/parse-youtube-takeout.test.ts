@@ -68,6 +68,25 @@ describe('extractVideoId', () => {
     expect(extractVideoId('https://www.youtube.com/shorts/hSBFqUUpj8I?feature=share')).toBe('hSBFqUUpj8I')
   })
 
+  it('reads the id from a youtu.be short link', () => {
+    expect(extractVideoId('https://youtu.be/hSBFqUUpj8I')).toBe('hSBFqUUpj8I')
+    expect(extractVideoId('https://youtu.be/hSBFqUUpj8I?si=1JuGDKe3sVpMz6di')).toBe('hSBFqUUpj8I')
+  })
+
+  it('reads the id out of a search-results URL whose query is a youtu.be link', () => {
+    // The archive really contains these: a watch entry whose titleUrl is a search page
+    // wrapping a shortened link. Rejecting them leaves the import short of the source.
+    expect(extractVideoId(
+      'https://www.youtube.com/results?search_query=https://youtu.be/0hrCQv_26yc%3Fsi%3D1JuGDKe3sVpMz6di',
+    )).toBe('0hrCQv_26yc')
+  })
+
+  it('prefers ?v= over an unrelated youtu.be elsewhere in the URL', () => {
+    // Ordering matters: an ordinary watch URL must never be resolved by the loose branch.
+    expect(extractVideoId('https://www.youtube.com/watch?v=hSBFqUUpj8I&r=https://youtu.be/aaaaaaaaaaa'))
+      .toBe('hSBFqUUpj8I')
+  })
+
   it('refuses an id of the wrong length rather than guessing', () => {
     // A wrong-length id would still key a row — just the wrong row. Better to surface it.
     expect(extractVideoId('https://www.youtube.com/watch?v=tooshort')).toBeNull()
