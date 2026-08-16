@@ -772,6 +772,13 @@ npm run import-youtube-watches -- /srv/bot/watch-history.json             # for 
 npm run youtube-import-verify                                            # check the numbers
 ```
 
+There is also an upload form at **Admin → Import**, which reports the same three things —
+entries it could not parse, rows the database refused, and values it normalised. Prefer the
+command line for the **full ~46 MB archive**: it runs in its own process, whereas the upload
+is parsed inside the server, so a file large enough to exhaust the heap would take the
+server down with it rather than just failing the import. The form is for the smaller
+incremental exports that follow the first one.
+
 The import is idempotent — the natural key is `(account, video id, local timestamp)` — so
 re-running it over an overlapping file inserts only what is missing. Nothing is dropped
 silently: entries that cannot be parsed are counted by reason, printed with examples, and
