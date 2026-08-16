@@ -147,22 +147,26 @@ describe('streamReadingKind', () => {
 })
 
 describe('readingStatusOn mirrors normalizeReadingStatus', () => {
-  // The two implementations of one rule. The words nest — "to-read" contains
-  // "read", "reading" contains "read" — so the ordering is the whole difficulty,
-  // and it is written out twice in two languages.
+  // The two implementations of one rule. The words nest — "stopped-reading"
+  // contains both "reading" and "read", "to-read" contains "read", "reading"
+  // contains "read" — so the ordering is the whole difficulty, and it is written
+  // out twice in two languages.
   const CASES = [
-    'read', 'reading', 'to-read', 'want-to-read', '',
+    'read', 'reading', 'to-read', 'want-to-read', 'stopped-reading', '',
     'https://bookwyrm.social/user/mvrkws/books/read',
     'https://bookwyrm.social/user/mvrkws/books/reading',
     'https://bookwyrm.social/user/mvrkws/books/to-read',
+    'https://bookwyrm.social/user/mvrkws/books/stopped-reading',
   ]
 
   /** What the SQL would answer, evaluated the way Postgres evaluates the LIKEs. */
   const bySql = (value: string): string | null => {
     const s = value.toLowerCase()
-    const toRead = s.includes('to-read') || s.includes('want-to-read')
-    const reading = !toRead && s.includes('reading')
-    const read = !toRead && !reading && s.includes('read')
+    const stopped = s.includes('stopped')
+    const toRead = !stopped && (s.includes('to-read') || s.includes('want-to-read'))
+    const reading = !stopped && !toRead && s.includes('reading')
+    const read = !stopped && !toRead && !reading && s.includes('read')
+    if (stopped) return 'stopped-reading'
     if (toRead) return 'to-read'
     if (reading) return 'reading'
     if (read) return 'read'
@@ -183,8 +187,23 @@ describe('readingStatusOn mirrors normalizeReadingStatus', () => {
   it('excludes the shelves whose names it contains', () => {
     expect(render(readingStatusOn('o', 'read'))).toContain('NOT')
     expect(render(readingStatusOn('o', 'reading'))).toContain('NOT')
-    // to-read is the outermost test and has nothing to exclude.
-    expect(render(readingStatusOn('o', 'to-read'))).not.toContain('NOT')
+    expect(render(readingStatusOn('o', 'to-read'))).toContain('NOT')
+    // stopped-reading is the outermost test and has nothing to exclude — it used
+    // to be to-read, until the shelf that contains every other shelf's name
+    // arrived and had to go first.
+    expect(render(readingStatusOn('o', 'stopped-reading'))).not.toContain('NOT')
+  })
+
+  it('does not read a stopped shelf as a start', () => {
+    // The regression this whole change exists for: 'stopped-reading' contains
+    // 'reading', so before the stopped arm it matched readingStatusOn(_, 'reading')
+    // and the stream rendered "byrja å lesa" over a post saying he gave up.
+    expect(normalizeReadingStatus('stopped-reading')).toBe('stopped-reading')
+    expect(bySql('stopped-reading')).not.toBe('reading')
+    expect(streamReadingKind(row(
+      'https://bookwyrm.social/user/mvrkws/comment/1',
+      { readingStatus: 'stopped-reading' },
+    ))).toBe('book_comment')
   })
 })
 

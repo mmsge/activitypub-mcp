@@ -52,6 +52,80 @@ export const markCommentsExpr = sql<string[]>`(
   ) c
 )`
 
+/**
+ * The status(es) the item's live mark(s) carry — wishlist | progress | complete |
+ * dropped, plus whatever verb NeoDB sent verbatim for anything outside that set.
+ * Plural for the same reason `mark_titles` / `mark_comments` / `watched_dates` are:
+ * an item can be marked more than once, and a re-mark is exactly how "progress"
+ * becomes "complete". Newest mark first, so `statuses[0]` is the current state.
+ *
+ * ADR 0008 deliberately left this unserved, to avoid changing get_watched's
+ * established shape. That call is reversed here, and only additively: two new
+ * fields, no field removed and no default filter added.
+ *
+ * Correlated **table-qualified by hand** — see `markCommentsExpr` above for why an
+ * unqualified `item_url` in here is a silent always-true self-comparison.
+ */
+export const markStatusesExpr = sql<string[]>`(
+  SELECT coalesce(jsonb_agg(m.status ORDER BY m.published_at DESC NULLS LAST), '[]'::jsonb)
+  FROM neodb_marks m
+  WHERE m.item_url = catalog_metadata.item_url
+    AND m.deleted_at IS NULL AND m.status IS NOT NULL
+)`
+
+/** The newest live mark's canonical status — the item's current shelf state. */
+export const latestMarkStatusExpr = sql<string | null>`(
+  SELECT m.status FROM neodb_marks m
+  WHERE m.item_url = catalog_metadata.item_url
+    AND m.deleted_at IS NULL AND m.status IS NOT NULL
+  ORDER BY m.published_at DESC NULLS LAST LIMIT 1
+)`
+
+/** The same mark's verb exactly as NeoDB sent it. */
+export const latestMarkStatusRawExpr = sql<string | null>`(
+  SELECT m.status_raw FROM neodb_marks m
+  WHERE m.item_url = catalog_metadata.item_url
+    AND m.deleted_at IS NULL AND m.status IS NOT NULL
+  ORDER BY m.published_at DESC NULLS LAST LIMIT 1
+)`
+
+/**
+ * Items whose NEWEST live mark carries this status.
+ *
+ * Positive, so an item we track no mark for does not match. That makes this the
+ * wrong filter for "everything I finished" — see `markStatusExcluded` for why.
+ */
+function markStatusMatch(status: string): SQL {
+  return sql`(
+    SELECT m.status FROM neodb_marks m
+    WHERE m.item_url = ${catalogMetadata.itemUrl}
+      AND m.deleted_at IS NULL AND m.status IS NOT NULL
+    ORDER BY m.published_at DESC NULLS LAST LIMIT 1
+  ) = ${status}`
+}
+
+/**
+ * Drop items whose newest live mark carries one of these statuses. Items with no
+ * tracked mark are KEPT.
+ *
+ * The asymmetry with `status` is deliberate and load-bearing. The tombstone clause
+ * in buildConditions already documents that items enriched before the mark store
+ * existed are grandfathered in — so **absence of a mark is not information here**,
+ * unlike BookWyrm shelf membership, which is rebuilt whole on every pass. A caller
+ * wanting "only what I actually finished" must therefore subtract what is positively
+ * known to be unfinished rather than select what is positively known to be finished:
+ * the first costs a dropped film staying in the list, the second would silently
+ * discard every grandfathered title at once.
+ */
+function markStatusExcluded(statuses: string[]): SQL {
+  return sql`coalesce((
+    SELECT m.status FROM neodb_marks m
+    WHERE m.item_url = ${catalogMetadata.itemUrl}
+      AND m.deleted_at IS NULL AND m.status IS NOT NULL
+    ORDER BY m.published_at DESC NULLS LAST LIMIT 1
+  ), '') <> ALL (${statuses})`
+}
+
 // Case-insensitive substring match against any live mark comment on the item. Substring
 // only — the text is free prose, deliberately never parsed into categories.
 function markCommentMatch(needle: string): SQL {
@@ -199,6 +273,8 @@ function buildConditions(input: {
   genre?: string
   imdb?: string
   mark_comment?: string
+  status?: string
+  exclude_status?: string[]
   watched_from?: string
   watched_to?: string
   watched_year?: number
@@ -211,6 +287,8 @@ function buildConditions(input: {
   if (!input.include_hidden) conditions.push(visibleCatalog())
   if (input.title) conditions.push(titleMatch(input.title))
   if (input.mark_comment) conditions.push(markCommentMatch(input.mark_comment))
+  if (input.status) conditions.push(markStatusMatch(input.status))
+  if (input.exclude_status?.length) conditions.push(markStatusExcluded(input.exclude_status))
   const window = resolveWatchedWindow(input)
   if (window.from || window.to) conditions.push(watchedRangeMatch(window.from, window.to))
   if (input.category) conditions.push(eq(catalogMetadata.category, input.category))
@@ -261,6 +339,10 @@ export const getWatchedSchema = z.object({
   imdb: z.string().optional().describe('Filter by exact IMDb id, e.g. "tt27579939" (film/TV only)'),
   mark_comment: z.string().optional()
     .describe('Filter by the comment the mark carried (case-insensitive substring, matched against any of the item\'s mark comments). Free text, e.g. "kino" finds everything marked "Sett på kino."'),
+  status: z.enum(['wishlist', 'progress', 'complete', 'dropped']).optional()
+    .describe('Only items whose NEWEST live mark carries this status. Positive, so it REQUIRES a tracked mark: an item enriched by a path predating the mark store has no status and is not returned. For "only what I actually finished", prefer exclude_status.'),
+  exclude_status: z.array(z.string()).optional()
+    .describe('Drop items whose newest live mark carries any of these statuses, e.g. ["dropped","progress"] for "only things I actually finished". Items with no tracked mark are KEPT — this removes only what is positively known, which is the safe direction given the mark store does not cover every enriched item.'),
   watched_from: z.string()
     .refine((v) => parseWatchedBound(v, 'from') != null, { message: 'watched_from must be YYYY-MM-DD or an ISO timestamp' })
     .optional()
@@ -335,6 +417,9 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       markTitles: catalogMetadata.markTitles,
       markComments: markCommentsExpr,
       watchedDates: markWatchedDatesExpr,
+      markStatus: latestMarkStatusExpr,
+      markStatusRaw: latestMarkStatusRawExpr,
+      markStatuses: markStatusesExpr,
       latestWatchedAt: latestWatchedAtExpr,
       bookwyrmBookUrl: catalogMetadata.bookwyrmBookUrl,
       enrichedAt: catalogMetadata.enrichedAt,
@@ -376,6 +461,8 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       genre: input.genre ?? null,
       imdb: input.imdb ?? null,
       mark_comment: input.mark_comment ?? null,
+      status: input.status ?? null,
+      exclude_status: input.exclude_status ?? null,
       watched_from: input.watched_from ?? null,
       watched_to: input.watched_to ?? null,
       watched_year: input.watched_year ?? null,
@@ -406,6 +493,9 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       // mark carried no date.
       watched_at: toDate(r.latestWatchedAt)?.toISOString() ?? null,
       watched_dates: asArray(r.watchedDates) ?? [],
+      status: r.markStatus ?? null,
+      status_raw: r.markStatusRaw ?? null,
+      statuses: asArray(r.markStatuses) ?? [],
       year: r.year,
       // Film/TV columns (null for other categories).
       season_number: r.seasonNumber,
@@ -466,6 +556,9 @@ export async function getCatalogueDetails(input: CatalogueDetailsInput) {
       ...getTableColumns(catalogMetadata),
       markComments: markCommentsExpr,
       watchedDates: markWatchedDatesExpr,
+      markStatus: latestMarkStatusExpr,
+      markStatusRaw: latestMarkStatusRawExpr,
+      markStatuses: markStatusesExpr,
       latestWatchedAt: latestWatchedAtExpr,
     })
     .from(catalogMetadata)
@@ -489,6 +582,9 @@ export async function getCatalogueDetails(input: CatalogueDetailsInput) {
     // the mark was posted. `watched_at` is the newest of `watched_dates`.
     watched_at: toDate(r.latestWatchedAt)?.toISOString() ?? null,
     watched_dates: asArray(r.watchedDates) ?? [],
+    status: r.markStatus ?? null,
+    status_raw: r.markStatusRaw ?? null,
+    statuses: asArray(r.markStatuses) ?? [],
     year: r.year,
     season_number: r.seasonNumber,
     episode_count: r.episodeCount,

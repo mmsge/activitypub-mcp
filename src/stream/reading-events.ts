@@ -1,5 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm'
 import { normalizeReadingStatus } from '../lib/bookwyrm-reading.js'
+import type { Shelf } from '../lib/fetch-bookwyrm-shelf.js'
 import type { Kind } from './sources.js'
 
 /**
@@ -121,18 +122,26 @@ function colsOf(alias: string): { ap: SQL; txt: SQL } {
  * `readingStatus` narrowed to one shelf, in SQL.
  *
  * BookWyrm sends either the bare word or the shelf's own URL (`…/books/to-read`),
- * and the words nest — "to-read" contains "read", "reading" contains "read" — so the
- * tests are ordered and each excludes the ones above it. Mirrors
- * `normalizeReadingStatus`; the tests pin the two against the same inputs.
+ * and the words nest — "stopped-reading" contains both "reading" and "read",
+ * "to-read" contains "read", "reading" contains "read" — so the tests are ordered
+ * and each excludes the ones above it. Mirrors `normalizeReadingStatus`; the tests
+ * pin the two against the same inputs.
+ *
+ * The stopped arm is the one that was missing, and its absence had a visible
+ * consequence here rather than a merely theoretical one: a comment posted while
+ * flipping a book to stopped-reading matched the `reading` arm, so `startSignalOn`
+ * fired and the stream rendered "byrja å lesa" over a post saying he had given up.
  */
-export function readingStatusOn(alias: string, want: 'read' | 'reading' | 'to-read'): SQL {
+export function readingStatusOn(alias: string, want: Shelf): SQL {
   assertAlias(alias)
   const s = sql.raw(`lower(coalesce(${alias}.raw->>'readingStatus', ''))`)
-  const toRead = sql`(${s} LIKE '%to-read%' OR ${s} LIKE '%want-to-read%')`
+  const stopped = sql`(${s} LIKE '%stopped%')`
+  if (want === 'stopped-reading') return stopped
+  const toRead = sql`(NOT ${stopped} AND (${s} LIKE '%to-read%' OR ${s} LIKE '%want-to-read%'))`
   if (want === 'to-read') return toRead
-  const reading = sql`(NOT ${toRead} AND ${s} LIKE '%reading%')`
+  const reading = sql`(NOT ${stopped} AND NOT ${toRead} AND ${s} LIKE '%reading%')`
   if (want === 'reading') return reading
-  return sql`(NOT ${toRead} AND NOT ${reading} AND ${s} LIKE '%read%')`
+  return sql`(NOT ${stopped} AND NOT ${toRead} AND NOT ${reading} AND ${s} LIKE '%read%')`
 }
 
 /** See isFinish — this is the same rule, in SQL. */

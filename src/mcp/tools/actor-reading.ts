@@ -3,14 +3,15 @@ import { getDb } from '../../db/client.js'
 import { bookMetadata } from '../../db/schema.js'
 import { inArray } from 'drizzle-orm'
 import { resolveActorByHandle } from '../../lib/fetch-actor.js'
-import { fetchBookwyrmShelf, type ShelfItem } from '../../lib/fetch-bookwyrm-shelf.js'
+import { fetchBookwyrmShelf, SHELVES, type Shelf, type ShelfItem } from '../../lib/fetch-bookwyrm-shelf.js'
 import { normalizeTitle, indexCollapsedBooks, type CollapsedBook } from '../../lib/bookwyrm-reading.js'
 import { loadCollapsedBooks } from '../../lib/reading-query.js'
 import { hiddenBookUrls } from '../../lib/hidden.js'
 
 export const getActorReadingStatusSchema = z.object({
   actor_handle: z.string().describe('Actor handle (@user@domain) or full actor URL'),
-  status: z.enum(['reading', 'read', 'to-read']).optional().describe('Filter by reading status'),
+  status: z.enum(SHELVES).optional()
+    .describe('Filter by reading status. "stopped-reading" is BookWyrm\'s fourth shelf — books started and put down without finishing.'),
   limit: z.number().int().min(1).max(50).default(10),
   use_live: z.boolean().default(true).describe(
     'Fetch live shelf data directly from the BookWyrm instance (ground truth). ' +
@@ -20,7 +21,18 @@ export const getActorReadingStatusSchema = z.object({
     .describe('Include books an admin has hidden from the served catalogue. Off by default — a hidden book is dropped from the shelf entirely, not just stripped of its metadata.'),
 })
 
-type Shelf = 'reading' | 'read' | 'to-read'
+export type { Shelf }
+
+/**
+ * The order shelves are walked in when no status filter is given.
+ *
+ * NOT the SHELVES order, and deliberately so: fetchLiveShelf concatenates the
+ * shelves and only then slices to `limit` (default 10), so this order decides
+ * which books a default call returns. Appending stopped-reading LAST keeps that
+ * answer byte-identical to what it was before the shelf existed; inserting it
+ * earlier would silently change what every unfiltered caller sees.
+ */
+const LIVE_SHELF_ORDER: Shelf[] = ['reading', 'read', 'to-read', 'stopped-reading']
 
 type ReadingResult = {
   title: string | null
@@ -135,7 +147,7 @@ async function fetchLiveShelf(
   statusFilter: Shelf | undefined,
   limit: number,
 ): Promise<ReadingResult[] | { error: string }> {
-  const shelves: Shelf[] = statusFilter ? [statusFilter] : ['reading', 'read', 'to-read']
+  const shelves: Shelf[] = statusFilter ? [statusFilter] : LIVE_SHELF_ORDER
 
   const allItems: (ShelfItem & { shelf: Shelf })[] = []
   for (const shelf of shelves) {

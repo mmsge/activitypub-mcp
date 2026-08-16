@@ -3,6 +3,9 @@ import {
   getWatchedSchema,
   getCatalogueDetailsSchema,
   markCommentsExpr,
+  markStatusesExpr,
+  latestMarkStatusExpr,
+  latestMarkStatusRawExpr,
   markWatchedDatesExpr,
   latestWatchedAtExpr,
   parseWatchedBound,
@@ -12,6 +15,7 @@ import {
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { getDb } from '../../db/client.js'
 import { catalogMetadata } from '../../db/schema.js'
+import { MARK_STATUS_MAP } from '../../lib/neodb-mark.js'
 
 describe('mark_comments correlation', () => {
   // Drizzle qualifies a column reference in WHERE ("catalog_metadata"."item_url") but NOT
@@ -242,5 +246,52 @@ describe('getCatalogueDetailsSchema', () => {
 
   it('allows an empty object (handler validates that at least one selector is set)', () => {
     expect(() => getCatalogueDetailsSchema.parse({})).not.toThrow()
+  })
+})
+
+
+describe('the mark status filters', () => {
+  const render = (x: unknown) => new PgDialect().sqlToQuery(x as never).sql
+
+  it('correlates on a table-qualified item_url, not a bare one', () => {
+    // A bare `item_url` inside these subqueries binds to neodb_marks' own column —
+    // an always-true self-comparison that hands every row every mark in the table.
+    // The same trap markCommentsExpr documents.
+    for (const expr of [markStatusesExpr, latestMarkStatusExpr, latestMarkStatusRawExpr]) {
+      expect(render(expr)).toContain('m.item_url = catalog_metadata.item_url')
+      expect(render(expr)).toContain('m.deleted_at IS NULL')
+    }
+  })
+
+  it('takes the newest mark, so a re-mark supersedes the one before it', () => {
+    // "progress" becomes "complete" by being marked again; the scalar must follow.
+    for (const expr of [latestMarkStatusExpr, latestMarkStatusRawExpr]) {
+      expect(render(expr)).toContain('ORDER BY m.published_at DESC NULLS LAST')
+      expect(render(expr)).toContain('LIMIT 1')
+    }
+  })
+
+  it('accepts the four canonical statuses and rejects anything else', () => {
+    for (const status of ['wishlist', 'progress', 'complete', 'dropped']) {
+      expect(getWatchedSchema.parse({ status }).status).toBe(status)
+    }
+    expect(() => getWatchedSchema.parse({ status: 'abandoned' })).toThrow()
+    expect(() => getWatchedSchema.parse({ status: 'read' })).toThrow()
+  })
+
+  it('takes exclude_status as a list and leaves both filters off by default', () => {
+    expect(getWatchedSchema.parse({ exclude_status: ['dropped', 'progress'] }).exclude_status)
+      .toEqual(['dropped', 'progress'])
+    const bare = getWatchedSchema.parse({})
+    expect(bare.status).toBeUndefined()
+    expect(bare.exclude_status).toBeUndefined()
+  })
+
+  it('keeps the four canonical statuses in step with what the parser can produce', () => {
+    // If NeoDB adds a verb and mapMarkStatus learns it, the filter enum has to learn
+    // it too, or it lands in the database and becomes unfilterable — which is the
+    // state `dropped` itself was in until this change.
+    const filterable = ['wishlist', 'progress', 'complete', 'dropped'].sort()
+    expect(Object.keys(MARK_STATUS_MAP).sort()).toEqual(filterable)
   })
 })

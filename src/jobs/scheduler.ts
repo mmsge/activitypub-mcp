@@ -4,6 +4,7 @@ import { syncScrobbles } from './sync-scrobbles.js'
 import { runScrobbleRace } from './scrobble-race.js'
 import { checkRaceNowPlaying } from './scrobble-race-nowplaying.js'
 import { syncBookMetadata } from './sync-book-metadata.js'
+import { syncBookwyrmShelves } from './sync-bookwyrm-shelves.js'
 import { syncNeodbMetadata } from './sync-neodb-metadata.js'
 import { syncGigMetadata } from './sync-gig-metadata.js'
 import { syncReadingHistory } from './sync-reading-history.js'
@@ -55,12 +56,15 @@ export function startScheduler(): void {
     }, config.RACE_NOWPLAYING_INTERVAL_SECONDS * 1_000)
   }
 
-  // Reading-history outbox backfill + book metadata enrichment — every 6 hours.
-  // History first so newly-ingested books are present when metadata enrichment
-  // collects the URLs to fetch.
+  // Reading-history outbox backfill + shelf membership + book metadata enrichment
+  // — every 6 hours. History first so newly-ingested books are present when
+  // metadata enrichment collects the URLs to fetch; shelves before metadata for
+  // the same reason. The shelf pull is what tells a finished book from one put
+  // down, and /api/v1/books?shelf= is unanswerable until it has run at least once.
   setInterval(async () => {
     try {
       await syncReadingHistory()
+      await syncBookwyrmShelves()
       await syncBookMetadata()
     } catch (e) { logger.error(e, 'Reading sync error') }
   }, SIX_HOURS_MS)

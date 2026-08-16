@@ -1,6 +1,7 @@
 import { sql, and, or, like, type SQL } from 'drizzle-orm'
 import { objects } from '../db/schema.js'
 import { stripHtml } from './strip-html.js'
+import type { Shelf } from './fetch-bookwyrm-shelf.js'
 
 // BookWyrm federates reading activity as plain `type: "Note"` objects, so the
 // reading semantics live in the `ap_id` URL path segment plus the post content,
@@ -12,6 +13,7 @@ import { stripHtml } from './strip-html.js'
 export type ReadingEventType =
   | 'started_reading'
   | 'finished_reading'
+  | 'stopped_reading'
   | 'review'
   | 'rating'
   | 'comment'
@@ -38,6 +40,11 @@ const SEG_QUOTATION = '%/quotation/%'
 // `ilike` AND keep the JS `toLowerCase` checks in sync.
 const PHRASE_STARTED = 'started reading'
 const PHRASE_FINISHED = 'finished reading'
+// Giving up on a book federates too, and looks like the others:
+// "Markus 🌱 stopped reading <a …>Brief Interviews with Hideous Men</a>".
+// It used to fall through to `note`, which is why an abandoned book was
+// indistinguishable from a finished one everywhere downstream.
+const PHRASE_STOPPED = 'stopped reading'
 const PHRASE_WANTS = 'wants to read'
 
 export interface ClassifierInput {
@@ -74,18 +81,26 @@ export interface ReadingEvent {
   book_author: string | null
   bookwyrm_book_url: string | null
   comment: string | null
-  reading_status: 'read' | 'reading' | 'to-read' | null
+  reading_status: Shelf | null
   quote: string | null
   review_title: string | null
   progress: number | null
   progress_mode: string | null
 }
 
-// Normalize the AP `readingStatus` value (plain "read"/"reading"/"to-read", or a
-// shelf URL containing one of those) to our shelf enum.
-export function normalizeReadingStatus(v: unknown): 'read' | 'reading' | 'to-read' | null {
+// Normalize the AP `readingStatus` value (a plain shelf word, or a shelf URL
+// containing one) to our shelf enum.
+//
+// Order is the whole function. The words nest — "stopped-reading" contains both
+// "reading" and "read", "to-read" contains "read", "reading" contains "read" — so
+// each test must exclude every one above it. Before the stopped arm existed,
+// `stopped-reading` matched `includes('reading')` and came back as `reading`:
+// isStartSignal fired and deriveReadingCycles opened a cycle that could never
+// close, so a book Markus gave up on read as one he was still in the middle of.
+export function normalizeReadingStatus(v: unknown): Shelf | null {
   if (typeof v !== 'string') return null
   const s = v.toLowerCase()
+  if (s.includes('stopped')) return 'stopped-reading'
   if (s.includes('to-read') || s.includes('want-to-read')) return 'to-read'
   if (s.includes('reading')) return 'reading'
   if (s.includes('read')) return 'read'
@@ -106,8 +121,9 @@ export function classifyReadingEvent(row: ClassifierInput): ReadingEvent | null 
   if (ap.includes('/generatednote/')) {
     if (lc.includes(PHRASE_STARTED)) event_type = 'started_reading'
     else if (lc.includes(PHRASE_FINISHED)) event_type = 'finished_reading'
+    else if (lc.includes(PHRASE_STOPPED)) event_type = 'stopped_reading'
     else if (lc.includes(PHRASE_WANTS)) event_type = 'shelved'
-    else event_type = 'note' // reading goals, "stopped reading", etc. — not dropped
+    else event_type = 'note' // reading goals etc. — still not dropped
   } else if (ap.includes('/comment/')) {
     event_type = 'comment'
   } else if (ap.includes('/review/')) {
@@ -188,6 +204,7 @@ function extractBookMeta(
     const m =
       /started reading (.+?)(?:[.\n]|$)/i.exec(content) ??
       /finished reading (.+?)(?:[.\n]|$)/i.exec(content) ??
+      /stopped reading (.+?)(?:[.\n]|$)/i.exec(content) ??
       /wants to read (.+?)(?:[.\n]|$)/i.exec(content) ??
       /\(comment on (.+?)\)\s*$/i.exec(content)
     if (m?.[1]) title = m[1].trim()
@@ -211,7 +228,12 @@ export interface DerivedReadingEvent {
 export interface ReadingCycle {
   started: Date | null
   finished: Date | null
-  cycle: number // 1-based ordinal per book; >1 means a reread
+  /**
+   * Set when the reader stopped without finishing. A cycle has at most one of
+   * `finished` and `abandoned`; both null means it is still open.
+   */
+  abandoned: Date | null
+  cycle: number // 1-based ordinal per book; >1 means a reread (or a resumed read)
 }
 
 // One current-state record per book, the shape get_actor_reading_status returns.
@@ -220,9 +242,11 @@ export interface CollapsedBook {
   author: string | null
   url: string | null
   cover: string | null
-  shelf: 'reading' | 'read' | 'to-read' | null
+  shelf: Shelf | null
   started: Date | null
   finished: Date | null
+  /** The last cycle's abandonment date — set when he put the book down for good. */
+  abandoned: Date | null
   rating: string | null
   lastActivity: Date | null // newest event time, for ordering
   cycles: ReadingCycle[] // every start→finish pass, oldest first (rereads = >1)
@@ -235,10 +259,19 @@ export interface CollapsedBook {
 // read (Markus's decision; matches how BookWyrm renders review dates).
 export const isFinishSignal = (ev: ReadingEvent): boolean =>
   ev.reading_status === 'read' || ev.event_type === 'finished_reading' || ev.event_type === 'review'
+// Giving up. Not a finish and not a start — and it has to be tested before both,
+// because a stop is the one shelf change that says the book is over WITHOUT
+// saying it was read. Once normalizeReadingStatus tests "stopped" first the three
+// predicates are already disjoint; writing the exclusions out anyway keeps that
+// disjointness a property of these expressions rather than of a function
+// somewhere else that a later edit could quietly reorder.
+export const isStopSignal = (ev: ReadingEvent): boolean =>
+  ev.reading_status === 'stopped-reading' || ev.event_type === 'stopped_reading'
 export const isStartSignal = (ev: ReadingEvent): boolean =>
-  !isFinishSignal(ev) && (ev.reading_status === 'reading' || ev.event_type === 'started_reading')
+  !isFinishSignal(ev) && !isStopSignal(ev) &&
+  (ev.reading_status === 'reading' || ev.event_type === 'started_reading')
 export const isShelveSignal = (ev: ReadingEvent): boolean =>
-  !isFinishSignal(ev) && !isStartSignal(ev) &&
+  !isFinishSignal(ev) && !isStopSignal(ev) && !isStartSignal(ev) &&
   (ev.reading_status === 'to-read' || ev.event_type === 'shelved')
 
 /**
@@ -250,6 +283,14 @@ export const isShelveSignal = (ev: ReadingEvent): boolean =>
  * finish-only cycle (started: null). A finish signal after a closed cycle with
  * no new start in between is a post-finish comment (Markus posts review links
  * after finishing) and is ignored — only an intervening start opens a reread.
+ *
+ * A **stop** closes the open cycle too, but records no finish: the cycle carries
+ * `abandoned` instead. A start after a stop opens a NEW cycle, which is right —
+ * he read part of it, put it down and picked it up again, and that is
+ * structurally the same thing as a reread. So a book abandoned once and finished
+ * later ends with an abandoned cycle 1 and a finished cycle 2, which is exactly
+ * what happened. Without this branch a stop was invisible and the cycle it should
+ * have closed stayed open forever.
  */
 export function deriveReadingCycles(events: DerivedReadingEvent[]): ReadingCycle[] {
   const dated = events
@@ -259,19 +300,28 @@ export function deriveReadingCycles(events: DerivedReadingEvent[]): ReadingCycle
   const cycles: ReadingCycle[] = []
   let open: Date | null = null
   for (const { event: ev, publishedAt: at } of dated) {
-    if (isFinishSignal(ev)) {
+    if (isStopSignal(ev)) {
       if (open) {
-        cycles.push({ started: open, finished: at, cycle: cycles.length + 1 })
+        cycles.push({ started: open, finished: null, abandoned: at, cycle: cycles.length + 1 })
         open = null
       } else if (cycles.length === 0) {
-        cycles.push({ started: null, finished: at, cycle: 1 })
+        cycles.push({ started: null, finished: null, abandoned: at, cycle: 1 })
+      }
+      // else: a stop after an already-closed cycle with no start in between — the
+      // mirror of the post-finish-comment arm below, ignored for the same reason.
+    } else if (isFinishSignal(ev)) {
+      if (open) {
+        cycles.push({ started: open, finished: at, abandoned: null, cycle: cycles.length + 1 })
+        open = null
+      } else if (cycles.length === 0) {
+        cycles.push({ started: null, finished: at, abandoned: null, cycle: 1 })
       }
       // else: finish re-affirmation after an already-closed cycle — ignored
     } else if (isStartSignal(ev)) {
       open ??= at
     }
   }
-  if (open) cycles.push({ started: open, finished: null, cycle: cycles.length + 1 })
+  if (open) cycles.push({ started: open, finished: null, abandoned: null, cycle: cycles.length + 1 })
   return cycles
 }
 
@@ -309,6 +359,7 @@ export function collapseReadingEvents(events: DerivedReadingEvent[]): CollapsedB
         shelfAt: null,
         started: null,
         finished: null,
+        abandoned: null,
         rating: null,
         lastActivity: null,
         cycles: [],
@@ -323,13 +374,17 @@ export function collapseReadingEvents(events: DerivedReadingEvent[]): CollapsedB
     acc.events.push(item)
 
     // The current shelf is whatever the most recent shelf-affecting event set it to.
-    const shelfForEvent = isFinishSignal(ev)
-      ? 'read'
-      : isStartSignal(ev)
-        ? 'reading'
-        : isShelveSignal(ev)
-          ? 'to-read'
-          : null
+    // Stop first: it is the one transition that ends a book without reading it, and
+    // it must not be reachable through the finish or start arms.
+    const shelfForEvent: Shelf | null = isStopSignal(ev)
+      ? 'stopped-reading'
+      : isFinishSignal(ev)
+        ? 'read'
+        : isStartSignal(ev)
+          ? 'reading'
+          : isShelveSignal(ev)
+            ? 'to-read'
+            : null
     if (shelfForEvent && (!acc.shelfAt || (at && at > acc.shelfAt))) {
       acc.shelf = shelfForEvent
       acc.shelfAt = at ?? acc.shelfAt
@@ -341,7 +396,11 @@ export function collapseReadingEvents(events: DerivedReadingEvent[]): CollapsedB
     const cycles = deriveReadingCycles(bookEvents)
     const started = cycles.find((c) => c.started)?.started ?? null
     const finished = [...cycles].reverse().find((c) => c.finished)?.finished ?? null
-    return { ...book, started, finished, cycles }
+    // Newest abandonment, same reducer shape as `finished`. A book abandoned and
+    // later finished carries both — the dates describe different cycles, and
+    // flattening one away would lose the fact that he came back to it.
+    const abandoned = [...cycles].reverse().find((c) => c.abandoned)?.abandoned ?? null
+    return { ...book, started, finished, abandoned, cycles }
   })
 }
 
@@ -387,16 +446,24 @@ export function readingEventTypeCondition(et: ReadingEventType): SQL | undefined
       return and(like(objects.apId, SEG_GENERATEDNOTE), like(objects.contentText, `%${PHRASE_STARTED}%`))
     case 'finished_reading':
       return and(like(objects.apId, SEG_GENERATEDNOTE), like(objects.contentText, `%${PHRASE_FINISHED}%`))
+    case 'stopped_reading':
+      return and(like(objects.apId, SEG_GENERATEDNOTE), like(objects.contentText, `%${PHRASE_STOPPED}%`))
     case 'shelved':
       return and(like(objects.apId, SEG_GENERATEDNOTE), like(objects.contentText, `%${PHRASE_WANTS}%`))
     case 'note':
-      // generatednote that is none of started/finished/wants-to-read (goals etc.).
+      // generatednote that is none of started/finished/stopped/wants-to-read (goals etc.).
       // NULL content is a `note` to match the JS `content ?? ''` branch.
+      //
+      // Every phrase with its own case above MUST also be excluded here, or the two
+      // arms overlap and this function stops being the inverse of the classifier it
+      // claims to mirror: a stop note would come back under both `note` and
+      // `stopped_reading`, and the counts would not add up to the corpus.
       return and(
         like(objects.apId, SEG_GENERATEDNOTE),
         sql`(${objects.contentText} IS NULL OR (
           ${objects.contentText} NOT LIKE ${`%${PHRASE_STARTED}%`} AND
           ${objects.contentText} NOT LIKE ${`%${PHRASE_FINISHED}%`} AND
+          ${objects.contentText} NOT LIKE ${`%${PHRASE_STOPPED}%`} AND
           ${objects.contentText} NOT LIKE ${`%${PHRASE_WANTS}%`}))`,
       )
     case 'comment':

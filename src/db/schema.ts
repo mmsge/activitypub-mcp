@@ -201,6 +201,65 @@ export const bookMetadata = pgTable('book_metadata', {
   index('book_metadata_hidden_idx').on(t.hiddenAt),
 ])
 
+// BookWyrm shelf membership, per actor — the per-reader half of the split whose
+// shared half is `book_metadata`. Same shape and same reason as neodb_marks vs
+// catalog_metadata (ADR 0008): which shelf a book sits on is a fact about one
+// reader; the edition's page count is a fact about the world.
+//
+// There is a second reason specific to books. sync-book-metadata's upsert does
+// `set: values`, so any column added to that object is overwritten on every
+// refresh — precisely the trap ADR 0013 records for `hidden_at`. A `shelf` column
+// on book_metadata would walk into it again: a re-enrichment would blank the shelf
+// and every downstream shelf filter would quietly lose the book.
+//
+// BookWyrm's four reading shelves are MUTUALLY EXCLUSIVE. Verified against
+// @mvrkws@bookwyrm.social on 2026-08-16: read 408, to-read 30, stopped-reading 10,
+// reading 3 — union 451, pairwise overlap 0 on all six pairs. So shelf is a scalar
+// per (actor, book), which is why the key below is a unique pair rather than an
+// (actor, book, shelf) triple.
+//
+// Post-derivation cannot replace this. A stop DOES federate as a GeneratedNote
+// ("… stopped reading X"), but only 3 of the 10 stopped books have one in the
+// archive. Posts record events that were witnessed; the shelf records the current
+// truth, and only the shelf is complete.
+export const bookwyrmShelfMarks = pgTable('bookwyrm_shelf_marks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  actorApId: text('actor_ap_id').notNull(),
+  // The Edition AP id — the same value book_metadata.book_url keys on. A shelf
+  // collection's orderedItems are bare Edition objects whose `id` IS this URL, so
+  // the two sides need no normalisation to line up.
+  bookUrl: text('book_url').notNull(),
+  // read | reading | to-read | stopped-reading, stored as BookWyrm's own URL slug —
+  // verbatim rather than mapped, so a shelf added later lands in the table instead
+  // of being coerced into one of these four or dropped.
+  shelf: text('shelf').notNull(),
+  // BookWyrm's `shelvedDate` when it sends one. As of 2026-08-16 it sends null for
+  // every item on every one of the four shelves — checked, not assumed — so nothing
+  // may be built on this column.
+  shelvedDate: timestamp('shelved_date', { withTimezone: true }),
+  // firstSeenAt survives a shelf move; syncedAt is bumped by every pull that still
+  // finds the book. The pair is what makes "he put this down in March" answerable
+  // at all, given shelvedDate is empty — though it dates OUR first sighting, not
+  // his shelving.
+  firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  syncedAt: timestamp('synced_at', { withTimezone: true }).notNull().defaultNow(),
+  // Set when a pull that is VERIFIED COMPLETE no longer finds the book on any of
+  // the actor's shelves. Soft, like neodb_marks.deleted_at and framfor's
+  // missing_since, and for the reason framfor's missing-sweep guard exists: a
+  // truncated pull and an emptied shelf look identical from the database's side.
+  // Here we can do better than a percentage heuristic, because BookWyrm hands us
+  // the exact expected count — see the sync job's completeness gate.
+  removedAt: timestamp('removed_at', { withTimezone: true }),
+}, (t) => [
+  uniqueIndex('bookwyrm_shelf_marks_actor_book_idx').on(t.actorApId, t.bookUrl),
+  index('bookwyrm_shelf_marks_book_url_idx').on(t.bookUrl),
+  index('bookwyrm_shelf_marks_actor_idx').on(t.actorApId),
+  // The serving predicate is "a live row on shelf X", so the partial index carries
+  // exactly that and not the tombstones. Same shape, same argument, as framfor's
+  // items_arena_eligible.
+  index('bookwyrm_shelf_marks_live_idx').on(t.shelf, t.bookUrl).where(sql`removed_at IS NULL`),
+])
+
 // Per-title metadata for every NeoDB catalog item behind a federated mark, cached
 // so callers get the ids/creators/details the marks don't carry inline. A NeoDB
 // mark ("finished watching …", "played …", "listened to …") federates as a plain

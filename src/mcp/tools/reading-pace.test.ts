@@ -5,6 +5,15 @@ import type { ReadingCycle } from '../../lib/bookwyrm-reading.js'
 const cycle = (started: string | null, finished: string | null, n = 1): ReadingCycle => ({
   started: started ? new Date(started) : null,
   finished: finished ? new Date(finished) : null,
+  abandoned: null,
+  cycle: n,
+})
+
+/** A cycle he started and put down without finishing. */
+const abandonedCycle = (started: string | null, abandoned: string, n = 1): ReadingCycle => ({
+  started: started ? new Date(started) : null,
+  finished: null,
+  abandoned: new Date(abandoned),
   cycle: n,
 })
 

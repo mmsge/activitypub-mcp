@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { getBooksSchema } from './books.js'
+import { and } from 'drizzle-orm'
+import { getBooksSchema, buildConditions } from './books.js'
+import { getDb } from '../../db/client.js'
+import { bookMetadata } from '../../db/schema.js'
 import { encodeCursor, decodeCursor } from './pagination.js'
 
 describe('getBooksSchema', () => {
@@ -50,5 +53,48 @@ describe('books keyset cursor', () => {
     const decoded = decodeCursor(encodeCursor(ts, id))
     expect(decoded.p).toBe(ts.toISOString())
     expect(decoded.id).toBe(id)
+  })
+})
+
+
+describe('the shelf filter', () => {
+  // WHERE clause only — see the same helper in lib/hidden.test.ts for why.
+  const renderWhere = (input: Parameters<typeof buildConditions>[0]) => {
+    const conditions = buildConditions(input)
+    if (conditions.length === 0) return ''
+    return getDb().select({ id: bookMetadata.id }).from(bookMetadata)
+      .where(and(...conditions)).toSQL().sql.split(' where ')[1] ?? ''
+  }
+
+  it('accepts every shelf plus unknown, and rejects anything else', () => {
+    for (const shelf of ['read', 'reading', 'to-read', 'stopped-reading', 'unknown']) {
+      expect(getBooksSchema.parse({ shelf }).shelf).toBe(shelf)
+    }
+    expect(() => getBooksSchema.parse({ shelf: 'stopped' })).toThrow()
+    expect(() => getBooksSchema.parse({ shelf: 'abandoned' })).toThrow()
+  })
+
+  it('is absent by default, so the endpoint still returns every cached book', () => {
+    expect(getBooksSchema.parse({}).shelf).toBeUndefined()
+    expect(renderWhere({})).not.toContain('bookwyrm_shelf_marks')
+  })
+
+  it('correlates on a table-qualified book_url, not a bare one', () => {
+    // A bare `book_url` inside the subquery binds to bookwyrm_shelf_marks' own
+    // column — an always-true self-comparison that would match every book. The
+    // qualification is the entire correctness of this filter.
+    const where = renderWhere({ shelf: 'read' })
+    expect(where).toContain('bookwyrm_shelf_marks')
+    expect(where).toContain('s.book_url = book_metadata.book_url')
+    expect(where).toContain('s.removed_at IS NULL')
+  })
+
+  it('asks for membership positively, so an unsynced book is not "read"', () => {
+    expect(renderWhere({ shelf: 'read' })).toContain('EXISTS')
+    expect(renderWhere({ shelf: 'read' })).not.toContain('NOT EXISTS')
+  })
+
+  it('unknown is the inverse — no live shelf row at all', () => {
+    expect(renderWhere({ shelf: 'unknown' })).toContain('NOT EXISTS')
   })
 })

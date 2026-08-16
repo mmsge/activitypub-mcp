@@ -1,4 +1,4 @@
-import { fetchBookwyrmShelf } from './fetch-bookwyrm-shelf.js'
+import { fetchBookwyrmShelf, SHELVES } from './fetch-bookwyrm-shelf.js'
 
 // The identity fields the reading tools display for a book. Both pace and stats
 // fill these in the same order: enrichment cache (canonical Edition title/author)
@@ -21,10 +21,11 @@ export interface NamedBook {
 export async function fillNamesFromLiveShelf(actorApId: string, books: NamedBook[]): Promise<void> {
   if (!books.some((b) => b.url && !b.title)) return
 
+  // All four shelves, SHELVES rather than a hand-written list — a stopped book is
+  // exactly the kind that reaches here nameless, since putting one down is often
+  // the last thing that happens to it and its Edition may never have been enriched.
   const items = (
-    await Promise.all(
-      (['reading', 'read', 'to-read'] as const).map((shelf) => fetchBookwyrmShelf(actorApId, shelf)),
-    )
+    await Promise.all(SHELVES.map((shelf) => fetchBookwyrmShelf(actorApId, shelf)))
   ).flat()
 
   const byUrl = new Map<string, { title: string | null; author: string | null }>()

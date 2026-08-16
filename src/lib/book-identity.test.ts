@@ -2,7 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { fillNamesFromLiveShelf, type NamedBook } from './book-identity.js'
 import { fetchBookwyrmShelf } from './fetch-bookwyrm-shelf.js'
 
-vi.mock('./fetch-bookwyrm-shelf.js', () => ({ fetchBookwyrmShelf: vi.fn() }))
+// SHELVES is real (the module under test iterates it); only the fetch is mocked.
+vi.mock('./fetch-bookwyrm-shelf.js', () => ({
+  fetchBookwyrmShelf: vi.fn(),
+  SHELVES: ['reading', 'read', 'to-read', 'stopped-reading'] as const,
+}))
 const mockShelf = vi.mocked(fetchBookwyrmShelf)
 
 const ACTOR = 'https://bookwyrm.social/user/mvrkws'
@@ -37,7 +41,12 @@ describe('fillNamesFromLiveShelf', () => {
     await fillNamesFromLiveShelf(ACTOR, books)
     expect(books[0]).toMatchObject({ title: "Carl's Doomsday Scenario", author: 'Matt Dinniman' })
     expect(books[1]).toMatchObject({ title: null, author: null })
-    expect(mockShelf).toHaveBeenCalledTimes(3) // reading, read, to-read — once each
+    // All four shelves, once each. A stopped book is exactly the kind that
+    // reaches here nameless, so leaving stopped-reading out was a real gap.
+    expect(mockShelf).toHaveBeenCalledTimes(4)
+    expect(mockShelf.mock.calls.map((c) => c[1])).toEqual([
+      'reading', 'read', 'to-read', 'stopped-reading',
+    ])
   })
 
   it('never overwrites an existing title or author', async () => {
