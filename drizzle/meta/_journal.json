@@ -239,6 +239,13 @@
       "when": 1786869424353,
       "tag": "0033_bookwyrm_shelf_marks",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1786955824353,
+      "tag": "0034_a_trip_is_when_and_between_where",
+      "breakpoints": true
     }
   ]
 }

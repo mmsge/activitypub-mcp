@@ -463,7 +463,8 @@ app.post(
       actor: 'train trips (CSV)',
       total: String(result.total),
       imported: String(result.inserted),
-      skipped: String(result.skipped),
+      updated: String(result.updated),
+      skipped: String(result.unchanged),
       errorCount: '0',
     })
     return c.redirect(`/admin/import/result?${params}`)
@@ -583,6 +584,8 @@ app.get('/import/result', (c) => {
   const result = {
     total: Number(c.req.query('total') ?? '0'),
     imported: Number(c.req.query('imported') ?? '0'),
+    // Only the trips importer matches and updates in place; the others omit it.
+    updated: c.req.query('updated') === undefined ? undefined : Number(c.req.query('updated')),
     skipped: Number(c.req.query('skipped') ?? '0'),
     errors: Number(c.req.query('errorCount') ?? '0') > 0
       ? [`${c.req.query('errorCount')} error(s) — see server logs for details`]

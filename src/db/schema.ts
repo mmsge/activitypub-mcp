@@ -834,17 +834,23 @@ export const trainTrips = pgTable('train_trips', {
   reservation: boolean('reservation').notNull().default(false),
   status: text('status'), // Completed, Planned
   tags: text('tags').array(),
+  // The most recent export row this trip was seen in. Not a merge of every export:
+  // attributes are coalesced across re-imports, so `raw` documents where the current
+  // status came from rather than describing the row field by field.
   raw: jsonb('raw').notNull(),
-  // Stable content hash of the trip's identifying fields; the import dedupe key.
-  dedupeKey: text('dedupe_key').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index('train_trips_departure_idx').on(t.departureAt),
   index('train_trips_status_idx').on(t.status),
   index('train_trips_journey_idx').on(t.journey),
   index('train_trips_operator_idx').on(t.operator),
-  // Viaduct CSV rows carry no stable id; this hash is the re-import dedupe key.
-  uniqueIndex('train_trips_dedupe_idx').on(t.dedupeKey),
+  // A trip IS when it left and between where — viaduct CSV rows carry no stable id,
+  // and train code is an attribute of the trip, not part of it: the same leg exports
+  // without a code while planned and with one once travelled, and two sources name the
+  // same service differently ("RER A" vs "18568"). Putting it in the key is what made
+  // one journey two rows. `departure_at` is the absolute instant, so the comparison
+  // happens in one explicit timezone. See ADR 0047.
+  uniqueIndex('train_trips_identity_idx').on(t.fromStation, t.toStation, t.departureAt),
 ])
 
 // Which trip a post was made on — derived, never ingested. Nothing in either side

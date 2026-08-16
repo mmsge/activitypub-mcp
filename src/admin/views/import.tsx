@@ -115,7 +115,9 @@ export const ImportPage: FC<{ error?: string }> = ({ error }) => (
 )
 
 export const ImportResultPage: FC<{
-  result: ImportResult
+  // `updated` only comes from the trips importer, which matches an incoming trip to the
+  // stored one and refreshes it in place (ADR 0047). The other importers insert or skip.
+  result: ImportResult & { updated?: number }
   actor: string
 }> = ({ result, actor }) => (
   <Layout title="Import Result">
@@ -131,6 +133,12 @@ export const ImportResultPage: FC<{
         <div class="num" style="color: #4ade80;">{result.imported}</div>
         <div class="label">Imported</div>
       </div>
+      {result.updated !== undefined && (
+        <div class="card">
+          <div class="num" style="color: #60a5fa;">{result.updated}</div>
+          <div class="label">Updated in place</div>
+        </div>
+      )}
       <div class="card">
         <div class="num" style="color: #888;">{result.skipped}</div>
         <div class="label">Skipped (already exist)</div>
