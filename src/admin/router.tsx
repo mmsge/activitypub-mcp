@@ -19,11 +19,13 @@ import { getPostBreakouts } from '../mcp/tools/post-breakouts.js'
 import { config } from '../config.js'
 import { streamEnabled } from '../stream/host.js'
 import { parseSources } from '../stream/sources.js'
-import { ImportPage, ImportResultPage } from './views/import.js'
+import { ImportPage, ImportResultPage, YoutubeImportResultPage } from './views/import.js'
 import { ToolsPage, INFRA_ROUTES } from './views/tools.js'
 import { endpoints } from '../rest/table.js'
 import { mediaRouter } from './media-router.js'
 import { mediaCounts } from './media-query.js'
+import { parseYoutubeWatchHistory } from '../lib/parse-youtube-takeout.js'
+import { importYoutubeWatches } from '../jobs/import-youtube-watches.js'
 import {
   parseMastodonArchive,
   crawlOutbox,
@@ -512,6 +514,74 @@ app.post(
       errorCount: '0',
     })
     return c.redirect(`/admin/import/result?${params}`)
+  },
+)
+
+// YouTube watch history. An upload rather than a sync: there is no API to poll, only a
+// file exported by hand — same reasoning as the LinkedIn analytics import above.
+//
+// The limit is generous enough for the full ~46 MB archive, but the page says plainly
+// that the command line is the better path for it: this handler parses inside the SERVER
+// process, so a file big enough to exhaust the heap takes the server down with it, where
+// `npm run import-youtube-watches` only loses its own process. This form is for the
+// incremental exports that follow the first one.
+app.post(
+  '/import/youtube',
+  bodyLimit({ maxSize: 64 * 1024 * 1024 }),
+  async (c) => {
+    const body = await c.req.parseBody()
+    const file = body['file']
+    if (!file || typeof file === 'string') {
+      return c.html(<ImportPage error="No file uploaded" />)
+    }
+    const trimmed = (v: unknown) => {
+      const s = typeof v === 'string' ? v.trim() : ''
+      return s === '' ? undefined : s
+    }
+
+    let text: string
+    try {
+      text = await (file as File).text()
+    } catch {
+      return c.html(<ImportPage error="Could not read file" />)
+    }
+
+    let entries: unknown
+    try {
+      entries = JSON.parse(text)
+    } catch (e) {
+      return c.html(<ImportPage error={`Not valid JSON: ${e instanceof Error ? e.message : String(e)}`} />)
+    }
+    if (!Array.isArray(entries)) {
+      return c.html(<ImportPage error="Expected a JSON array of watch entries" />)
+    }
+
+    const { total, rows, problems, normalisations } = parseYoutubeWatchHistory(entries, {
+      defaultAccount: trimmed(body['account']),
+      defaultSource: trimmed(body['source']),
+    })
+
+    const result = await importYoutubeWatches(rows)
+    logger.info(
+      { ...result, failed: result.failed.length, problems: problems.length, normalisations: normalisations.length },
+      'YouTube watch import complete (admin upload)',
+    )
+
+    // Rendered rather than redirected, unlike the other importers: the problem,
+    // normalisation and refusal lists are the substance of this report and will not
+    // survive a query string. Re-POSTing on refresh is harmless here — the import is
+    // idempotent, so a resubmit inserts zero.
+    return c.html(
+      <YoutubeImportResultPage
+        total={total}
+        parsed={rows.length}
+        inserted={result.inserted}
+        skipped={result.skipped}
+        problems={problems}
+        normalisations={normalisations}
+        failed={result.failed}
+      />,
+    )
   },
 )
 
