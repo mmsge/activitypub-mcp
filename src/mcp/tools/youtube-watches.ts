@@ -79,6 +79,33 @@ export function shortsCondition(mode: 'include' | 'exclude' | 'only'): SQL | nul
   return null
 }
 
+// ---- the three watch-time estimates ----------------------------------------
+//
+// Exported individually so the SQL can be asserted on without a database. All three are
+// upper bounds on a quantity this data does not contain; they differ in HOW they are
+// wrong, which is the whole point of returning all three.
+
+/** Sum of full video lengths. sum() ignores nulls, so no guard is needed. */
+export const rawSecondsExpr = () =>
+  sql<string>`coalesce(sum(${youtubeWatches.durationSeconds}), 0)`
+
+/**
+ * Each row capped at 20 minutes.
+ *
+ * The FILTER is load-bearing. Postgres' `least()` IGNORES nulls rather than propagating
+ * them — `least(NULL, 1200)` is **1200**, not NULL — so without it every duration-less row
+ * contributes a fabricated 20 minutes. On the real archive that pushed this figure ABOVE
+ * the raw sum, which is impossible when `least(d, cap) <= d` for every row, and that
+ * impossibility is what exposed it. `sum()` alone would have been safe; `least()` is the
+ * trap, and it is the only place in this file that needs the guard.
+ */
+export const cappedSecondsExpr = () =>
+  sql<string>`coalesce(sum(least(${youtubeWatches.durationSeconds}, ${WATCH_TIME_CAP_SECONDS})) filter (where ${youtubeWatches.durationSeconds} IS NOT NULL), 0)`
+
+/** Sum over long-form rows only. The filter is on the threshold, not on nullness. */
+export const longFormSecondsExpr = () =>
+  sql<string>`coalesce(sum(${youtubeWatches.durationSeconds}) filter (where ${youtubeWatches.durationSeconds} >= ${SHORTS_MAX_SECONDS}), 0)`
+
 export function buildConditions(input: WatchFilters): SQL[] {
   const conditions: SQL[] = []
   if (input.account) conditions.push(eq(youtubeWatches.account, input.account))
@@ -274,12 +301,9 @@ export async function getYoutubeStats(input: z.infer<typeof getYoutubeStatsSchem
       distinctChannelNames: sql<string>`count(distinct ${youtubeWatches.channelName})`,
       first: sql<string | null>`to_char(min(${youtubeWatches.watchedAtLocal}), 'YYYY-MM-DD"T"HH24:MI:SS')`,
       last: sql<string | null>`to_char(max(${youtubeWatches.watchedAtLocal}), 'YYYY-MM-DD"T"HH24:MI:SS')`,
-      // The three time estimates. All are upper bounds on a quantity this data does not
-      // contain; they differ in HOW they are wrong, which is the point of quoting all of
-      // them. coalesce keeps an empty result set at 0 rather than null.
-      rawSeconds: sql<string>`coalesce(sum(${youtubeWatches.durationSeconds}), 0)`,
-      cappedSeconds: sql<string>`coalesce(sum(least(${youtubeWatches.durationSeconds}, ${WATCH_TIME_CAP_SECONDS})), 0)`,
-      longFormSeconds: sql<string>`coalesce(sum(${youtubeWatches.durationSeconds}) filter (where ${youtubeWatches.durationSeconds} >= ${SHORTS_MAX_SECONDS}), 0)`,
+      rawSeconds: rawSecondsExpr(),
+      cappedSeconds: cappedSecondsExpr(),
+      longFormSeconds: longFormSecondsExpr(),
       withDuration: sql<string>`count(*) filter (where ${youtubeWatches.durationSeconds} IS NOT NULL)`,
       shorts: sql<string>`count(*) filter (where ${youtubeWatches.durationSeconds} < ${SHORTS_MAX_SECONDS})`,
       longForm: sql<string>`count(*) filter (where ${youtubeWatches.durationSeconds} >= ${SHORTS_MAX_SECONDS})`,
@@ -299,7 +323,7 @@ export async function getYoutubeStats(input: z.infer<typeof getYoutubeStatsSchem
       key: sql<string | null>`(${plan.key})::text`,
       ...(plan.label ? { label: plan.label } : {}),
       watches: count(),
-      rawSeconds: sql<string>`coalesce(sum(${youtubeWatches.durationSeconds}), 0)`,
+      rawSeconds: rawSecondsExpr(),
       withDuration: sql<string>`count(*) filter (where ${youtubeWatches.durationSeconds} IS NOT NULL)`,
     })
     .from(youtubeWatches)

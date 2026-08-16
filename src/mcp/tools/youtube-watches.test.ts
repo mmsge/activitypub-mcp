@@ -8,6 +8,9 @@ import {
   buildConditions,
   shortsCondition,
   groupPlan,
+  rawSecondsExpr,
+  cappedSecondsExpr,
+  longFormSecondsExpr,
 } from './youtube-watches.js'
 import { encodeCursor, decodeCursor } from './pagination.js'
 import { SHORTS_MAX_SECONDS, WATCH_TIME_CAP_SECONDS } from '../../lib/parse-youtube-takeout.js'
@@ -264,5 +267,25 @@ describe('the watch-time cap', () => {
     // A raw sum counts an eight-hour stream left open for two minutes as eight hours.
     // The cap is a second, differently-wrong figure; quoting both is the honest move.
     expect(WATCH_TIME_CAP_SECONDS).toBe(1200)
+  })
+
+  it('guards the capped sum against null durations', () => {
+    // Postgres' least() IGNORES nulls instead of propagating them: least(NULL, 1200) is
+    // 1200. Without a FILTER, every duration-less row contributes a fabricated 20 minutes
+    // — on the real archive that pushed the capped estimate ABOVE the raw one, which
+    // cannot happen when least(d, cap) <= d for every row.
+    //
+    // Asserted on the rendered SQL because these tests never touch a database, and this
+    // is precisely the expression whose plain-reading looks correct.
+    const capped = cappedSecondsExpr()
+    const sql = rendered(capped)
+    expect(sql).toContain('least')
+    expect(sql).toMatch(/filter\s*\(where[^)]*is not null/i)
+  })
+
+  it('leaves the raw and Shorts-excluded sums unguarded, because sum() already ignores nulls', () => {
+    // Only least() has the trap. Adding a filter to these would be cargo-culting.
+    expect(rendered(rawSecondsExpr())).not.toMatch(/filter/i)
+    expect(rendered(longFormSecondsExpr())).toMatch(/filter\s*\(where/i) // by threshold, not nullness
   })
 })

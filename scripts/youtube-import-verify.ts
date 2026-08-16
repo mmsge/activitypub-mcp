@@ -157,9 +157,9 @@ try {
   console.log('\nNewest watch per account (and the timezone spot check)')
   for (const [account, want] of Object.entries(EXPECTED.newest)) {
     const row = await one<{ at: string; title: string | null; channel: string | null; instant: string }>(`
-      SELECT to_char(watched_at_local, 'YYYY-MM-DD"T"HH24:MI') AS at,
+      SELECT to_char(watched_at_local, 'YYYY-MM-DD"T"HH24:MI:SS') AS at,
              title, channel_name AS channel,
-             to_char(watched_at AT TIME ZONE 'Europe/Oslo', 'YYYY-MM-DD"T"HH24:MI') AS instant
+             to_char(watched_at AT TIME ZONE 'Europe/Oslo', 'YYYY-MM-DD"T"HH24:MI:SS') AS instant
       FROM youtube_watches WHERE account = '${account}'
       ORDER BY watched_at DESC LIMIT 1`)
     check(`${account} newest local time`, row.at, want.at)
@@ -178,13 +178,30 @@ try {
            count(*) FILTER (WHERE duration_seconds >= 180) AS long,
            count(*) FILTER (WHERE duration_seconds IS NULL) AS unknown,
            coalesce(sum(duration_seconds), 0) AS raw,
-           coalesce(sum(least(duration_seconds, 1200)), 0) AS capped
+           -- FILTER because Postgres' least() ignores nulls: least(NULL, 1200) is 1200,
+           -- so without it every duration-less row adds a fabricated 20 minutes.
+           coalesce(sum(least(duration_seconds, 1200))
+                    FILTER (WHERE duration_seconds IS NOT NULL), 0) AS capped
     FROM youtube_watches`)
   report('Shorts (<180s)', shape.shorts)
   report('long form (>=180s)', shape.long)
   report('unknown duration', shape.unknown)
   report('raw hours (UPPER BOUND)', Math.round(Number(shape.raw) / 3600))
   report('capped-20min hours (UPPER BOUND)', Math.round(Number(shape.capped) / 3600))
+
+  // An internal invariant, asserted rather than reported: capping each row can only ever
+  // lower the total, so capped > raw is impossible and means the capped sum is counting
+  // rows it should not. That is exactly how the least()-ignores-nulls bug announced
+  // itself on the first full import, and unlike the expected counts this check needs no
+  // prior knowledge of the archive — it holds for any data, including a partial import.
+  console.log('\nInternal consistency')
+  checks++
+  const cappedOverRaw = Number(shape.capped) > Number(shape.raw)
+  if (cappedOverRaw) failures++
+  console.log(
+    ` ${reportOnly ? ' ' : cappedOverRaw ? '✗' : '✓'} ${'capped <= raw'.padEnd(42)} ` +
+    `${cappedOverRaw ? 'VIOLATED — the capped sum is counting duration-less rows' : 'holds'}`,
+  )
   console.log('\n   Both hour figures are upper bounds on a quantity this data does not')
   console.log('   contain: no watch duration is recorded anywhere, only that a video was')
   console.log('   opened. Never quote either without that caveat.')

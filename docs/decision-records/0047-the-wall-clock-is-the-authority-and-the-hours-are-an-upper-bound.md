@@ -174,6 +174,25 @@ its daily quota rediscovering that they are still dead, every day, forever.
   Both counts stay: the tools report `distinct_channels` on the id, which is the better
   identity, with `distinct_channel_names` beside it, and the verify script asserts both so
   the 93-channel gap cannot drift unnoticed.
+- **`least()` ignores nulls, and it corrupted the capped estimate.** PostgreSQL's
+  `LEAST`/`GREATEST` skip null arguments instead of propagating them, so
+  `least(NULL, 1200)` is **1200**, not NULL — the opposite of almost every other function,
+  and of what the expression reads as. `sum(least(duration_seconds, 1200))` therefore
+  added a fabricated 20 minutes for every one of the ~11 % of rows that carry no duration.
+  On the 186-row sample this inflated the capped figure from 9.9 h to 40.9 h; on the real
+  archive it pushed capped *above* raw, which is impossible when `least(d, cap) <= d` for
+  every row, and that impossibility is what exposed it.
+
+  The fix is a `FILTER (WHERE duration_seconds IS NOT NULL)` on that one sum. `sum()`
+  alone already ignores nulls correctly, so the raw and Shorts-excluded figures were never
+  affected and deliberately carry no such guard.
+
+  Two things follow. The three estimates are now exported as named expressions so the
+  generated SQL can be asserted on without a database, with a test pinning the guard. And
+  `youtube-import-verify` now asserts `capped <= raw` as an **internal invariant** —
+  unlike the expected counts it needs no prior knowledge of the archive, holds for any
+  data including a partial import, and would have caught this before the numbers were ever
+  quoted.
 - **Also found on the first import:** the archive contains watch entries whose `titleUrl`
   is a *search results* page wrapping a `youtu.be` short link
   (`…/results?search_query=https://youtu.be/<id>%3Fsi%3D…`). The brief for this work named
