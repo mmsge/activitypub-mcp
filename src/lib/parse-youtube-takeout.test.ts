@@ -7,6 +7,7 @@ import {
   watchDedupeKey,
   isShort,
   summariseProblems,
+  isRealLocalTime,
   SHORTS_MAX_SECONDS,
 } from './parse-youtube-takeout.js'
 
@@ -349,5 +350,52 @@ describe('summariseProblems', () => {
 
   it('is empty for a clean parse', () => {
     expect(summariseProblems([])).toEqual([])
+  })
+})
+
+describe('isRealLocalTime', () => {
+  it('accepts ordinary moments', () => {
+    expect(isRealLocalTime('2026-08-16T18:08:00')).toBe(true)
+    expect(isRealLocalTime('2024-02-29T23:59:59')).toBe(true) // a real leap day
+    expect(isRealLocalTime('2010-10-15T00:00:00')).toBe(true)
+  })
+
+  it('rejects an hour that is not an hour', () => {
+    // The real archive contains exactly this: one entry stamped 2025-05-19T30:30:00.
+    // The shape check passes it; only a range check does not.
+    expect(isRealLocalTime('2025-05-19T30:30:00')).toBe(false)
+    expect(isRealLocalTime('2025-05-19T24:00:00')).toBe(false)
+  })
+
+  it('rejects impossible minutes and seconds', () => {
+    expect(isRealLocalTime('2025-05-19T10:60:00')).toBe(false)
+    expect(isRealLocalTime('2025-05-19T10:30:99')).toBe(false)
+  })
+
+  it('rejects impossible calendar dates', () => {
+    expect(isRealLocalTime('2025-02-30T12:00:00')).toBe(false)
+    expect(isRealLocalTime('2025-13-01T12:00:00')).toBe(false)
+    expect(isRealLocalTime('2025-00-10T12:00:00')).toBe(false)
+    expect(isRealLocalTime('2023-02-29T12:00:00')).toBe(false) // not a leap year
+  })
+
+  it('does NOT silently adopt the rollover reading', () => {
+    // Date.UTC turns hour 30 into 06:30 the next day. Nothing in the source says that is
+    // what was meant, so the row is rejected rather than quietly relocated to another day.
+    const { rows, problems } = parseYoutubeWatchHistory([entry({ time: '2025-05-19T30:30:00' })])
+    expect(rows).toEqual([])
+    expect(problems[0]!.reason).toBe('time is not a real date or time')
+  })
+
+  it('separates an impossible time from a malformed one', () => {
+    // Two different faults deserve two different reasons in the import report.
+    const { problems } = parseYoutubeWatchHistory([
+      entry({ time: '2025-05-19T30:30:00' }),
+      entry({ time: 'not a time at all' }),
+    ])
+    expect(problems.map((p) => p.reason)).toEqual([
+      'time is not a real date or time',
+      'time is not a bare local wall clock',
+    ])
   })
 })

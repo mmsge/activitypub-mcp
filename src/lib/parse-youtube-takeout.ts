@@ -176,10 +176,42 @@ const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() !=
  * is not the local wall clock this pipeline is built on, and silently dropping the offset
  * would shift the row by an unknown amount — exactly the failure the two-column storage
  * exists to prevent.
+ *
+ * Shape only. Whether the value is a REAL date and time is a separate question — see
+ * isRealLocalTime.
  */
 function normaliseLocalTime(raw: string): string | null {
   const m = LOCAL_TIME_RE.exec(raw.trim())
   return m ? `${m[1]}T${m[2]}` : null
+}
+
+/**
+ * Whether a shape-valid wall clock is an actual moment.
+ *
+ * `\d{2}:\d{2}:\d{2}` happily matches `30:30:00`, and the real archive contains exactly
+ * that — one entry stamped `2025-05-19T30:30:00`. Hour 30 is not a time. Left to the
+ * database it surfaces as `date/time field value out of range` in the middle of an insert,
+ * tens of thousands of rows into an import; caught here it is one named problem in the
+ * pre-flight report, before anything is written.
+ *
+ * Round-tripping through Date.UTC is what does the work: JavaScript happily ROLLS OVER an
+ * out-of-range component (hour 30 becomes 06:30 the next day, February 30th becomes March
+ * 2nd), so comparing every component back against the input rejects impossible times and
+ * impossible calendar dates alike. Note the rollover is not a reading we could adopt —
+ * nothing in the source says `30:30` was meant as the small hours of the 20th, and
+ * inventing that would be a guess written into the archive.
+ */
+export function isRealLocalTime(local: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/.exec(local)
+  if (!m) return false
+  const [y, mo, d, hh, mi, ss] = m.slice(1).map(Number) as [number, number, number, number, number, number]
+  const at = new Date(Date.UTC(y, mo - 1, d, hh, mi, ss))
+  return at.getUTCFullYear() === y
+    && at.getUTCMonth() === mo - 1
+    && at.getUTCDate() === d
+    && at.getUTCHours() === hh
+    && at.getUTCMinutes() === mi
+    && at.getUTCSeconds() === ss
 }
 
 /**
@@ -247,6 +279,11 @@ export function parseYoutubeWatchHistory(
     const watchedAtLocal = normaliseLocalTime(rawTime)
     if (!watchedAtLocal) {
       problem('time is not a bare local wall clock', rawTime)
+      return
+    }
+    // Shape is not validity. Rejected here rather than by Postgres mid-insert.
+    if (!isRealLocalTime(watchedAtLocal)) {
+      problem('time is not a real date or time', rawTime)
       return
     }
 
