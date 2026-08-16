@@ -21,6 +21,7 @@
     "probe-linkedin": "tsx scripts/probe-linkedin-snapshot.ts",
     "visibility-audit": "tsx scripts/visibility-audit.ts",
     "scrobble-audit": "tsx scripts/scrobble-audit.ts",
+    "import-youtube-watches": "tsx scripts/import-youtube-watches.ts",
     "post-breakouts": "tsx scripts/post-breakouts.ts",
     "lint:openapi": "redocly lint docs/openapi.yaml",
     "format:check": "prettier --check docs/openapi.yaml",
