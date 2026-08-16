@@ -166,6 +166,19 @@ its daily quota rediscovering that they are still dead, every day, forever.
 - `get_watched` is untouched. It serves the NeoDB catalogue of things Markus *marked*;
   this serves what he *opened*, most of which was never marked anywhere. Both tool
   descriptions say so, because the names are close enough to invite the conflation.
-- The one number this change cannot settle on its own is whether the archive's 25,417
-  distinct channels was counted by id or by name. Both are reported, so the first full
-  import answers it.
+- **Settled by the first full import:** the archive's 25,417 distinct channels is the
+  count **by name**. The real archive holds 25,510 distinct channel *ids* against 25,417
+  distinct *names* — so 93 channels share a display name with another channel, and
+  counting by name merges them. Note the direction: this is not the rename case the
+  storage was designed around (which would give more names than ids), it is collision.
+  Both counts stay: the tools report `distinct_channels` on the id, which is the better
+  identity, with `distinct_channel_names` beside it, and the verify script asserts both so
+  the 93-channel gap cannot drift unnoticed.
+- **Also found on the first import:** the archive contains watch entries whose `titleUrl`
+  is a *search results* page wrapping a `youtu.be` short link
+  (`…/results?search_query=https://youtu.be/<id>%3Fsi%3D…`). The brief for this work named
+  only `?v=` and `/shorts/`, so the first run rejected two rows and came out two watches,
+  two unresolved rows and one distinct video short of the source — the rejections were
+  visible precisely because nothing is dropped silently. `extractVideoId` now also reads
+  the `youtu.be` form, unanchored so a nested link resolves, with `?v=` still tried first
+  so an ordinary watch URL cannot be misread by the loose branch.

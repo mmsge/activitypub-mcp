@@ -107,13 +107,27 @@ export interface ParseOptions {
 /**
  * The 11-character video id from a watch URL.
  *
- * Handles both spellings the archive contains: `watch?v=<id>` (with the id in any query
- * position) and `/shorts/<id>`. Returns null rather than guessing — a URL shape we do not
- * recognise must surface as a problem, not become a row keyed on a wrong id.
+ * Three spellings, in priority order: `watch?v=<id>` (id in any query position),
+ * `/shorts/<id>`, and the short `youtu.be/<id>` form. Returns null rather than guessing —
+ * a URL shape we do not recognise must surface as a problem, not become a row keyed on a
+ * wrong id.
+ *
+ * The `youtu.be` pattern is deliberately unanchored, and that is load-bearing rather than
+ * lazy. The archive contains watch entries whose `titleUrl` is a SEARCH RESULTS page whose
+ * query is itself a shortened link:
+ *
+ *   https://www.youtube.com/results?search_query=https://youtu.be/<id>%3Fsi%3D…
+ *
+ * The video is the one named inside, and the reference implementation that produced the
+ * archive resolves it the same way — anchoring here would reject those rows and leave the
+ * import two watches short of the source. `?v=` is tried first, so an ordinary watch URL
+ * can never be misread by this branch.
  */
 export function extractVideoId(url: string): string | null {
   const fromQuery = /[?&]v=([^&#]+)/.exec(url)
-  const candidate = fromQuery?.[1] ?? /\/shorts\/([^/?#]+)/.exec(url)?.[1]
+  const candidate = fromQuery?.[1]
+    ?? /\/shorts\/([^/?#]+)/.exec(url)?.[1]
+    ?? /youtu\.be\/([A-Za-z0-9_-]{11})/.exec(url)?.[1]
   if (!candidate) return null
   // Ids are already URL-safe, but the source has been through a console export; a
   // percent-encoded one would otherwise fail the length check for the wrong reason.

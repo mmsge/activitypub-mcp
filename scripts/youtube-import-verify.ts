@@ -21,7 +21,15 @@ const EXPECTED = {
   total: 96_515,
   perAccount: { mvrkws: 94_834, rawen100: 1_681 },
   distinctVideos: 92_292,
-  distinctChannels: 25_417,
+  // BY NAME, not by id — settled by the first full import, which reported 25,510 distinct
+  // channel ids against 25,417 distinct names. The archive's own figure counts names, and
+  // ids exceed names because 93 channels share a display name with another channel.
+  //
+  // The tools still count `distinct_channels` on the ID, which is the better identity, and
+  // report `distinct_channel_names` beside it. The two answer different questions; this is
+  // the one that reproduces the source.
+  distinctChannelNames: 25_417,
+  distinctChannelIds: 25_510,
   unresolved: 10_962,
   withDuration: 85_543,
   busiestMinuteEntries: 31,
@@ -82,10 +90,11 @@ try {
   console.log('Totals')
   check('total watches', totals.n, EXPECTED.total)
   check('distinct videos', totals.videos, EXPECTED.distinctVideos)
-  check('distinct channels (by id)', totals.channels, EXPECTED.distinctChannels)
-  // Reported, never asserted: whichever of these two lands on the expected number tells us
-  // how the source counted channels. A renamed channel has one id and two names.
-  report('distinct channel names (by name)', totals.names)
+  // Both are asserted, because the gap between them is itself a fact about the archive:
+  // 93 channels share a display name with another channel, so counting by name merges
+  // them. The source's own 25,417 is the name count; the id count is the truer identity.
+  check('distinct channels (by name)', totals.names, EXPECTED.distinctChannelNames)
+  check('distinct channels (by id)', totals.channels, EXPECTED.distinctChannelIds)
   check('unresolved', totals.unresolved, EXPECTED.unresolved)
   check('with a duration', totals.dur, EXPECTED.withDuration)
 
