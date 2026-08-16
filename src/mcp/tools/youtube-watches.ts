@@ -30,6 +30,23 @@ import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pa
 /** Milliseconds are noise on a minute-resolution archive; report whole seconds. */
 const secondsToHours = (s: number) => Math.round((s / 3600) * 10) / 10
 
+/**
+ * Accepted shape for the from/to bounds: a date, optionally a time, optionally a timezone
+ * suffix that is then IGNORED (these bounds are local wall clock — see ADR 0047).
+ *
+ * Validated here rather than left to Postgres' cast so a malformed bound is a 400 naming
+ * the bad value, not a 500 carrying the whole query — the same reason InvalidCursorError
+ * exists. `zod` rejects it before a connection is opened.
+ */
+const LOCAL_BOUND_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?(Z|[+-]\d{2}:?\d{2})?$/
+
+const localBound = (label: string) =>
+  z.string()
+    .refine((v) => LOCAL_BOUND_RE.test(v.trim()), {
+      message: `${label} must be a local date or datetime such as "2025-01-01" or "2025-01-01T18:00:00". Any timezone suffix is ignored: these bounds are Europe/Oslo wall clock.`,
+    })
+    .transform((v) => v.trim())
+
 // ---- shared filter handling ------------------------------------------------
 
 export interface WatchFilters {
@@ -111,11 +128,11 @@ const filterShape = {
     .describe('Filter by video title (case-insensitive, partial match). Unresolved rows carry no title and are excluded by this filter.'),
   video_id: z.string().optional()
     .describe('Filter to one video by its 11-character YouTube id (exact). Use this to count rewatches — the same video legitimately appears many times.'),
-  from: z.string().optional()
+  from: localBound('from').optional()
     .describe('Only watches at or after this LOCAL wall-clock datetime (Europe/Oslo), e.g. "2025-01-01" or "2025-01-01T18:00:00". Any timezone suffix is ignored: these bounds are local time, matching how the archive records it.'),
-  to: z.string().optional()
+  to: localBound('to').optional()
     .describe('Only watches at or before this LOCAL wall-clock datetime (Europe/Oslo). Inclusive. Any timezone suffix is ignored.'),
-  year: z.number().int().optional()
+  year: z.number().int().min(2005).max(2100).optional()
     .describe('Sugar for a whole calendar year in Europe/Oslo local time, e.g. 2025. Bucketed on the local wall clock, so the counts match the source exactly rather than shifting the hours either side of New Year.'),
   shorts: z.enum(['include', 'exclude', 'only']).default('include')
     .describe('Shorts handling. There is NO Shorts flag in this data; the heuristic is duration < 180s, and Shorts dominate the archive. "only" requires a KNOWN sub-180s duration. "exclude" drops known Shorts but KEEPS rows with no duration at all, because an unknown duration is unknown, not long-form.'),
@@ -273,9 +290,9 @@ export async function getYoutubeStats(input: z.infer<typeof getYoutubeStatsSchem
     .where(where)
 
   const plan = groupPlan(input.group_by)
-  const groupWhere = plan.extra
-    ? and(...(conditions.length ? conditions : []), plan.extra)
-    : where
+  // A channel ranking additionally drops rows with no channel; every other dimension
+  // groups over exactly the filtered set.
+  const groupWhere = plan.extra ? and(...conditions, plan.extra) : where
 
   const top = await db
     .select({

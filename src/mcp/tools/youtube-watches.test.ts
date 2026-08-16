@@ -50,6 +50,44 @@ describe('getYoutubeWatchesSchema', () => {
   })
 })
 
+describe('the from/to bounds', () => {
+  // Validated in the schema so a malformed bound is a 400 naming the value, rather than
+  // reaching Postgres and coming back as a 500 carrying the whole query.
+  it('accepts a date, a datetime, and an ignored timezone suffix', () => {
+    for (const v of [
+      '2025-01-01',
+      '2025-01-01T18:00',
+      '2025-01-01T18:00:00',
+      '2025-01-01 18:00:00',
+      '2025-01-01T18:00:00.5',
+      '2025-01-01T18:00:00Z',
+      '2025-01-01T18:00:00+02:00',
+    ]) {
+      expect(getYoutubeWatchesSchema.safeParse({ from: v }).success).toBe(true)
+    }
+  })
+
+  it('rejects anything that is not a local date or datetime', () => {
+    for (const v of ['banana', '', '2025', '01/01/2025', 'now', '2025-01-01T']) {
+      expect(getYoutubeWatchesSchema.safeParse({ from: v }).success).toBe(false)
+      expect(getYoutubeWatchesSchema.safeParse({ to: v }).success).toBe(false)
+    }
+  })
+
+  it('says in the message that a timezone suffix is ignored', () => {
+    const r = getYoutubeWatchesSchema.safeParse({ from: 'banana' })
+    expect(r.success).toBe(false)
+    if (!r.success) expect(r.error.issues[0]!.message).toContain('timezone suffix is ignored')
+  })
+
+  it('rejects a year outside any plausible range', () => {
+    // YouTube launched in 2005; a four-digit typo should not silently return nothing.
+    expect(getYoutubeWatchesSchema.safeParse({ year: 1999 }).success).toBe(false)
+    expect(getYoutubeWatchesSchema.safeParse({ year: 20255 }).success).toBe(false)
+    expect(getYoutubeWatchesSchema.safeParse({ year: 2025 }).success).toBe(true)
+  })
+})
+
 describe('getYoutubeStatsSchema', () => {
   it('defaults to a channel ranking', () => {
     const parsed = getYoutubeStatsSchema.parse({})
