@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { parseTrainTripsCsv } from './parse-trips-csv.js'
 
-// The parser had no test until ADR 0047 took the identity hash out of it. What is
+// The parser had no test until ADR 0048 took the identity hash out of it. What is
 // pinned here is the part the rest of the import trusts blindly: that a row's
 // departure instant is derived from a wall clock and a NAMED zone, and that the parser
 // says so when the export named none. Identity is compared on that instant, so a

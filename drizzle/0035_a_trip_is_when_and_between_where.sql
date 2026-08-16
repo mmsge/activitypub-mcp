@@ -7,7 +7,7 @@
 -- vs `18568` for a Paris RER leg, `S S3` vs `3089` in Berlin). Same physical journey,
 -- two hashes, two rows. ADR 0031 diagnosed the other half — nothing but the key is in
 -- the key, so DO NOTHING made every other column write-once and `status` could never
--- be corrected. ADR 0047 replaces both.
+-- be corrected. ADR 0048 replaces both.
 --
 -- On 16 August 2026 this table held 165 rows for 2026 describing ~88 real legs. Every
 -- duplicate pair agreed on journey, instant and both stations, and differed only in

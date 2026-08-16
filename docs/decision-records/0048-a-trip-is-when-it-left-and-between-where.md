@@ -1,4 +1,4 @@
-# 0047 — A trip is when it left and between where
+# 0048 — A trip is when it left and between where
 
 **Status:** Accepted
 **Date:** 2026-08-16
@@ -95,7 +95,7 @@ a match after the fact. An insert that should have been a match is the failure t
 change is guarding against, and it is only cheap to spot if it was logged.
 
 **The collapse of the existing 77 duplicates lives in migration
-`0034_a_trip_is_when_and_between_where`, not in a script.** Migrations run at container
+`0035_a_trip_is_when_and_between_where`, not in a script.** Migrations run at container
 start, so a migration that only added the unique index would abort the boot of any
 database still holding a pair. Within each group the rows are ranked by *most advanced
 status, then having a train code, then most recently imported*, and each column takes the

@@ -200,7 +200,7 @@ export interface TripImportResult {
  * the incoming value wins, and only a null defers. That is what moves a leg from
  * Planned to Completed on re-export, which ADR 0031 recorded as impossible.
  *
- * `trainCode` is here too, and that is the point of ADR 0047 — it used to be half the
+ * `trainCode` is here too, and that is the point of ADR 0048 — it used to be half the
  * identity, which is why the same journey was stored twice.
  */
 const REFRESHABLE = [
@@ -259,7 +259,7 @@ export function tripUpsertRules(): { set: Record<string, SQL>; setWhere: SQL } {
 /**
  * The identity upsert, built without touching the connection so its shape can be
  * asserted in a test. A trip IS `(from_station, to_station, departure_at)` — see
- * ADR 0047 and the unique index the target names.
+ * ADR 0048 and the unique index the target names.
  */
 export function buildTrainTripsUpsert(values: unknown[]) {
   const { set, setWhere } = tripUpsertRules()
@@ -359,7 +359,7 @@ export async function importTrainTrips(rows: TripRow[]): Promise<TripImportResul
   const written = await buildTrainTripsUpsert(values)
 
   // One line per row that actually moved. Verbose on purpose for the first import after
-  // ADR 0047: a leg that inserts when it should have matched is the failure this change
+  // ADR 0048: a leg that inserts when it should have matched is the failure this change
   // is guarding against, and it is only cheap to spot if it was logged.
   for (const w of written) {
     logger.info(

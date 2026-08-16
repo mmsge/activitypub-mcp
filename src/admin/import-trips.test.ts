@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm'
 import { buildTrainTripsUpsert, tripUpsertRules } from './import.js'
 
 // Rendered-SQL assertions, not DB round-trips (vitest has no database) — the same shape
-// as media-query.test.ts. What is pinned here is ADR 0047's whole claim: that a trip is
+// as media-query.test.ts. What is pinned here is ADR 0048's whole claim: that a trip is
 // identified by when it left and between where, that a re-export improves a stored trip
 // instead of duplicating it, and that a repeat import writes nothing at all. Each of the
 // three fails silently if it regresses: the first as a second copy of a journey, the

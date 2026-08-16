@@ -10,6 +10,7 @@ import { getReadingStatsSchema, getReadingStats } from './tools/reading-stats.js
 import { getReadingPaceSchema, getReadingPace } from './tools/reading-pace.js'
 import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleStats } from './tools/scrobbles.js'
 import { getScrobbleRaceSchema, getScrobbleRace } from './tools/scrobble-race.js'
+import { getYoutubeWatchesSchema, getYoutubeWatches, getYoutubeStatsSchema, getYoutubeStats } from './tools/youtube-watches.js'
 import { getPostBreakoutsSchema, getPostBreakouts } from './tools/post-breakouts.js'
 import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
 import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats } from './tools/train-trips.js'
@@ -154,6 +155,26 @@ export function createMcpServer(): McpServer {
     getScrobbleStatsSchema.shape,
     async (input) => {
       const result = await getScrobbleStats(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_youtube_watches',
+    "Markus' YouTube watch history: ~96,500 watch events across two Google accounts, 2010-2026, ingested from a Google Takeout-shaped export. NOT the same thing as get_watched, which serves the NeoDB catalogue of films, TV, books and games he has MARKED — this tool is the raw firehose of what he actually opened on YouTube, most of it never marked anywhere. One row per watch, so a rewatched video appears once per watch. Filter by account, channel (case-insensitive partial), title (partial), video_id (exact), a from/to window, year sugar, shorts, and include_unresolved. Newest-first by default; set sort_order='asc' with limit=1 for the earliest match, and follow next_cursor rather than incrementing page — the archive is far too large for offset paging. FIVE THINGS WILL MAKE YOU WRONG IF YOU IGNORE THEM. (1) THERE IS NO WATCH DURATION ANYWHERE. duration_seconds is the VIDEO'S LENGTH, scraped from the page; neither Takeout nor My Activity records how much of a video was actually watched, only that it was opened. Never sum duration_seconds and call it time watched — use get_youtube_stats, which returns three qualified upper bounds instead. (2) SHORTS DOMINATE. About 69% of rows that have a duration are under 180 seconds, median 55s. There is no Shorts flag in the data; duration < 180s is a heuristic, exposed as the `shorts` filter and as is_short per row. is_short is NULL, not false, when the duration is unknown. Any top-channels or time-spent answer that does not separate Shorts from long form is misleading. (3) 11.4% OF ROWS ARE UNRESOLVED — deleted or private videos with no title and no channel, kept because they are real watch events. They are included by default; the channel and title filters cannot match them, so those filters silently narrow to the resolved 88.6%. (4) THE TWO ACCOUNTS OVERLAP IN TIME. 'mvrkws' runs 2015-2026 and 'rawen100' 2010-2026; 533 rawen100 entries fall AFTER mvrkws started. This is not a switchover on a single date and must not be modelled as one. (5) TIMES ARE EUROPE/OSLO LOCAL WALL CLOCK at minute resolution, seconds always 00. Each row carries watched_at_local (the source's own wall clock — use this for anything calendar-shaped) and watched_at (the resolved UTC instant, for joining against scrobbles, gigs or trips). from/to/year are read as LOCAL time; a timezone suffix on them is ignored.",
+    getYoutubeWatchesSchema.shape,
+    async (input) => {
+      const result = await getYoutubeWatches(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_youtube_stats',
+    "Aggregate metrics over the YouTube watch history: total watches, distinct videos, distinct channels, the first and last watch, and a breakdown by channel, year, month, hour_of_day, account or video. Accepts the same filters as get_youtube_watches — when filtered, total_watches and first/last_watched_at_local reflect ONLY matching rows, so 'when did I first watch this channel' is a single call with channel set. EVERY RESPONSE CARRIES ITS OWN CAVEATS, AND YOU MUST PASS THEM ON. watch_time_estimates returns THREE figures, never one, because THIS DATA CONTAINS NO WATCH DURATION AT ALL — only that a video was opened. raw_hours sums full video lengths and is a gross overestimate (an eight-hour livestream left open for two minutes counts as eight hours). capped_20min_hours caps each row at 20 minutes and is the least-bad figure for anything resembling 'time spent'. excluding_shorts_hours counts only videos of 180s or more. All three are UPPER BOUNDS. duration_coverage_pct says what share of the matching rows had a duration at all (about 89% archive-wide) — the rest contribute zero to every estimate, so the true figure is not merely lower, it is unmeasurable. shorts_split reports shorts / long_form / unknown_duration; unknown is its own bucket and is never folded into either, because an unknown duration is unknown. unresolved_watches and watches_without_channel report how much of the result has no title or channel — about 11.4% archive-wide. WITH group_by='channel', excluded_from_ranking states exactly how many watches the ranking could not include for having no channel; quote it alongside any top-channels answer rather than letting the ranking imply full coverage. distinct_channels counts CHANNEL IDS, with distinct_channel_names beside it: a channel that renamed has one id and two names, so the two numbers answer different questions and neither is a typo. group_by='year'/'month'/'hour_of_day' return CALENDAR ORDER ascending, bucketed on Europe/Oslo local time; the others rank by watch count descending. group_count says how many buckets exist, so raise `limit` (max 500) rather than assuming `top` is complete — month alone spans ~190 buckets. ONE MORE TRAP: 2025 carries 53,360 watches against 2024's 866, a 62x discontinuity that Shorts alone do not explain and that is far more likely a change in what was being recorded than a change in viewing. Do not present a year-on-year trend across that boundary as a smooth curve — exclude the discontinuity or annotate it explicitly.",
+    getYoutubeStatsSchema.shape,
+    async (input) => {
+      const result = await getYoutubeStats(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

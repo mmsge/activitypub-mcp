@@ -77,7 +77,7 @@ export const Cover: FC<{ url?: string | null; alt?: string }> = ({ url, alt }) =
   )
 }
 
-export type MediaTab = 'books' | 'watched' | 'other' | 'gigs' | 'scrobbles'
+export type MediaTab = 'books' | 'watched' | 'other' | 'gigs' | 'scrobbles' | 'youtube'
 
 const TAB_LABELS: Array<[MediaTab, string]> = [
   ['books', 'Books'],
@@ -85,6 +85,7 @@ const TAB_LABELS: Array<[MediaTab, string]> = [
   ['other', 'Other media'],
   ['gigs', 'Gigs'],
   ['scrobbles', 'Scrobbles'],
+  ['youtube', 'YouTube'],
 ]
 
 export const Tabs: FC<{ active: MediaTab }> = ({ active }) => (

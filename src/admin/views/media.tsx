@@ -2,7 +2,7 @@
 import type { FC, PropsWithChildren } from 'hono/jsx'
 import { Layout } from './layout.js'
 import { Pager, EmptyRow, Cover, Tabs, EnrichBadge, BookBadge, fmtDate, type MediaTab, type QueryParams } from './ui.js'
-import type { BookRow, WatchedRow, OtherRow, GigRow, ScrobbleRow, Page } from '../media-query.js'
+import type { BookRow, WatchedRow, OtherRow, GigRow, ScrobbleRow, YoutubeRow, Page } from '../media-query.js'
 
 // --- shell -------------------------------------------------------------------
 
@@ -510,5 +510,68 @@ export const ScrobblesTab: FC<{
       </tbody>
     </table>
     <Pager base="/admin/media" page={data.page} hasMore={data.hasMore} params={{ ...filters, tab: 'scrobbles' } as QueryParams} />
+  </Shell>
+)
+
+// --- youtube -----------------------------------------------------------------
+
+export const YoutubeTab: FC<{
+  data: Page<YoutubeRow>
+  accounts: string[]
+  filters: Record<string, string | undefined>
+  notice?: string
+  returnTo: string
+}> = ({ data, accounts, filters, notice, returnTo }) => (
+  <Shell tab="youtube" total={data.total} notice={notice} returnTo={returnTo}>
+    <form class="filters" method="get" action="/admin/media">
+      <input type="hidden" name="tab" value="youtube" />
+      <input name="channel" placeholder="Channel" value={filters.channel ?? ''} style="width:200px" />
+      <input name="title" placeholder="Video title" value={filters.title ?? ''} style="width:200px" />
+      <select name="account">
+        <option value="">All accounts</option>
+        {accounts.map(a => (
+          <option value={a} selected={filters.account === a}>{a}</option>
+        ))}
+      </select>
+      <select name="sort">
+        <option value="watches" selected={filters.sort !== 'recent'}>Most watched</option>
+        <option value="recent" selected={filters.sort === 'recent'}>Recently watched</option>
+      </select>
+      <button type="submit">Filter</button>
+      <a href="/admin/media?tab=youtube" class="btn btn-ghost">Clear</a>
+    </form>
+
+    <p class="muted" style="margin-bottom:12px">
+      Rolled up by channel, counting watch events. Read-only, and imported by hand with{' '}
+      <code>npm run import-youtube-watches</code> rather than synced. Dates are the
+      Europe/Oslo wall clock the export recorded. Deleted and private videos carry no
+      channel and group under <em>(no channel)</em> — they are real watches, so they are
+      counted here rather than hidden.
+    </p>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Channel</th>
+          <th>Watches</th>
+          <th>Videos</th>
+          <th>First</th>
+          <th>Last</th>
+        </tr>
+      </thead>
+      <tbody>
+        {data.rows.map(r => (
+          <tr key={r.channelId ?? 'none'}>
+            <td>{r.channelName ?? <span class="muted">(no channel)</span>}</td>
+            <td class="mono">{r.watches}</td>
+            <td class="mono">{r.videos}</td>
+            <td class="mono">{r.firstWatched ?? ''}</td>
+            <td class="mono">{r.lastWatched ?? ''}</td>
+          </tr>
+        ))}
+        {data.rows.length === 0 && <EmptyRow colspan={5} text="No watches found" />}
+      </tbody>
+    </table>
+    <Pager base="/admin/media" page={data.page} hasMore={data.hasMore} params={{ ...filters, tab: 'youtube' } as QueryParams} />
   </Shell>
 )

@@ -8,7 +8,7 @@ import { parse } from 'csv-parse/sync'
  *
  * Nothing here decides which stored trip a row IS. Identity is
  * `(from_station, to_station, departure_at)`, enforced by a unique index and applied
- * by the importer's upsert (ADR 0047). This file used to carry a SHA-256 of the
+ * by the importer's upsert (ADR 0048). This file used to carry a SHA-256 of the
  * identifying fields, train code among them — which is exactly what split one journey
  * into a Planned row and a Completed one.
  */
