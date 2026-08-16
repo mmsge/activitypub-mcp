@@ -1077,6 +1077,250 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/youtube-watches:
+    get:
+      tags: [REST API]
+      summary: Query YouTube watch history
+      description: |
+        ~96,500 YouTube watch events across two Google accounts, 2010-2026, from a
+        Google Takeout-shaped export. Distinct from `/watched`, which serves the
+        NeoDB catalogue of marked films/TV/books/games — this is the raw record of
+        what was opened. One row per watch, so a rewatched video appears once per
+        watch. Newest-first by default; paginate via `next_cursor`.
+
+        Caveats that change the answer:
+
+        - `duration_seconds` is the **video's length**, not how much was watched.
+          No watch duration exists anywhere in this data.
+        - Shorts dominate and carry no flag; `duration < 180s` is the heuristic, so
+          `is_short` is `null` when the duration is unknown.
+        - 11.4% of rows are unresolved (deleted/private): no title, no channel. The
+          `channel` and `title` filters therefore cannot match them.
+        - The two accounts overlap in time rather than succeeding one another.
+        - Times are Europe/Oslo local wall clock at minute resolution.
+          `watched_at_local` is the source's own value; `from`/`to`/`year` are read
+          as local time and any timezone suffix on them is ignored.
+      operationId: getYoutubeWatchesGet
+      parameters:
+        - {
+            name: account,
+            in: query,
+            description: Exact account match.,
+            schema: { type: string },
+          }
+        - {
+            name: channel,
+            in: query,
+            description: "Channel name, case-insensitive partial match.",
+            schema: { type: string },
+          }
+        - {
+            name: title,
+            in: query,
+            description: "Video title, case-insensitive partial match.",
+            schema: { type: string },
+          }
+        - {
+            name: video_id,
+            in: query,
+            description: Exact 11-character YouTube video id.,
+            schema: { type: string },
+          }
+        - {
+            name: from,
+            in: query,
+            description: Local wall-clock datetime — at or after.,
+            schema: { type: string },
+          }
+        - {
+            name: to,
+            in: query,
+            description: Local wall-clock datetime — at or before (inclusive).,
+            schema: { type: string },
+          }
+        - {
+            name: year,
+            in: query,
+            description: Calendar year in Europe/Oslo local time.,
+            schema: { type: integer },
+          }
+        - $ref: "#/components/parameters/YoutubeShorts"
+        - $ref: "#/components/parameters/YoutubeIncludeUnresolved"
+        - $ref: "#/components/parameters/SortOrder"
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 200, default: 50 },
+          }
+        - name: page
+          in: query
+          description: Offset-based page (legacy). Ignored when `cursor` is supplied.
+          schema: { type: integer, minimum: 1, default: 1 }
+        - $ref: "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: Page of watch events.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/YoutubeWatchesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Query YouTube watch history (JSON body)
+      operationId: getYoutubeWatchesPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account: { type: string }
+                channel: { type: string }
+                title: { type: string }
+                video_id: { type: string }
+                from: { type: string }
+                to: { type: string }
+                year: { type: integer }
+                shorts:
+                  {
+                    type: string,
+                    enum: [include, exclude, only],
+                    default: include,
+                  }
+                include_unresolved: { type: boolean, default: true }
+                sort_order: { type: string, enum: [asc, desc], default: desc }
+                limit: { type: integer, minimum: 1, maximum: 200, default: 50 }
+                page: { type: integer, minimum: 1, default: 1 }
+                cursor: { type: string }
+      responses:
+        "200":
+          description: Page of watch events.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/YoutubeWatchesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/youtube-stats:
+    get:
+      tags: [REST API]
+      summary: Aggregate YouTube watch metrics
+      description: |
+        Total watches, distinct videos and channels, first/last watch, and a
+        breakdown by channel, year, month, hour_of_day, account or video. Accepts
+        the same filters as `/youtube-watches`, so totals and first/last reflect
+        only matching rows.
+
+        Every response carries its own caveats, and they are not optional garnish:
+
+        - `watch_time_estimates` returns **three** upper bounds (raw, capped at
+          20 minutes, Shorts-excluded) because this data contains no watch duration
+          at all. `duration_coverage_pct` says what share of matching rows even had
+          a length; the rest contribute zero to all three.
+        - `shorts_split` keeps `unknown_duration` as its own bucket rather than
+          folding it into either side.
+        - `unresolved_watches` and `watches_without_channel` report how much of the
+          result has no title or channel.
+        - With `group_by=channel`, `excluded_from_ranking` states how many watches
+          the ranking could not include.
+        - `distinct_channels` counts channel **ids**, with `distinct_channel_names`
+          beside it: a renamed channel has one id and two names.
+        - `year`/`month`/`hour_of_day` come back in calendar order on Europe/Oslo
+          local time; the others rank by watch count. `group_count` shows whether
+          `limit` truncated the breakdown.
+      operationId: getYoutubeStatsGet
+      parameters:
+        - { name: account, in: query, schema: { type: string } }
+        - { name: channel, in: query, schema: { type: string } }
+        - { name: title, in: query, schema: { type: string } }
+        - { name: video_id, in: query, schema: { type: string } }
+        - {
+            name: from,
+            in: query,
+            description: Local wall-clock datetime — at or after.,
+            schema: { type: string },
+          }
+        - {
+            name: to,
+            in: query,
+            description: Local wall-clock datetime — at or before (inclusive).,
+            schema: { type: string },
+          }
+        - { name: year, in: query, schema: { type: integer } }
+        - $ref: "#/components/parameters/YoutubeShorts"
+        - $ref: "#/components/parameters/YoutubeIncludeUnresolved"
+        - {
+            name: group_by,
+            in: query,
+            schema:
+              {
+                type: string,
+                enum: [channel, year, month, hour_of_day, account, video],
+                default: channel,
+              },
+          }
+        - {
+            name: limit,
+            in: query,
+            description: Number of buckets. Raise it for month (~190 buckets) or
+              hour_of_day (24).,
+            schema: { type: integer, minimum: 1, maximum: 500, default: 20 },
+          }
+      responses:
+        "200":
+          description: Aggregate watch metrics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/YoutubeStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Aggregate YouTube watch metrics (JSON body)
+      operationId: getYoutubeStatsPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                account: { type: string }
+                channel: { type: string }
+                title: { type: string }
+                video_id: { type: string }
+                from: { type: string }
+                to: { type: string }
+                year: { type: integer }
+                shorts:
+                  {
+                    type: string,
+                    enum: [include, exclude, only],
+                    default: include,
+                  }
+                include_unresolved: { type: boolean, default: true }
+                group_by:
+                  {
+                    type: string,
+                    enum: [channel, year, month, hour_of_day, account, video],
+                    default: channel,
+                  }
+                limit: { type: integer, minimum: 1, maximum: 500, default: 20 }
+      responses:
+        "200":
+          description: Aggregate watch metrics.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/YoutubeStatsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/scrobble-race:
     get:
       tags: [REST API]
@@ -3658,6 +3902,23 @@ components:
       in: query
       description: Opaque pagination cursor from a previous response's `next_cursor`.
       schema: { type: string }
+    YoutubeShorts:
+      name: shorts
+      in: query
+      description: >-
+        Shorts handling. There is no Shorts flag in this data; the heuristic is
+        `duration < 180s`. `only` requires a **known** sub-180s duration.
+        `exclude` drops known Shorts but **keeps** rows with no duration at all,
+        because an unknown duration is unknown, not long-form.
+      schema: { type: string, enum: [include, exclude, only], default: include }
+    YoutubeIncludeUnresolved:
+      name: include_unresolved
+      in: query
+      description: >-
+        Whether to include unresolved watches — deleted or private videos with no
+        title and no channel. Default true: they are real watch events, and
+        dropping them makes totals disagree with the archive.
+      schema: { type: boolean, default: true }
 
   responses:
     BadRequest:
@@ -4678,6 +4939,193 @@ components:
             from: { type: [string, "null"] }
             to: { type: [string, "null"] }
 
+    YoutubeWatch:
+      type: object
+      description: One watch event. One row per watch, so a rewatch is a second row.
+      properties:
+        watched_at_local:
+          type: string
+          description:
+            The source's own Europe/Oslo wall clock, `YYYY-MM-DDTHH:MM:SS`, at
+            minute resolution. Use this for anything calendar-shaped.
+        watched_at:
+          type: string
+          format: date-time
+          description:
+            The same moment as a UTC instant, for joining against other time
+            series. Derived from watched_at_local, not independently recorded.
+        video_id: { type: string }
+        video_url: { type: string }
+        title:
+          type: [string, "null"]
+          description: Null when the video is unresolved.
+        channel_name: { type: [string, "null"] }
+        channel_id:
+          type: [string, "null"]
+          description:
+            The UC… id. Null when unresolved, and also null when the source gave
+            an @handle URL carrying no id.
+        duration_seconds:
+          type: [integer, "null"]
+          description:
+            The VIDEO'S length — never how much of it was watched, which this
+            data does not record. Null on ~11% of rows.
+        is_short:
+          type: [boolean, "null"]
+          description:
+            Whether duration is under 180s. **Null, not false, when the duration
+            is unknown.**
+        unresolved:
+          type: boolean
+          description:
+            A deleted or private video. Terminal — enrichment must never retry
+            these.
+        account: { type: string }
+        source:
+          type: string
+          description: Provenance of the row, e.g. `myactivity-console`.
+
+    YoutubeWatchesResponse:
+      type: object
+      properties:
+        count: { type: integer }
+        page: { type: [integer, "null"] }
+        next_cursor: { type: [string, "null"] }
+        sort_order: { type: string, enum: [asc, desc] }
+        timezone: { type: string }
+        shorts_threshold_seconds: { type: integer }
+        filters:
+          type: object
+          properties:
+            account: { type: [string, "null"] }
+            channel: { type: [string, "null"] }
+            title: { type: [string, "null"] }
+            video_id: { type: [string, "null"] }
+            from: { type: [string, "null"] }
+            to: { type: [string, "null"] }
+            year: { type: [integer, "null"] }
+            shorts: { type: string, enum: [include, exclude, only] }
+            include_unresolved: { type: boolean }
+        watches:
+          type: array
+          items: { $ref: "#/components/schemas/YoutubeWatch" }
+
+    YoutubeWatchTimeEstimates:
+      type: object
+      description: >-
+        Three upper bounds, never one number. This data records only that a video
+        was OPENED — no watch duration exists in it — so each figure is wrong in a
+        different direction and quoting one alone misleads.
+      properties:
+        caveat:
+          type: string
+          description: The disclaimer to carry with any figure quoted from here.
+        raw_seconds: { type: integer }
+        raw_hours:
+          type: number
+          description:
+            Sum of full video lengths. Gross overestimate — an eight-hour stream
+            left open for two minutes counts as eight hours.
+        capped_20min_seconds: { type: integer }
+        capped_20min_hours:
+          type: number
+          description:
+            Each row capped at 20 minutes. The least-bad figure for anything
+            resembling "time spent".
+        excluding_shorts_seconds: { type: integer }
+        excluding_shorts_hours:
+          type: number
+          description: Counts only videos of 180s or more.
+        cap_seconds: { type: integer }
+        rows_with_duration: { type: integer }
+        rows_without_duration:
+          type: integer
+          description:
+            These contribute zero to all three estimates, so the true figure is
+            not merely lower — it is unmeasurable.
+        duration_coverage_pct: { type: number }
+
+    YoutubeStatsResponse:
+      type: object
+      properties:
+        total_watches: { type: integer }
+        distinct_videos: { type: integer }
+        distinct_channels:
+          type: integer
+          description:
+            Counted on the channel **id**. A channel that renamed has one id and
+            two names, so this and distinct_channel_names answer different
+            questions and neither is a typo.
+        distinct_channel_names: { type: integer }
+        first_watched_at_local: { type: [string, "null"] }
+        last_watched_at_local: { type: [string, "null"] }
+        watch_time_estimates:
+          { $ref: "#/components/schemas/YoutubeWatchTimeEstimates" }
+        shorts_split:
+          type: object
+          description:
+            Shorts are detected only by the duration heuristic, so rows with no
+            duration are their own bucket and are never folded into either side.
+          properties:
+            shorts: { type: integer }
+            long_form: { type: integer }
+            unknown_duration: { type: integer }
+            shorts_threshold_seconds: { type: integer }
+            note: { type: string }
+        unresolved_watches: { type: integer }
+        watches_without_channel: { type: integer }
+        group_by:
+          type: string
+          enum: [channel, year, month, hour_of_day, account, video]
+        group_count:
+          type: integer
+          description:
+            How many buckets exist in total, so truncation by `limit` is visible
+            rather than implied.
+        group_order: { type: string, enum: ["watches desc", "key asc"] }
+        excluded_from_ranking:
+          type: object
+          description:
+            Present only when group_by=channel. Quote it alongside any
+            top-channels answer rather than letting the ranking imply full
+            coverage.
+          properties:
+            watches_without_channel: { type: integer }
+            reason: { type: string }
+        top:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: [string, "null"] }
+              label:
+                type: [string, "null"]
+                description:
+                  Human-readable name for the group, present for channel and
+                  video. For a channel it is the NEWEST name seen, so a renamed
+                  channel appears once under what it calls itself now.
+              watches: { type: integer }
+              raw_seconds: { type: integer }
+              rows_with_duration: { type: integer }
+        timezone: { type: string }
+        filters:
+          type: object
+          properties:
+            account: { type: [string, "null"] }
+            channel: { type: [string, "null"] }
+            title: { type: [string, "null"] }
+            video_id: { type: [string, "null"] }
+            from: { type: [string, "null"] }
+            to: { type: [string, "null"] }
+            year: { type: [integer, "null"] }
+            shorts: { type: string, enum: [include, exclude, only] }
+            include_unresolved: { type: boolean }
+        range:
+          type: object
+          properties:
+            from: { type: [string, "null"] }
+            to: { type: [string, "null"] }
+            year: { type: [integer, "null"] }
     BreakoutRung:
       type: string
       enum: [p90, p99, best]

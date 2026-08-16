@@ -6,6 +6,8 @@ import {
   queryWatched,
   queryOther,
   queryScrobbles,
+  queryYoutubeWatches,
+  youtubeAccounts,
   catalogueCategories,
   failedCatalogueItems,
   catalogueItemById,
@@ -23,8 +25,9 @@ import {
   type OtherFilters,
   type GigFilters,
   type ScrobbleFilters,
+  type YoutubeFilters,
 } from './media-query.js'
-import { BooksTab, WatchedTab, OtherTab, GigsTab, ScrobblesTab } from './views/media.js'
+import { BooksTab, WatchedTab, OtherTab, GigsTab, ScrobblesTab, YoutubeTab } from './views/media.js'
 import { enrichCatalogueItem, syncNeodbMetadata } from '../jobs/sync-neodb-metadata.js'
 import { enrichGig, syncGigMetadata } from '../jobs/sync-gig-metadata.js'
 import { backfillGigs } from '../jobs/backfill-gigs.js'
@@ -34,7 +37,7 @@ import { syncScrobbles } from '../jobs/sync-scrobbles.js'
 
 const app = new Hono()
 
-const TABS = ['books', 'watched', 'other', 'gigs', 'scrobbles'] as const
+const TABS = ['books', 'watched', 'other', 'gigs', 'scrobbles', 'youtube'] as const
 type Tab = (typeof TABS)[number]
 
 function tabOf(c: Context): Tab {
@@ -138,6 +141,28 @@ app.get('/', async (c) => {
       <GigsTab
         data={data}
         cities={cities}
+        filters={c.req.query() as Record<string, string | undefined>}
+        notice={notice}
+        returnTo={returnTo}
+      />
+    )
+  }
+
+  if (tab === 'youtube') {
+    const filters: YoutubeFilters = {
+      channel: q('channel'),
+      title: q('title'),
+      account: q('account'),
+      sort: q('sort') === 'recent' ? 'recent' : 'watches',
+    }
+    const [data, accounts] = await Promise.all([
+      queryYoutubeWatches(filters, page),
+      youtubeAccounts(),
+    ])
+    return c.html(
+      <YoutubeTab
+        data={data}
+        accounts={accounts}
         filters={c.req.query() as Record<string, string | undefined>}
         notice={notice}
         returnTo={returnTo}

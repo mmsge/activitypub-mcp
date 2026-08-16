@@ -25,6 +25,7 @@ interface DashboardData {
     films: number
     tv: number
     gigs: number
+    youtube: number
     failedEnrichment: number
     hidden: number
   }
@@ -93,6 +94,10 @@ export function DashboardPage({ data }: { data: DashboardData }) {
         <a class="card" href="/admin/media?tab=gigs">
           <div class="num">{data.media.gigs}</div>
           <div class="label">Gigs</div>
+        </a>
+        <a class="card" href="/admin/media?tab=youtube">
+          <div class="num">{data.media.youtube}</div>
+          <div class="label">YouTube (watches)</div>
         </a>
         <a class="card" href="/admin/media?tab=other&health=failed">
           <div class="num" style="color: #f87171">{data.media.failedEnrichment}</div>
