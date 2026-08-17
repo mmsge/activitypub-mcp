@@ -107,10 +107,10 @@ describe('getYoutubeStatsSchema', () => {
   })
 
   it('offers every group_by the archive needs', () => {
-    for (const g of ['channel', 'year', 'month', 'hour_of_day', 'account', 'video']) {
+    for (const g of ['channel', 'year', 'month', 'day', 'weekday', 'hour_of_day', 'account', 'video']) {
       expect(getYoutubeStatsSchema.parse({ group_by: g }).group_by).toBe(g)
     }
-    expect(() => getYoutubeStatsSchema.parse({ group_by: 'weekday' })).toThrow()
+    expect(() => getYoutubeStatsSchema.parse({ group_by: 'decade' })).toThrow()
   })
 })
 
@@ -140,14 +140,28 @@ describe('the time axis', () => {
     expect(sql).not.toContain('::timestamptz')
   })
 
-  it('buckets year, month and hour_of_day on the LOCAL column', () => {
-    for (const g of ['year', 'month', 'hour_of_day'] as const) {
+  it('buckets every calendar dimension on the LOCAL column', () => {
+    for (const g of ['year', 'month', 'day', 'weekday', 'hour_of_day'] as const) {
       const sql = rendered(groupPlan(g).key as SQL<unknown>)
       expect(sql).toContain('watched_at_local')
       // A bucket read off the instant would need AT TIME ZONE, and applying it twice is
       // the classic way to be an hour out. Reading the local column needs none at all.
       expect(sql).not.toContain('AT TIME ZONE')
     }
+  })
+
+  it('numbers the weekday from Monday, and spells it without asking the locale', () => {
+    // isodow puts Monday at 1; `dow` would put Sunday at 0 and read the week wrong.
+    expect(rendered(groupPlan('weekday').key as SQL<unknown>)).toContain('isodow')
+    // to_char(…,'Dy') reads the server's lc_time, so the label would change with the
+    // container locale. The literal array cannot.
+    const label = rendered(groupPlan('weekday').label as SQL<unknown>)
+    expect(label).toContain('Mon')
+    expect(label).not.toContain('Dy')
+  })
+
+  it('sorts the day bucket as text so no client has to parse it', () => {
+    expect(rendered(groupPlan('day').key as SQL<unknown>)).toContain('YYYY-MM-DD')
   })
 })
 
@@ -222,7 +236,7 @@ describe('group plans', () => {
 
   it('returns calendar dimensions in calendar order, not by count', () => {
     // A year list sorted by watch count is not a year list.
-    for (const g of ['year', 'month', 'hour_of_day'] as const) {
+    for (const g of ['year', 'month', 'day', 'weekday', 'hour_of_day'] as const) {
       expect(groupPlan(g).rankByCount).toBe(false)
     }
   })
@@ -232,7 +246,7 @@ describe('group plans', () => {
     // reports how many were dropped rather than letting the numbers imply full coverage.
     expect(groupPlan('channel').extra).not.toBeNull()
     expect(rendered(groupPlan('channel').extra as SQL<unknown>)).toContain('channel_id')
-    for (const g of ['year', 'month', 'hour_of_day', 'account', 'video'] as const) {
+    for (const g of ['year', 'month', 'day', 'weekday', 'hour_of_day', 'account', 'video'] as const) {
       expect(groupPlan(g).extra).toBeNull()
     }
   })
