@@ -39,6 +39,17 @@ try {
     probe: flag('probe') || undefined,
     maxApiCalls: num('max-api-calls'),
     maxProbes: num('max-probes'),
+    // A drain of tens of thousands of videos took minutes with nothing on screen, which is
+    // indistinguishable from a hang. The scheduled run still emits only its summary line.
+    onProgress: (p) => {
+      const pct = p.total === 0 ? 100 : Math.round((p.done / p.total) * 100)
+      const head = `  ${String(pct).padStart(3)}%  ${p.done.toLocaleString('en')}/${p.total.toLocaleString('en')}`
+      console.log(
+        p.stage === 'stage1'
+          ? `${head} videos asked about — ${p.classified} settled, ${p.missing} missing`
+          : `${head} probed — ${p.short} Short, ${p.notShort} not, ${p.errors} error(s)`,
+      )
+    },
   })
 
   const { stage0, stage1, stage2 } = result

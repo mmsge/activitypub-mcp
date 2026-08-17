@@ -260,6 +260,13 @@
       "when": 1786958700000,
       "tag": "0036_youtube_shorts_classification",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786958701000,
+      "tag": "0037_reset_consent_blocked_probes",
+      "breakpoints": true
     }
   ]
 }
