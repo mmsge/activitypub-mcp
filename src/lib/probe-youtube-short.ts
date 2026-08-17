@@ -19,6 +19,25 @@ import { logger } from './logger.js'
 const FETCH_TIMEOUT_MS = 10_000
 const USER_AGENT = `activitypub-mcp/1.0 (+https://${config.APP_DOMAIN})`
 
+/**
+ * Without this, every probe from an EU IP is answered with a 302 to
+ * `consent.youtube.com/m?continue=…&gl=FI` and no probe ever reaches a video.
+ *
+ * `SOCS` is the cookie YouTube sets once the consent dialog has been answered, and `CAI` is
+ * the "seen it" value; it is what yt-dlp sends for the same reason. Nothing is being
+ * circumvented but a banner — this is a cookie-consent screen, not authentication, and the
+ * pages behind it are public either way.
+ *
+ * The predecessor `CONSENT=YES+cb` is dead: measured from the box on 2026-08-17, it was
+ * still redirected to the consent wall while `SOCS=CAI` returned 200 for a Short and 303 to
+ * `/watch` for a non-Short. Do not "restore" it.
+ *
+ * This is invisible from anywhere that is not consent-walled, which is exactly how it got
+ * shipped broken: probing by hand from a non-EU address returns 200 and 303 with no cookie
+ * at all, so the bug cannot reproduce off the affected network.
+ */
+const CONSENT_COOKIE = 'SOCS=CAI'
+
 export type ProbeOutcome =
   | { kind: 'short' }
   | { kind: 'not_short' }
@@ -27,6 +46,15 @@ export type ProbeOutcome =
   | { kind: 'error'; status: number | null; error: string }
 
 export const shortsUrl = (videoId: string) => `https://www.youtube.com/shorts/${encodeURIComponent(videoId)}`
+
+/** The host a Location points at, so failures with one cause group as one row. */
+export function redirectHost(location: string): string {
+  try {
+    return new URL(location, 'https://www.youtube.com').host
+  } catch {
+    return location.slice(0, 100)
+  }
+}
 
 /** `Retry-After` is either a delay in seconds or an HTTP date; both are legal. */
 export function parseRetryAfter(value: string | null, nowMs: number): number | null {
@@ -48,9 +76,14 @@ export function interpretProbeResponse(status: number, location: string | null, 
     if (!location) return { kind: 'error', status, error: 'redirect without Location' }
     // The discriminator. A redirect to the watch page is YouTube saying "this is not a Short".
     if (/\/watch\b|[?&]v=/.test(location)) return { kind: 'not_short' }
-    // A redirect that stays inside /shorts/ is a consent or locale hop, not a verdict —
-    // treated as an error so an unrecognised redirect is never silently read as a Short.
-    return { kind: 'error', status, error: `unexpected redirect to ${location.slice(0, 200)}` }
+    // Anything else is a consent or locale hop, not a verdict — recorded as an error so an
+    // unrecognised redirect is never silently read as a Short.
+    //
+    // Only the HOST is kept. The full URL carries a `continue=` parameter containing the
+    // video id, so 200 identical failures were stored as 200 distinct error strings and a
+    // `GROUP BY is_short_error` returned a page of rows reading `1` — which is precisely
+    // what hid a single systematic cause behind what looked like scattered noise.
+    return { kind: 'error', status, error: `unexpected redirect to ${redirectHost(location)}` }
   }
 
   // Stayed on /shorts/ and served a page. That is the positive case, verified by hand.
@@ -74,6 +107,7 @@ export async function probeYoutubeShort(videoId: string): Promise<ProbeOutcome> 
         Accept: 'text/html,application/xhtml+xml',
         'Accept-Language': 'en',
         'User-Agent': USER_AGENT,
+        Cookie: CONSENT_COOKIE,
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     })

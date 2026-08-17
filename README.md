@@ -882,6 +882,10 @@ thing that can confirm a Short, and YouTube returns 429 after a couple of reques
 off by default and paced in seconds per video. Leaving it off simply leaves those rows
 labelled as guesses, which the tools report honestly.
 
+The probe sends a `SOCS=CAI` consent cookie. Without it, every request from an EU or
+datacenter IP is answered with a redirect to `consent.youtube.com` and no probe ever reaches
+a video — which is invisible from anywhere that is not consent-walled. See ADR 0050.
+
 #### Not the same as `get_watched`
 
 `get_watched` serves the NeoDB catalogue — films, TV, books and games Markus **marked**.

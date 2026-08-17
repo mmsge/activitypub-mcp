@@ -43,6 +43,18 @@ const MAX_ATTEMPTS = 3
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/**
+ * Emitted as the network stages advance, so a manual drain of tens of thousands of videos
+ * is not silent for minutes on end. The scheduled run leaves it undefined and keeps its
+ * single summary line; only the CLI wires it up.
+ */
+export type ClassifyProgress =
+  | { stage: 'stage1'; done: number; total: number; classified: number; missing: number }
+  | { stage: 'stage2'; done: number; total: number; short: number; notShort: number; errors: number }
+
+/** How often to emit progress, in batches for stage 1 and probes for stage 2. */
+const PROGRESS_EVERY = 10
+
 export interface ClassifyShortsOptions {
   /** Report the funnel and write nothing. */
   dryRun?: boolean
@@ -50,6 +62,7 @@ export interface ClassifyShortsOptions {
   maxProbes?: number
   /** Stage 2 is separately switchable and off unless asked for. */
   probe?: boolean
+  onProgress?: (progress: ClassifyProgress) => void
 }
 
 export interface Stage0Counts {
@@ -222,7 +235,21 @@ async function stage0(db: ReturnType<typeof getDb>, dryRun: boolean): Promise<St
  * videos out: they carry a method, so they are not in the partial index at all and no
  * amount of running this can select them.
  */
-async function pendingVideoIds(db: ReturnType<typeof getDb>, limit: number): Promise<string[]> {
+async function pendingVideoIds(
+  db: ReturnType<typeof getDb>,
+  limit: number,
+  /**
+   * Stage 1 passes true: a video videos.list has already answered about must never be asked
+   * again. Without this the queue's `attempts ASC` ordering walks the SAME head of the list
+   * every run — a successful fetch resets attempts to 0, so the rows it could not settle sort
+   * first forever — and each scheduled pass spends its whole cap re-asking answered
+   * questions. Measured in production: 200 calls, 10,000 videos, 0 settled, 0 missing, 200
+   * quota units for nothing, four times a day.
+   *
+   * Stage 2 passes false. An already-fetched video is exactly its caseload.
+   */
+  unfetchedOnly = false,
+): Promise<string[]> {
   if (limit <= 0) return []
   const rows = (await db.execute(sql`
     SELECT video_id
@@ -230,6 +257,7 @@ async function pendingVideoIds(db: ReturnType<typeof getDb>, limit: number): Pro
     WHERE is_short_method IS NULL
       AND is_short_checked_at IS NOT NULL
       AND is_short_attempts < ${MAX_ATTEMPTS}
+      ${unfetchedOnly ? sql`AND api_fetched_at IS NULL` : sql``}
     ORDER BY is_short_attempts ASC, video_id ASC
     LIMIT ${limit}`)) as unknown as { video_id: string }[]
   return rows.map((r) => r.video_id)
@@ -259,13 +287,18 @@ async function persistMetadata(db: ReturnType<typeof getDb>, meta: YoutubeVideoM
     .where(inArray(youtubeVideos.videoId, [meta.videoId]))
 }
 
-async function stage1(db: ReturnType<typeof getDb>, maxCalls: number, dryRun: boolean): Promise<ClassifyShortsResult['stage1']> {
+async function stage1(
+  db: ReturnType<typeof getDb>,
+  maxCalls: number,
+  dryRun: boolean,
+  onProgress?: (p: ClassifyProgress) => void,
+): Promise<ClassifyShortsResult['stage1']> {
   const out: ClassifyShortsResult['stage1'] = { calls: 0, quotaUnits: 0, videos: 0, classified: 0, missing: 0, stopped: null }
   if (!config.YOUTUBE_API_KEY) return { ...out, stopped: 'no_api_key' }
   if (maxCalls <= 0) return { ...out, stopped: 'bounded' }
   if (dryRun) return { ...out, stopped: 'dry_run' }
 
-  const ids = await pendingVideoIds(db, maxCalls * YOUTUBE_VIDEOS_BATCH_SIZE)
+  const ids = await pendingVideoIds(db, maxCalls * YOUTUBE_VIDEOS_BATCH_SIZE, true)
 
   for (const batch of chunk(ids, YOUTUBE_VIDEOS_BATCH_SIZE)) {
     const res = await fetchYoutubeVideos(batch, config.YOUTUBE_API_KEY)
@@ -289,6 +322,10 @@ async function stage1(db: ReturnType<typeof getDb>, maxCalls: number, dryRun: bo
       const verdict = classifyFromMetadata(meta)
       await persistMetadata(db, meta, verdict)
       if (verdict.method) out.classified += 1
+    }
+
+    if (onProgress && (out.calls % PROGRESS_EVERY === 0 || out.videos === ids.length)) {
+      onProgress({ stage: 'stage1', done: out.videos, total: ids.length, classified: out.classified, missing: out.missing })
     }
 
     if (res.missing.length > 0) {
@@ -317,7 +354,12 @@ async function stage1(db: ReturnType<typeof getDb>, maxCalls: number, dryRun: bo
 /** Consecutive 429s after which the run gives up rather than spinning. */
 const ABORT_AFTER_RATE_LIMITS = 3
 
-async function stage2(db: ReturnType<typeof getDb>, maxProbes: number, dryRun: boolean): Promise<ClassifyShortsResult['stage2']> {
+async function stage2(
+  db: ReturnType<typeof getDb>,
+  maxProbes: number,
+  dryRun: boolean,
+  onProgress?: (p: ClassifyProgress) => void,
+): Promise<ClassifyShortsResult['stage2']> {
   const out: ClassifyShortsResult['stage2'] = { probes: 0, short: 0, notShort: 0, errors: 0, stopped: null }
   if (maxProbes <= 0) return { ...out, stopped: 'bounded' }
   if (dryRun) return { ...out, stopped: 'dry_run' }
@@ -357,6 +399,10 @@ async function stage2(db: ReturnType<typeof getDb>, maxProbes: number, dryRun: b
       await writeVerdict(db, [videoId], verdict)
     }
 
+    if (onProgress && (out.probes % PROGRESS_EVERY === 0 || out.probes === ids.length)) {
+      onProgress({ stage: 'stage2', done: out.probes, total: ids.length, short: out.short, notShort: out.notShort, errors: out.errors })
+    }
+
     await sleep(config.YOUTUBE_SHORTS_PROBE_SPACING_MS)
   }
 
@@ -387,8 +433,8 @@ export async function classifyYoutubeShorts(options: ClassifyShortsOptions = {})
   const seeded = dryRun ? 0 : await seed(db)
 
   const stage0Counts = await stage0(db, dryRun)
-  const stage1Result = await stage1(db, maxApiCalls, dryRun)
-  const stage2Result = await stage2(db, maxProbes, dryRun)
+  const stage1Result = await stage1(db, maxApiCalls, dryRun, options.onProgress)
+  const stage2Result = await stage2(db, maxProbes, dryRun, options.onProgress)
   const state = await tableState(db)
 
   // A dry run wrote nothing, so the stored state does not yet include what stage 0 just
