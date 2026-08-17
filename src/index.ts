@@ -20,6 +20,7 @@ import { syncBookMetadata } from './jobs/sync-book-metadata.js'
 import { syncNeodbMetadata } from './jobs/sync-neodb-metadata.js'
 import { syncGigMetadata } from './jobs/sync-gig-metadata.js'
 import { backfillGigs } from './jobs/backfill-gigs.js'
+import { classifyYoutubeShorts } from './jobs/classify-youtube-shorts.js'
 import { syncReadingHistory } from './jobs/sync-reading-history.js'
 import { syncBookwyrmShelves } from './jobs/sync-bookwyrm-shelves.js'
 import { syncGardenContent } from './jobs/sync-garden-content.js'
@@ -139,6 +140,19 @@ async function main() {
       await syncGigMetadata()
     } catch (e) {
       logger.error(e, 'Gig metadata sync failed on startup')
+    }
+  })()
+
+  // Classify the watched YouTube videos as Shorts in the background. setInterval's first
+  // fire is a full interval away, so without this a fresh deploy would leave a newly
+  // imported watch history unclassified for six hours. Stage 0 is offline and takes a few
+  // seconds over the whole archive; the network stages are bounded and stay within their
+  // own switches, so this is safe to run unconditionally.
+  void (async () => {
+    try {
+      await classifyYoutubeShorts()
+    } catch (e) {
+      logger.error(e, 'YouTube Shorts classification failed on startup')
     }
   })()
 

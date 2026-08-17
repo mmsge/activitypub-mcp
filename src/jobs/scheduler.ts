@@ -20,6 +20,7 @@ import { syncStations } from './sync-stations.js'
 import { syncStationWeather } from './sync-station-weather.js'
 import { resolveTripLines } from './resolve-trip-lines.js'
 import { syncLinkedinPosts } from './sync-linkedin-posts.js'
+import { classifyYoutubeShorts } from './classify-youtube-shorts.js'
 import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
 
@@ -110,6 +111,19 @@ export function startScheduler(): void {
     setInterval(async () => {
       try { await runBreakoutFastLane() } catch (e) { logger.error(e, 'Breakout fast lane error') }
     }, config.BREAKOUT_FAST_LANE_MINUTES * 60_000)
+  }
+
+  // YouTube Shorts classification. Gated at registration AND inside the job, the fast
+  // lane's idiom: a deployment that has turned it off pays nothing for the timer.
+  //
+  // Safe to run when there is nothing to do, and that is not a hope — both work queues are
+  // partial indexes, so a settled archive costs two index probes and no rows. Stage 1 is
+  // additionally bounded per run so a scheduled pass cannot exhaust the daily quota, and
+  // stage 2 stays off until YOUTUBE_SHORTS_PROBE_ENABLED says otherwise.
+  if (config.YOUTUBE_SHORTS_INTERVAL_HOURS > 0) {
+    setInterval(async () => {
+      try { await classifyYoutubeShorts() } catch (e) { logger.error(e, 'YouTube Shorts classification error') }
+    }, config.YOUTUBE_SHORTS_INTERVAL_HOURS * 60 * 60_000)
   }
 
   // Request-log retention — every 6 hours. Cheap (one indexed DELETE) and keeps the
