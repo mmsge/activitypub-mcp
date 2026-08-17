@@ -775,6 +775,91 @@ export const youtubeWatches = pgTable('youtube_watches', {
   uniqueIndex('youtube_watches_dedupe_idx').on(t.account, t.videoId, t.watchedAtLocal),
 ])
 
+/**
+ * One row per distinct VIDEO behind the watch history — the table `youtube_watches`
+ * reserved its `video_id` index for. ~92k rows behind ~96k watches; 3,530 videos were
+ * watched more than once, so a per-watch flag would be both redundant and inconsistent.
+ *
+ * It exists to answer one question the archive cannot: is this a Short? See ADR 0049 for
+ * the rules; the short version is that a flat "under three minutes" test mislabels about
+ * 10 % of what it catches, because Shorts did not exist before September 2020 and the
+ * ceiling was 60 seconds until 15 October 2024.
+ *
+ * **The classification is tri-state with provenance, and the two null states are not the
+ * same thing.** `is_short_method` is what tells them apart:
+ *
+ *   | `is_short`     | `is_short_method` | meaning                                        |
+ *   |----------------|-------------------|------------------------------------------------|
+ *   | `false`        | `duration_rule`   | certain, decided offline from duration + date  |
+ *   | `false`        | `api_metadata`    | certain, decided against the real upload date  |
+ *   | `true`/`false` | `probe`           | verified against YouTube                        |
+ *   | `null`         | `unclassifiable`  | **terminal** — no duration, no working URL      |
+ *   | `null`         | `null`            | pending — still ambiguous, awaiting a stage     |
+ *
+ * `unclassifiable` covers the ~10.7k deleted and private videos and must NEVER be retried:
+ * that is the same terminal rule `youtube_watches.unresolved` records, and reopening it
+ * would spend the daily quota re-asking about 11 % of the archive forever. Exhausting
+ * `is_short_attempts` is deliberately NOT the same state — a fetch that kept failing keeps
+ * a null method and is simply not selected, so re-arming it is a matter of resetting the
+ * counter rather than reasoning about which nulls are real.
+ *
+ * The bookkeeping columns mirror `catalog_metadata`'s (`fetched_at` / `fetch_attempts` /
+ * `fetch_error`) rather than inventing a second convention, but the work queue is selected
+ * in SQL ordered by fewest attempts first, the way `sync-stations.ts` does it. The NeoDB
+ * job's JS-side set difference over an unordered list can starve — a permanently-failing
+ * prefix is retried forever while the rest never come up — and that must not be copied.
+ *
+ * The stage 1 metadata below is persisted rather than thrown away. Classification only
+ * needs `published_at` and `duration_seconds`, but the call returns the rest for free and
+ * the year-in-review work will want it.
+ */
+export const youtubeVideos = pgTable('youtube_videos', {
+  videoId: text('video_id').primaryKey(), // the 11-char id — matches youtube_watches.video_id
+  // Tri-state. Nullable boolean rather than an enum because the tools already serve
+  // `is_short` as boolean | null and a third representation would be one too many.
+  isShort: boolean('is_short'),
+  isShortMethod: text('is_short_method'), // duration_rule | api_metadata | probe | unclassifiable
+  // Last time ANY stage looked at this row, verdict or not. Null means never examined, which
+  // is how stage 0 finds its work — so a video arriving in a future import is picked up with
+  // no special casing, and a second run over a settled archive reads an empty index.
+  isShortCheckedAt: timestamp('is_short_checked_at', { withTimezone: true }),
+  isShortAttempts: integer('is_short_attempts').notNull().default(0),
+  isShortError: text('is_short_error'),
+
+  // ── videos.list(part=snippet,contentDetails) ──────────────────────────────────
+  // The real upload date. This is the whole reason stage 1 works: the archive knows when a
+  // video was WATCHED, and only the upload date makes the era rules exact rather than
+  // bounded from above.
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  // The video's best known length. Stage 0 seeds it from max() over the video's watch rows
+  // so every video has one; stage 1 overwrites it with the authoritative contentDetails
+  // value. `api_fetched_at` is what says which of the two you are looking at. It exists as
+  // a column, rather than being read off a watch row, because watch rows of one video can
+  // disagree — one scraped a duration, another did not — and is_short must not.
+  durationSeconds: integer('duration_seconds'),
+  title: text('title'),
+  channelId: text('channel_id'),
+  channelTitle: text('channel_title'),
+  categoryId: text('category_id'),
+  apiFetchedAt: timestamp('api_fetched_at', { withTimezone: true }),
+  // videos.list returned no entry for this id: deleted, private, or region-blocked. The API
+  // omits such ids silently rather than erroring, so absence from the response is the only
+  // signal, and it has to be recorded or the id looks merely unfetched.
+  apiMissing: boolean('api_missing').notNull().default(false),
+
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('youtube_videos_is_short_idx').on(t.isShort),
+  index('youtube_videos_method_idx').on(t.isShortMethod),
+  // Stage 0's work queue: everything never examined. Partial, so it is empty once the
+  // archive is settled and "safe to run when there is nothing to do" costs one index probe.
+  index('youtube_videos_unexamined_idx').on(t.videoId).where(sql`${t.isShortCheckedAt} IS NULL`),
+  // Stage 1 and 2's work queue: everything without a verdict, fewest attempts first. The
+  // partial predicate is what makes "never retry the unclassifiable" free rather than a
+  // condition someone could forget to write.
+  index('youtube_videos_pending_idx').on(t.isShortAttempts, t.videoId).where(sql`${t.isShortMethod} IS NULL`),
+])
+
 // Point-in-time favourite/boost/reply counts for public statuses, read live from
 // each status's ORIGIN instance by the get_engagement tool (REST /api/v1/statuses/:id
 // first, ActivityPub collection totals as fallback). One row per successful read,

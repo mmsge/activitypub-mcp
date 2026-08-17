@@ -1092,8 +1092,12 @@ paths:
 
         - `duration_seconds` is the **video's length**, not how much was watched.
           No watch duration exists anywhere in this data.
-        - Shorts dominate and carry no flag; `duration < 180s` is the heuristic, so
-          `is_short` is `null` when the duration is unknown.
+        - Shorts dominate, and the flag is **derived here, not by YouTube**. Each
+          row carries `is_short_method` and `is_short_source` saying how it was
+          decided — a stored verdict, or the flat `duration < 180s` guess, which
+          over-counts Shorts because they did not exist before September 2020 and
+          were capped at 60s until 15 October 2024. `is_short` is `null` when
+          nothing can decide it.
         - 11.4% of rows are unresolved (deleted/private): no title, no channel. The
           `channel` and `title` filters therefore cannot match them.
         - The two accounts overlap in time rather than succeeding one another.
@@ -1221,8 +1225,10 @@ paths:
           20 minutes, Shorts-excluded) because this data contains no watch duration
           at all. `duration_coverage_pct` says what share of matching rows even had
           a length; the rest contribute zero to all three.
-        - `shorts_split` keeps `unknown_duration` as its own bucket rather than
-          folding it into either side.
+        - `shorts_split` separates **known from guessed**: the Shorts flag is
+          derived here rather than supplied by YouTube, so quote a Shorts figure
+          only alongside how much of it was actually decided. Unknowns stay their
+          own bucket rather than being folded into either side.
         - `unresolved_watches` and `watches_without_channel` report how much of the
           result has no title or channel.
         - With `group_by=channel`, `excluded_from_ranking` states how many watches
@@ -3932,10 +3938,13 @@ components:
       name: shorts
       in: query
       description: >-
-        Shorts handling. There is no Shorts flag in this data; the heuristic is
-        `duration < 180s`. `only` requires a **known** sub-180s duration.
-        `exclude` drops known Shorts but **keeps** rows with no duration at all,
-        because an unknown duration is unknown, not long-form.
+        Shorts handling. The flag is **derived by this server**, not supplied by
+        YouTube — the archive carries no Shorts flag at all. Each video is decided
+        by a stored classification where one exists (`is_short_method` says how),
+        and otherwise falls back to the flat `duration < 180s` guess. `only`
+        requires a positive answer; `exclude` drops those but **keeps** anything
+        unknown, because an unknown is unknown, not long-form. Read `shorts_split`
+        on `/youtube-stats` for how much of a result is known versus guessed.
       schema: { type: string, enum: [include, exclude, only], default: include }
     YoutubeIncludeUnresolved:
       name: include_unresolved
@@ -4999,8 +5008,27 @@ components:
         is_short:
           type: [boolean, "null"]
           description:
-            Whether duration is under 180s. **Null, not false, when the duration
-            is unknown.**
+            Whether this is a Short. **Derived by this server, not supplied by
+            YouTube.** A stored classification where there is one, otherwise the
+            flat `duration < 180s` guess. **Null, not false, when nothing can
+            decide it.**
+        is_short_method:
+          type: [string, "null"]
+          enum: [duration_rule, api_metadata, probe, unclassifiable, null]
+          description:
+            How the flag was decided. `duration_rule` applies the era rules
+            offline; `api_metadata` uses the real upload date; `probe` requests
+            the `/shorts/` URL and is the **only** method that can confirm a
+            Short. `unclassifiable` is terminal — a deleted or private video that
+            nothing will ever decide. **Null means not yet decided**, and
+            `is_short` is then a guess.
+        is_short_source:
+          type: string
+          enum: [classified, heuristic, unclassifiable, unknown_duration]
+          description:
+            The confidence behind `is_short` in one word. `heuristic` is the flat
+            180-second guess, which over-counts Shorts because they did not exist
+            before September 2020 and were capped at 60s until 15 October 2024.
         unresolved:
           type: boolean
           description:
@@ -5090,12 +5118,36 @@ components:
         shorts_split:
           type: object
           description:
-            Shorts are detected only by the duration heuristic, so rows with no
-            duration are their own bucket and are never folded into either side.
+            The Shorts split, in watch counts. `shorts`/`long_form`/`unknown` are
+            the resolved totals; the `known_*` and `guessed_*` figures beneath
+            them say how much of that was actually decided versus still falling
+            back to the flat 180-second guess. Unknowns are their own bucket and
+            are never folded into either side.
           properties:
             shorts: { type: integer }
             long_form: { type: integer }
-            unknown_duration: { type: integer }
+            unknown: { type: integer }
+            known_short: { type: integer }
+            known_long_form: { type: integer }
+            guessed_short: { type: integer }
+            guessed_long_form: { type: integer }
+            unclassifiable:
+              type: integer
+              description: Deleted and private videos. Terminal, never retried.
+            unknown_duration:
+              type: integer
+              description:
+                No verdict and no duration to guess from. Empty once the
+                classification job has run.
+            by_method:
+              type: object
+              description:
+                The known rows broken down by how they were decided. Only `probe`
+                can confirm a Short; the other two can only rule one out.
+              properties:
+                duration_rule: { type: integer }
+                api_metadata: { type: integer }
+                probe: { type: integer }
             shorts_threshold_seconds: { type: integer }
             note: { type: string }
         unresolved_watches: { type: integer }

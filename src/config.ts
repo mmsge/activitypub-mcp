@@ -119,6 +119,38 @@ const schema = z.object({
   // miss between runs and weekly (168h) is plenty. The floor of 1 is a courtesy
   // to LinkedIn, not a rate limit we have been given.
   LINKEDIN_SYNC_INTERVAL_HOURS: z.coerce.number().int().min(1).default(168),
+
+  // ── YouTube Shorts classification ────────────────────────────────────────────
+  // The watch archive carries no Shorts flag, so one is derived. See ADR 0049.
+  //
+  // How often to run the classifier, in hours. 0 disables the timer entirely. Stage 0 is
+  // offline and free, so this being on costs nothing once the archive is settled — the
+  // work queues are partial indexes and a run with nothing to do reads no rows.
+  YOUTUBE_SHORTS_INTERVAL_HOURS: z.coerce.number().int().min(0).default(6),
+  // YouTube Data API v3 key, for stage 1 (videos.list). BLANK DISABLES STAGE 1 — the
+  // classification still works offline, it just leaves more videos ambiguous. Same
+  // deploy-then-arm shape as LASTFM_API_KEY and LINKEDIN_DMA_TOKEN.
+  YOUTUBE_API_KEY: z.string().default(''),
+  // Maximum videos.list calls per run. Each call covers 50 ids and costs ONE quota unit
+  // against a 10,000/day allowance, so this default is 200 units for 10,000 videos and the
+  // whole ~92k backlog is about 1,846 units. Raise it on the command line
+  // (`npm run classify-youtube-shorts -- --max-api-calls=1900`) to drain it in one pass.
+  YOUTUBE_SHORTS_MAX_API_CALLS_PER_RUN: z.coerce.number().int().min(0).default(200),
+  // Stage 2, the HTTP probe: the ONLY stage that can confirm a Short, and the expensive
+  // one. YouTube returned 429 after two requests, so this is deliberately off by default
+  // and meant to be armed only once the residual after stage 1 is known to be worth it.
+  // NOT z.coerce.boolean() — that is Boolean(string), so the literal "false" would come
+  // out true and quietly start probing YouTube on a schedule.
+  YOUTUBE_SHORTS_PROBE_ENABLED: z
+    .string()
+    .default('')
+    .transform((v) => ['1', 'true', 'yes', 'on'].includes(v.trim().toLowerCase())),
+  YOUTUBE_SHORTS_MAX_PROBES_PER_RUN: z.coerce.number().int().min(0).default(100),
+  // Milliseconds between probes. The floor is not a courtesy: at one request every two
+  // seconds a band of 50,000 videos still takes about 29 hours, and going faster than this
+  // is how the endpoint starts refusing outright.
+  YOUTUBE_SHORTS_PROBE_SPACING_MS: z.coerce.number().int().min(1000).default(2000),
+
   // Hostname (or URL) of your own Mastodon instance, e.g. "skvip.lol". Bare
   // numeric status ids in get_engagement resolve against it, and the optional
   // MASTODON_ACCESS_TOKEN is ONLY ever sent to this host — never to remote origins.
