@@ -831,7 +831,12 @@ export const youtubeVideos = pgTable('youtube_videos', {
   // video was WATCHED, and only the upload date makes the era rules exact rather than
   // bounded from above.
   publishedAt: timestamp('published_at', { withTimezone: true }),
-  durationSeconds: integer('duration_seconds'), // authoritative, from contentDetails
+  // The video's best known length. Stage 0 seeds it from max() over the video's watch rows
+  // so every video has one; stage 1 overwrites it with the authoritative contentDetails
+  // value. `api_fetched_at` is what says which of the two you are looking at. It exists as
+  // a column, rather than being read off a watch row, because watch rows of one video can
+  // disagree — one scraped a duration, another did not — and is_short must not.
+  durationSeconds: integer('duration_seconds'),
   title: text('title'),
   channelId: text('channel_id'),
   channelTitle: text('channel_title'),

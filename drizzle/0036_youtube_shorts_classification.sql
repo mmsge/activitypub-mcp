@@ -63,8 +63,15 @@ CREATE TABLE "youtube_videos" (
 	-- never from below — a 45-second video watched in 2025 could have been uploaded in 2013.
 	-- Only this column makes the era rules exact rather than approximate.
 	"published_at" timestamp with time zone,
-	-- Authoritative length, from contentDetails.duration (an ISO 8601 period, parsed on the
-	-- way in). youtube_watches.duration_seconds was scraped from the page and is kept as-is.
+	-- The video's best known length. Stage 0 seeds it from max() over the video's own watch
+	-- rows so that every video has one; stage 1 overwrites it with the authoritative
+	-- contentDetails.duration (an ISO 8601 period, parsed on the way in), and
+	-- `api_fetched_at` is what says which of the two you are looking at.
+	--
+	-- It is a column rather than something read off a watch row because watch rows of the
+	-- SAME video can disagree — one entry scraped a duration, another did not, which is the
+	-- state ~231 rows of the archive are in. is_short is a property of the video, so two
+	-- watches of it must not be able to answer differently.
 	"duration_seconds" integer,
 	"title" text,
 	"channel_id" text,

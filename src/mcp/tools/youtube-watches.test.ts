@@ -11,6 +11,8 @@ import {
   rawSecondsExpr,
   cappedSecondsExpr,
   longFormSecondsExpr,
+  resolvedIsShortExpr,
+  isShortSourceExpr,
 } from './youtube-watches.js'
 import { encodeCursor, decodeCursor } from './pagination.js'
 import { SHORTS_MAX_SECONDS, WATCH_TIME_CAP_SECONDS } from '../../lib/parse-youtube-takeout.js'
@@ -165,19 +167,41 @@ describe('the time axis', () => {
   })
 })
 
-describe('the Shorts heuristic', () => {
-  it('demands a KNOWN sub-threshold duration for "only"', () => {
-    const sql = rendered(shortsCondition('only') as SQL<unknown>)
-    expect(sql).toContain('IS NOT NULL')
-    expect(sql).toContain('<')
+describe('the Shorts flag', () => {
+  it('prefers a stored verdict over the heuristic', () => {
+    // Order is the whole contract: the classification wins, `unclassifiable` is an honest
+    // unknown, and only then does the flat threshold get a say.
+    // Drizzle qualifies a column name only where it is ambiguous across the joined tables,
+    // so the table prefix is matched optionally rather than assumed.
+    const sql = rendered(resolvedIsShortExpr())
+    const verdict = sql.search(/(?:"youtube_videos"\.)?"is_short" IS NOT NULL/)
+    const terminal = sql.indexOf(`'unclassifiable'`)
+    const guess = sql.indexOf('$1') // the threshold, bound as a parameter
+
+    expect(verdict).toBeGreaterThanOrEqual(0)
+    expect(terminal).toBeGreaterThan(verdict)
+    expect(guess).toBeGreaterThan(terminal)
   })
 
-  it('KEEPS unknown durations when excluding Shorts', () => {
-    // An unknown duration is unknown, not long-form. Dropping those rows would quietly
-    // discard ~11% of the archive from every "exclude Shorts" answer.
+  it('guesses from the VIDEO duration, falling back to the watch row', () => {
+    // Watch rows of one video can disagree — one scraped a duration, another did not — and
+    // is_short is a property of the video, so two watches of it must not answer differently.
+    expect(rendered(resolvedIsShortExpr())).toContain(
+      'coalesce("youtube_videos"."duration_seconds", "youtube_watches"."duration_seconds")',
+    )
+  })
+
+  it('demands a positive answer for "only"', () => {
+    expect(rendered(shortsCondition('only') as SQL<unknown>)).toContain('IS TRUE')
+  })
+
+  it('KEEPS unknowns when excluding Shorts, via IS NOT TRUE', () => {
+    // An unknown is unknown, not long-form; dropping those rows would quietly discard ~11%
+    // of the archive from every "exclude Shorts" answer. `IS NOT TRUE` rather than `<> true`
+    // is what makes that hold — `NULL <> true` is NULL, which no WHERE clause keeps.
     const sql = rendered(shortsCondition('exclude') as SQL<unknown>)
-    expect(sql).toContain('IS NULL')
-    expect(sql).toContain('>=')
+    expect(sql).toContain('IS NOT TRUE')
+    expect(sql).not.toMatch(/<>\s*true/i)
   })
 
   it('adds no condition at all when including everything', () => {
@@ -187,9 +211,23 @@ describe('the Shorts heuristic', () => {
 
   it('uses the shared 180-second threshold rather than a local copy', () => {
     expect(SHORTS_MAX_SECONDS).toBe(180)
-    expect(rendered(shortsCondition('only') as SQL<unknown>)).toContain('$1')
     const params = getDb().select({ v: shortsCondition('only') as SQL<unknown> }).from(youtubeWatches).toSQL().params
     expect(params).toContain(SHORTS_MAX_SECONDS)
+  })
+
+  it('names every source it can serve, so known and guessed are never inferred', () => {
+    const sql = rendered(isShortSourceExpr())
+    for (const source of ['unclassifiable', 'classified', 'unknown_duration', 'heuristic']) {
+      expect(sql).toContain(`'${source}'`)
+    }
+  })
+
+  it('excludes Shorts from the long-form hours by the RESOLVED flag, not the raw threshold', () => {
+    // Otherwise a 90-second video from 2023 — not a Short, since the ceiling was 60s then —
+    // stays excluded from the one estimate that is meant to be free of them.
+    const sql = rendered(longFormSecondsExpr())
+    expect(sql).toContain('IS FALSE')
+    expect(sql).toContain('"youtube_videos"."is_short"')
   })
 })
 

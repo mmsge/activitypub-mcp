@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { and, count, eq, ilike, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '../../db/client.js'
-import { youtubeWatches } from '../../db/schema.js'
+import { youtubeWatches, youtubeVideos } from '../../db/schema.js'
 import { SHORTS_MAX_SECONDS, WATCH_TIME_CAP_SECONDS } from '../../lib/parse-youtube-takeout.js'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
 
@@ -61,21 +61,63 @@ export interface WatchFilters {
   include_unresolved?: boolean
 }
 
+// ---- the Shorts flag -------------------------------------------------------
+//
+// Every query here LEFT JOINs youtube_videos, whose is_short is DERIVED — by this repo, not
+// by YouTube. See ADR 0049. The join is left, and the fallback below is why: a watch of a
+// video the classifier has not reached yet still has to answer.
+
+/**
+ * The Shorts flag as served, in priority order.
+ *
+ * A stored verdict wins. Failing that, `unclassifiable` is an honest unknown — those are the
+ * deleted and private videos, and nothing will ever decide them. Only then does the old flat
+ * `duration < 180s` heuristic apply, as a labelled guess.
+ *
+ * Keeping the heuristic as the fallback rather than serving NULL is what makes this change
+ * safe to deploy before the job has run: behaviour on an unclassified archive is exactly
+ * what it was, and it improves monotonically as rows get settled. The cost is that a caller
+ * cannot tell a verdict from a guess by this column alone — which is what `is_short_source`
+ * and the `shorts_split` breakdown exist to say out loud.
+ */
+export const resolvedIsShortExpr = () => sql<boolean | null>`CASE
+    WHEN ${youtubeVideos.isShort} IS NOT NULL THEN ${youtubeVideos.isShort}
+    WHEN ${youtubeVideos.isShortMethod} = 'unclassifiable' THEN NULL
+    WHEN ${guessDurationExpr()} IS NULL THEN NULL
+    ELSE ${guessDurationExpr()} < ${SHORTS_MAX_SECONDS}
+  END`
+
+/**
+ * The duration the fallback guesses from: the VIDEO's, with the watch row's only as a last
+ * resort.
+ *
+ * Both are the same number for almost every row, but not all: a video can have one watch
+ * row that scraped a duration and another that did not. Reading the watch row alone would
+ * then answer differently for two watches of the same video, and `is_short` is a property
+ * of the video, not of the occasion it was opened on.
+ */
+const guessDurationExpr = () => sql`coalesce(${youtubeVideos.durationSeconds}, ${youtubeWatches.durationSeconds})`
+
+/** Where the served flag came from, so "known" and "guessed" never have to be inferred. */
+export const isShortSourceExpr = () => sql<string>`CASE
+    WHEN ${youtubeVideos.isShortMethod} = 'unclassifiable' THEN 'unclassifiable'
+    WHEN ${youtubeVideos.isShort} IS NOT NULL THEN 'classified'
+    WHEN ${guessDurationExpr()} IS NULL THEN 'unknown_duration'
+    ELSE 'heuristic'
+  END`
+
 /**
  * Shorts predicate.
  *
- * A row with NO duration is UNKNOWN — not proven short, not proven long. So `only` demands
- * a known sub-threshold duration, and `exclude` keeps unknowns rather than asserting they
- * are long-form. The stats response reports how many unknowns there are so the asymmetry
- * is visible instead of implied.
+ * A row with no answer is UNKNOWN — not proven short, not proven long. So `only` demands a
+ * positive answer and `exclude` keeps unknowns rather than asserting they are long-form.
+ * `IS TRUE` / `IS NOT TRUE` rather than `=` / `<>` precisely because three-valued logic is
+ * the point here: `x <> true` is NULL when x is NULL, which would silently drop every
+ * unknown row from an `exclude` that is documented to keep them.
  */
 export function shortsCondition(mode: 'include' | 'exclude' | 'only'): SQL | null {
-  if (mode === 'only') {
-    return sql`(${youtubeWatches.durationSeconds} IS NOT NULL AND ${youtubeWatches.durationSeconds} < ${SHORTS_MAX_SECONDS})`
-  }
-  if (mode === 'exclude') {
-    return sql`(${youtubeWatches.durationSeconds} IS NULL OR ${youtubeWatches.durationSeconds} >= ${SHORTS_MAX_SECONDS})`
-  }
+  if (mode === 'only') return sql`(${resolvedIsShortExpr()}) IS TRUE`
+  if (mode === 'exclude') return sql`(${resolvedIsShortExpr()}) IS NOT TRUE`
   return null
 }
 
@@ -102,9 +144,13 @@ export const rawSecondsExpr = () =>
 export const cappedSecondsExpr = () =>
   sql<string>`coalesce(sum(least(${youtubeWatches.durationSeconds}, ${WATCH_TIME_CAP_SECONDS})) filter (where ${youtubeWatches.durationSeconds} IS NOT NULL), 0)`
 
-/** Sum over long-form rows only. The filter is on the threshold, not on nullness. */
+/**
+ * Sum over rows that are NOT Shorts — read from the resolved flag, not from the raw
+ * threshold, so a 90-second video from 2023 now counts as the long-form it is instead of
+ * being discarded as a Short it never was. Unknowns stay excluded either way.
+ */
 export const longFormSecondsExpr = () =>
-  sql<string>`coalesce(sum(${youtubeWatches.durationSeconds}) filter (where ${youtubeWatches.durationSeconds} >= ${SHORTS_MAX_SECONDS}), 0)`
+  sql<string>`coalesce(sum(${youtubeWatches.durationSeconds}) filter (where (${resolvedIsShortExpr()}) IS FALSE), 0)`
 
 export function buildConditions(input: WatchFilters): SQL[] {
   const conditions: SQL[] = []
@@ -162,7 +208,7 @@ const filterShape = {
   year: z.number().int().min(2005).max(2100).optional()
     .describe('Sugar for a whole calendar year in Europe/Oslo local time, e.g. 2025. Bucketed on the local wall clock, so the counts match the source exactly rather than shifting the hours either side of New Year.'),
   shorts: z.enum(['include', 'exclude', 'only']).default('include')
-    .describe('Shorts handling. There is NO Shorts flag in this data; the heuristic is duration < 180s, and Shorts dominate the archive. "only" requires a KNOWN sub-180s duration. "exclude" drops known Shorts but KEEPS rows with no duration at all, because an unknown duration is unknown, not long-form.'),
+    .describe('Shorts handling. The flag is DERIVED BY THIS SERVER, not supplied by YouTube — the archive carries no Shorts flag at all. Each video is decided by a stored classification where one exists (is_short_method says how: duration_rule, api_metadata, or probe), and otherwise falls back to the flat "duration < 180s" guess. "only" requires a positive answer; "exclude" drops those but KEEPS anything unknown, because an unknown is unknown, not long-form. Read shorts_split in get_youtube_stats to see how much of a result is known versus guessed before quoting a Shorts figure.'),
   include_unresolved: z.boolean().default(true)
     .describe('Whether to include unresolved watches — deleted or private videos, which have no title and no channel. Default true: they are real watch events, and dropping them makes totals disagree with the archive. Set false for a title/channel-complete view, and expect a smaller total.'),
 }
@@ -207,12 +253,18 @@ export async function getYoutubeWatches(input: z.infer<typeof getYoutubeWatchesS
       channel_name: youtubeWatches.channelName,
       channel_id: youtubeWatches.channelId,
       duration_seconds: youtubeWatches.durationSeconds,
-      is_short: sql<boolean | null>`CASE WHEN ${youtubeWatches.durationSeconds} IS NULL THEN NULL ELSE ${youtubeWatches.durationSeconds} < ${SHORTS_MAX_SECONDS} END`,
+      is_short: resolvedIsShortExpr(),
+      // How this row's flag was arrived at. `is_short_method` is null for a guess, which is
+      // the same thing `is_short_source: 'heuristic'` says — both are served because the
+      // method names the evidence and the source names the confidence.
+      is_short_method: youtubeVideos.isShortMethod,
+      is_short_source: isShortSourceExpr(),
       unresolved: youtubeWatches.unresolved,
       account: youtubeWatches.account,
       source: youtubeWatches.source,
     })
     .from(youtubeWatches)
+    .leftJoin(youtubeVideos, eq(youtubeVideos.videoId, youtubeWatches.videoId))
     .where(where)
     .orderBy(orderBy)
     .limit(input.limit)
@@ -323,12 +375,25 @@ export async function getYoutubeStats(input: z.infer<typeof getYoutubeStatsSchem
       cappedSeconds: cappedSecondsExpr(),
       longFormSeconds: longFormSecondsExpr(),
       withDuration: sql<string>`count(*) filter (where ${youtubeWatches.durationSeconds} IS NOT NULL)`,
-      shorts: sql<string>`count(*) filter (where ${youtubeWatches.durationSeconds} < ${SHORTS_MAX_SECONDS})`,
-      longForm: sql<string>`count(*) filter (where ${youtubeWatches.durationSeconds} >= ${SHORTS_MAX_SECONDS})`,
+      // The resolved split. Every one of these is a WATCH count, not a video count —
+      // distinct_videos above is the per-video figure.
+      shorts: sql<string>`count(*) filter (where (${resolvedIsShortExpr()}) IS TRUE)`,
+      longForm: sql<string>`count(*) filter (where (${resolvedIsShortExpr()}) IS FALSE)`,
+      // …and how much of it is actually known rather than guessed, which is the entire
+      // point of storing a method alongside the flag.
+      knownShort: sql<string>`count(*) filter (where ${youtubeVideos.isShort} IS TRUE)`,
+      knownLongForm: sql<string>`count(*) filter (where ${youtubeVideos.isShort} IS FALSE)`,
+      guessedShort: sql<string>`count(*) filter (where ${youtubeVideos.isShort} IS NULL AND (${resolvedIsShortExpr()}) IS TRUE)`,
+      guessedLongForm: sql<string>`count(*) filter (where ${youtubeVideos.isShort} IS NULL AND (${resolvedIsShortExpr()}) IS FALSE)`,
+      unclassifiable: sql<string>`count(*) filter (where ${youtubeVideos.isShortMethod} = 'unclassifiable')`,
+      byDurationRule: sql<string>`count(*) filter (where ${youtubeVideos.isShortMethod} = 'duration_rule')`,
+      byApiMetadata: sql<string>`count(*) filter (where ${youtubeVideos.isShortMethod} = 'api_metadata')`,
+      byProbe: sql<string>`count(*) filter (where ${youtubeVideos.isShortMethod} = 'probe')`,
       unresolvedCount: sql<string>`count(*) filter (where ${youtubeWatches.unresolved})`,
       noChannel: sql<string>`count(*) filter (where ${youtubeWatches.channelId} IS NULL)`,
     })
     .from(youtubeWatches)
+    .leftJoin(youtubeVideos, eq(youtubeVideos.videoId, youtubeWatches.videoId))
     .where(where)
 
   const plan = groupPlan(input.group_by)
@@ -352,6 +417,7 @@ export async function getYoutubeStats(input: z.infer<typeof getYoutubeStatsSchem
       lastWatch: sql<string | null>`to_char(max(${youtubeWatches.watchedAtLocal}), 'YYYY-MM-DD"T"HH24:MI:SS')`,
     })
     .from(youtubeWatches)
+    .leftJoin(youtubeVideos, eq(youtubeVideos.videoId, youtubeWatches.videoId))
     .where(groupWhere)
     .groupBy(plan.key)
     // The key is a tiebreak, not decoration: this archive has thousands of groups with
@@ -368,6 +434,8 @@ export async function getYoutubeStats(input: z.infer<typeof getYoutubeStatsSchem
   const groupedAll = db
     .select({ one: sql<number>`1` })
     .from(youtubeWatches)
+    // Joined here too: groupWhere can carry the shorts predicate, which reads the join.
+    .leftJoin(youtubeVideos, eq(youtubeVideos.videoId, youtubeWatches.videoId))
     .where(groupWhere)
     .groupBy(plan.key)
     .as('g')
@@ -379,6 +447,9 @@ export async function getYoutubeStats(input: z.infer<typeof getYoutubeStatsSchem
   const cappedSeconds = Number(totals?.cappedSeconds ?? 0)
   const longFormSeconds = Number(totals?.longFormSeconds ?? 0)
   const noChannel = Number(totals?.noChannel ?? 0)
+  const shorts = Number(totals?.shorts ?? 0)
+  const longForm = Number(totals?.longForm ?? 0)
+  const unclassifiable = Number(totals?.unclassifiable ?? 0)
 
   return {
     total_watches: total,
@@ -410,11 +481,39 @@ export async function getYoutubeStats(input: z.infer<typeof getYoutubeStatsSchem
     },
 
     shorts_split: {
-      shorts: Number(totals?.shorts ?? 0),
-      long_form: Number(totals?.longForm ?? 0),
-      unknown_duration: total - withDuration,
+      // Watch counts, not video counts. The three headline figures are the RESOLVED split:
+      // a stored verdict where there is one, the flat heuristic where there is not.
+      shorts: shorts,
+      long_form: longForm,
+      unknown: total - shorts - longForm,
+      // Known versus guessed. This is what the classification bought, and quoting `shorts`
+      // without it is exactly the overstatement the whole exercise exists to stop.
+      known_short: Number(totals?.knownShort ?? 0),
+      known_long_form: Number(totals?.knownLongForm ?? 0),
+      guessed_short: Number(totals?.guessedShort ?? 0),
+      guessed_long_form: Number(totals?.guessedLongForm ?? 0),
+      // Terminal: deleted and private videos, which nothing will ever decide.
+      unclassifiable: unclassifiable,
+      // The rest of the unknowns: no verdict AND no duration to guess from. Derived from
+      // the resolved unknown total rather than from rows_without_duration, which counts
+      // WATCH rows — a video can have one watch row carrying a duration and another not,
+      // and subtracting that from a video-level figure double-counts the difference.
+      // Empty once the job has run, since a video with no duration becomes unclassifiable.
+      unknown_duration: total - shorts - longForm - unclassifiable,
+      by_method: {
+        duration_rule: Number(totals?.byDurationRule ?? 0),
+        api_metadata: Number(totals?.byApiMetadata ?? 0),
+        probe: Number(totals?.byProbe ?? 0),
+      },
       shorts_threshold_seconds: SHORTS_MAX_SECONDS,
-      note: 'There is no Shorts flag in this data; duration < 180s is a heuristic. Rows with no duration are UNKNOWN — not counted as either.',
+      note:
+        'DERIVED, not from YouTube — the archive carries no Shorts flag. A row counted under ' +
+        'known_* was decided by is_short_method: duration_rule (the era rules offline), ' +
+        'api_metadata (the real upload date) or probe (the /shorts/ URL, the only thing that ' +
+        'can CONFIRM a Short). A row counted under guessed_* is the old flat "duration < 180s" ' +
+        'heuristic, which over-counts Shorts because it ignores that they did not exist before ' +
+        'September 2020 and were capped at 60s until 15 October 2024. Unknowns are their own ' +
+        'bucket and are never folded into either side.',
     },
 
     unresolved_watches: Number(totals?.unresolvedCount ?? 0),

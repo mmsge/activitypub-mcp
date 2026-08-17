@@ -183,6 +183,26 @@ async function stage0(db: ReturnType<typeof getDb>, dryRun: boolean): Promise<St
 
   if (!dryRun) {
     for (const { verdict, ids } of byReason.values()) await writeVerdict(db, ids, verdict)
+
+    // Give every video a duration of its own, derived from its watches.
+    //
+    // Not decoration: the tools fall back to the flat heuristic for a video with no verdict
+    // yet, and without a video-level duration that fallback reads the individual watch row.
+    // A video whose watch rows disagree — one scraped a duration, another did not — would
+    // then report a different is_short per row for the same video, which the whole
+    // per-video model exists to prevent. ~231 watch rows in the archive are in that state.
+    //
+    // Guarded on IS NULL, so stage 1's authoritative contentDetails value is never
+    // overwritten by the scraped one, and so a rerun writes nothing.
+    if (rows.length > 0) {
+      await db.execute(sql`
+        UPDATE youtube_videos v
+        SET duration_seconds = agg.duration
+        FROM (SELECT video_id, max(duration_seconds) AS duration FROM youtube_watches GROUP BY video_id) agg
+        WHERE v.video_id = agg.video_id
+          AND v.duration_seconds IS NULL
+          AND agg.duration IS NOT NULL`)
+    }
   }
 
   return counts
