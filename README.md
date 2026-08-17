@@ -838,6 +838,50 @@ counts. That is what makes a channel *lifecycle* — when a channel entered the 
 when it was last watched — a single call over a whole ranking instead of one filtered call
 per channel.
 
+#### The Shorts flag is derived here, not supplied by YouTube
+
+The archive carries no Shorts flag at all: every row has a `/watch?v=` URL, because My
+Activity does not distinguish them, and the Data API exposes neither a flag nor aspect
+ratio. So one is derived per **video**, stored in `youtube_videos`, and every row says how it
+was decided:
+
+| `is_short_method` | means |
+|---|---|
+| `duration_rule` | the era rules applied offline, from duration and the earliest watch |
+| `api_metadata` | the same rules against the real upload date from `videos.list` |
+| `probe` | the `/shorts/` URL was requested — the **only** method that can confirm a Short |
+| `unclassifiable` | terminal: a deleted or private video with no duration, never retried |
+| *null* | not yet decided, and `is_short` is a **guess** |
+
+The guess is the old flat `duration < 180s` rule, which over-counts Shorts by roughly 10% of
+what it catches, because Shorts did not exist before September 2020 and were capped at 60
+seconds until 15 October 2024 — a 90-second video from 2023 is not a Short however short it
+looks. `is_short_source` says which you are looking at in one word, and `shorts_split` on
+`get_youtube_stats` splits its totals into `known_*` and `guessed_*`. Quote a Shorts figure
+only alongside that split. See ADR 0049.
+
+#### Running the classifier
+
+A scheduled job, every `YOUTUBE_SHORTS_INTERVAL_HOURS` (default 6, `0` disables), plus a CLI:
+
+```sh
+npm run classify-youtube-shorts -- --dry-run          # report the funnel, write nothing
+npm run classify-youtube-shorts                       # stage 0 (+1 if a key is set)
+npm run classify-youtube-shorts -- --max-api-calls=1900   # drain the backlog in one pass
+npm run classify-youtube-shorts -- --probe --max-probes=200
+```
+
+It is idempotent, resumable and bounded: progress lives in the table, so running it twice
+does nothing the second time and killing it mid-run loses nothing. It picks up only what is
+still unclassified, so a future watch-history import needs no special casing.
+
+**Stage 0** is offline and free and settles about a third of the archive. **Stage 1** needs
+`YOUTUBE_API_KEY` and covers 50 videos per quota unit — the whole ~92k backlog is about
+1,846 units against a 10,000/day allowance. **Stage 2** is the HTTP probe: it is the only
+thing that can confirm a Short, and YouTube returns 429 after a couple of requests, so it is
+off by default and paced in seconds per video. Leaving it off simply leaves those rows
+labelled as guesses, which the tools report honestly.
+
 #### Not the same as `get_watched`
 
 `get_watched` serves the NeoDB catalogue — films, TV, books and games Markus **marked**.
