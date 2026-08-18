@@ -51,13 +51,20 @@ const schema = z.object({
   // ever ends. publishNtfy() takes an explicit target, so nothing has to mutate
   // NTFY_TOPIC to reach it.
   NTFY_TOPIC_BREAKOUT: z.string().default('tut-treff'),
-  // Head-to-head scrobble race: watch the challenger close on the leader and push an
-  // ntfy alert as the gap shrinks. Exact artist names as Last.fm scrobbles them
-  // ("Taylor Swift", "Maisie Peters"). Either one empty disables both race jobs.
+  // Where the race definitions live. A race is a pair of entities — artist, album or
+  // track — with its own topic, milestones and countdown band; see races.json and
+  // decision record 0051. Overridable so the tests can point at a fixture.
+  RACES_CONFIG_PATH: z.string().default('races.json'),
+  // DEPRECATED, honoured for one release: the single head-to-head race, as two exact
+  // artist names. Superseded by races.json, which can express several races and sides
+  // that are albums or tracks. When both are set and no race is named, they still win
+  // — resolving to the configured race with those two artists when there is one — and
+  // the resolution logs a deprecation warning. See decision record 0051.
   RACE_LEADER_ARTIST: z.string().default(''),
   RACE_CHALLENGER_ARTIST: z.string().default(''),
   // Gap values that each fire a one-off milestone alert. Above the countdown band
-  // below, this ladder is the only thing that speaks.
+  // below, this ladder is the only thing that speaks. Now the DEFAULT for a race that
+  // does not list its own `milestones`.
   RACE_MILESTONES: z.string().default('300,250,200,150,100,75,50,25,20,15,10'),
   // The endgame countdown band: at or below this gap, every challenger play that moves
   // the number gets its own alert instead of the ladder's one-off milestones. Was
@@ -68,6 +75,7 @@ const schema = z.object({
   // takes it") and the overtake — are deliberately NOT governed by this and fire at
   // any value including 0. They are the finish, not the countdown; decision record
   // 0016 exists to guarantee they work off scrobbles alone. See record 0022.
+  // The default for a race that does not set its own `endgame_gap`.
   RACE_COUNTDOWN_GAP: z.coerce.number().int().min(0).default(10),
   // Gap at or below which the live now-playing watcher arms itself, naming the track
   // playing right now as the one about to tie or win. 0 (the default) disables it.
@@ -81,6 +89,7 @@ const schema = z.object({
   //
   // Named RACE_ENDGAME_GAP until record 0022; "endgame" now means the countdown band
   // above, which is what the get_scrobble_race endgame_* fields report.
+  // The default for a race that does not set its own `nowplaying_gap`.
   RACE_NOWPLAYING_GAP: z.coerce.number().int().min(0).default(0),
   RACE_NOWPLAYING_INTERVAL_SECONDS: z.coerce.number().int().min(20).default(30),
   // BookWyrm actors (comma-separated @user@domain or actor URLs) whose outbox the
@@ -349,8 +358,9 @@ export function getActorPublished(raw: string = config.ACTOR_PUBLISHED): string 
   return Number.isNaN(d.getTime()) ? null : d.toISOString()
 }
 
-/** The configured race, or null when either racer is unset or they're the same artist
- *  — the off-switch, mirroring the LASTFM_API_KEY-empty precedent in syncScrobbles(). */
+/** The DEPRECATED env-var race, or null when either racer is unset or they're the same
+ *  artist. Superseded by races.json (decision record 0051); still read by
+ *  `legacyEnvRace()` in src/lib/races-config.ts and by the scrobble-audit script. */
 export function getScrobbleRacers(): { leader: string; challenger: string } | null {
   const leader = config.RACE_LEADER_ARTIST.trim()
   const challenger = config.RACE_CHALLENGER_ARTIST.trim()
@@ -358,9 +368,11 @@ export function getScrobbleRacers(): { leader: string; challenger: string } | nu
   return { leader, challenger }
 }
 
-/** RACE_MILESTONES parsed into a descending list of positive gap values. Invalid or
- *  duplicate entries are dropped rather than failing boot — a typo in one milestone
- *  should not take the whole service down. */
+/** RACE_MILESTONES parsed into a descending list of positive gap values — the default
+ *  ladder for a race that does not list its own. Invalid or duplicate entries are
+ *  dropped rather than failing boot: a typo in one milestone should not take the whole
+ *  service down. (races.json is stricter, and deliberately: a malformed ladder there is
+ *  a malformed race definition, not a stray character in a comma-separated string.) */
 export function getRaceMilestones(raw: string = config.RACE_MILESTONES): number[] {
   const values = raw
     .split(',')

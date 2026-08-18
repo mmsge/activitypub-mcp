@@ -62,6 +62,36 @@ The one rule not to "simplify" back: every score is the post's **peak** across i
 snapshot history, never the latest snapshot. Engagement counts go down, and reading the
 latest one would let an un-favourite lower the record every other post is measured against.
 
+## Scrobble races
+
+Two things in the listening history race head-to-head, and a **side is an entity**: an
+artist, an album or a track. Races live in **`races.json` at the repo root** (path
+overridable with `RACES_CONFIG_PATH`), several run at once, and each carries its own ntfy
+`topic`, `milestones`, `endgame_gap` and `nowplaying_gap`. `list_scrobble_races` /
+`get_scrobble_race`, `/api/v1/scrobble-races` and `/api/v1/scrobble-race`. See ADR 0051
+and 0052.
+
+Rules not to "simplify" back:
+
+- **`albums` and `tracks` are LISTS.** Last.fm files a single under its own album name, so
+  `The Good Witch` and `Lost The Breakup` are separate rows for one campaign. A list folds
+  them together, and `album_name IN (…)` counts each row once — a sum of per-name counts
+  gives the same answer today and double counts the day two names overlap.
+- **Matching is EXACT**, unlike `get_scrobble_stats`' substring `ilike`. A countdown that
+  reaches zero must not have its finish line moved by a "feat. …" credit, and `lower()`
+  would seq-scan the whole table on every 60-second sync tick.
+- **The state table keeps its dedupe columns.** `leader_plays`/`challenger_plays`,
+  `last_announced_gap` and `last_nowplaying_*` are what keep the watcher quiet;
+  `endgame_armed_at` is a timestamp **latch**, not a boolean level (ADR 0022).
+- **`overtaken_at` never re-fires and never clears.** A challenger who falls back behind
+  after winning leaves the race resolved. A race added *after* its crossover has that
+  timestamp reconstructed from the stored plays, not read off the latest one.
+- **`races.json` must be in the image** — `Dockerfile` copies it explicitly. Without that
+  line the service boots with no races, which looks exactly like the feature working.
+- `RACE_LEADER_ARTIST` / `RACE_CHALLENGER_ARTIST` are **deprecated** and honoured for one
+  release by the tool only; the notifier reads `races.json`. Remove them from
+  `/srv/bot/.env`.
+
 ## Gigs
 
 Concert attendances federate from **Gigowl** (`@markus@gigowl.social`, software name

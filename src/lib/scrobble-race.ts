@@ -1,3 +1,4 @@
+import { nowPlayingMatchesEntity, type RaceSide } from './race-entity.js'
 import { type NtfyMessage } from './ntfy.js'
 
 /**
@@ -13,8 +14,11 @@ export interface RacePlay {
 }
 
 export interface RaceSnapshot {
-  leaderArtist: string
-  challengerArtist: string
+  /** How each side is named in the alert copy. An artist name for an artist race, the
+   *  record or the song for an album or track race — see entityLabel(). The decision
+   *  logic never needs to know which; it only ever renders these. */
+  leaderLabel: string
+  challengerLabel: string
   leaderPlays: number
   challengerPlays: number
   /** Newest play by each side, used to name the track that moved the number. */
@@ -71,7 +75,7 @@ function quote(track: string): string {
 }
 
 function standings(s: RaceSnapshot): string {
-  return `${s.challengerArtist} ${num(s.challengerPlays)} · ${s.leaderArtist} ${num(s.leaderPlays)}.`
+  return `${s.challengerLabel} ${num(s.challengerPlays)} · ${s.leaderLabel} ${num(s.leaderPlays)}.`
 }
 
 function eta(gap: number, netPerDay: number | null): string {
@@ -172,11 +176,11 @@ export function decideRaceAlert(
     return {
       kind: 'overtake',
       message: {
-        title: `${snap.challengerArtist} takes the lead`,
+        title: `${snap.challengerLabel} takes the lead`,
         body: [
           play
-            ? `${quote(play.track)} did it at ${oslo(play.playedAt)}. ${snap.challengerArtist} is your new all-time #1.`
-            : `${snap.challengerArtist} is your new all-time #1.`,
+            ? `${quote(play.track)} did it at ${oslo(play.playedAt)}. ${snap.challengerLabel} is your new all-time #1.`
+            : `${snap.challengerLabel} is your new all-time #1.`,
           standings(snap),
           days != null ? `${num(days)} days after the first play.` : '',
         ].filter(Boolean).join(' '),
@@ -224,13 +228,13 @@ export function decideRaceAlert(
     // the only honest way to say "this one wins it" is to say it one play early.
     if (gap <= 1) {
       const outcome = gap === 0
-        ? `Whatever ${snap.challengerArtist} track you play next takes the all-time #1. Choose it.`
-        : `One more ${snap.challengerArtist} play levels it.`
+        ? `Whatever ${snap.challengerLabel} track you play next takes the all-time #1. Choose it.`
+        : `One more ${snap.challengerLabel} play levels it.`
       return {
         kind: gap === 0 ? 'level' : 'armed',
         message: {
           title: gap === 0
-            ? `Next ${snap.challengerArtist} song wins it`
+            ? `Next ${snap.challengerLabel} song wins it`
             : `1 to go — next one levels it`,
           body: `${play ? `${quote(play.track)} — ` : ''}${standings(snap)} ${outcome}`,
           tags: ['rotating_light'],
@@ -244,7 +248,7 @@ export function decideRaceAlert(
     const widened = prev.lastAnnouncedGap != null && gap > prev.lastAnnouncedGap
     const movedPlay = widened ? snap.latestLeaderPlay : play
     const body = widened
-      ? `${snap.leaderArtist} just scrobbled${movedPlay ? ` ${quote(movedPlay.track)}` : ''}. ${standings(snap)}`
+      ? `${snap.leaderLabel} just scrobbled${movedPlay ? ` ${quote(movedPlay.track)}` : ''}. ${standings(snap)}`
       : `${movedPlay ? `${quote(movedPlay.track)} — ` : ''}${standings(snap)}`
 
     return {
@@ -313,15 +317,21 @@ export const NOWPLAYING_REARM_MS = 15 * 60_000
  * exact track has already been shouted about recently.
  */
 export function decideNowPlayingAlert(
-  playing: { artist: string; track: string; url: string | null } | null,
+  playing: { artist: string; track: string; album?: string | null; url: string | null } | null,
   gap: number,
-  challengerArtist: string,
-  leaderArtist: string,
+  challenger: RaceSide,
+  leader: RaceSide,
   last: { key: string | null; at: Date | null },
   now: Date = new Date(),
 ): { message: NtfyMessage; key: string } | null {
   if (!playing) return null
-  if (playing.artist.toLowerCase() !== challengerArtist.toLowerCase()) return null
+  // Entity matching, not an artist comparison: in an album race both sides can be the
+  // SAME artist, so "is this the challenger's artist?" would fire the decisive alert for
+  // a track off the other side of the race. Last.fm often omits the album on a live
+  // now-playing submission, and an album side with no album reported does not match —
+  // silence is the right answer there, and the scrobble-side alerts at gap 1 and 0 cover
+  // the same ground anyway (decision record 0016).
+  if (!nowPlayingMatchesEntity(playing, challenger.entity)) return null
 
   const key = `${playing.artist} ${playing.track}`.toLowerCase()
   if (key === last.key) {
@@ -332,10 +342,10 @@ export function decideNowPlayingAlert(
   // The gap is measured BEFORE this track scrobbles, so it is one play behind the
   // outcome: level at 1, and only at 0 does the next play actually take the lead.
   const outcome = gap <= 0
-    ? `${challengerArtist} passes ${leaderArtist} for the first time. Don't skip it.`
+    ? `${challenger.label} passes ${leader.label} for the first time. Don't skip it.`
     : gap === 1
-      ? `${challengerArtist} draws level with ${leaderArtist}.`
-      : `${challengerArtist} closes to ${num(gap - 1)} behind ${leaderArtist}.`
+      ? `${challenger.label} draws level with ${leader.label}.`
+      : `${challenger.label} closes to ${num(gap - 1)} behind ${leader.label}.`
 
   return {
     key,

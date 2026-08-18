@@ -678,13 +678,18 @@ export const scrobbles = pgTable('scrobbles', {
   uniqueIndex('scrobbles_dedupe_idx').on(t.playedAt, t.trackName, t.artistName),
 ])
 
-// Watcher state for the head-to-head scrobble race (see src/lib/scrobble-race.ts).
-// One row per artist pairing, so re-pointing RACE_* at a different pair starts a
-// fresh race instead of inheriting the old one's fired milestones.
-export const scrobbleRaceState = pgTable('scrobble_race_state', {
+// Watcher state for a head-to-head scrobble race (see src/lib/scrobble-race.ts).
+// One row per race id, so every configured race keeps its own spent milestones and its
+// own result. Keyed on the artist pairing until decision record 0052 — which could not
+// name a race whose sides were albums, and could not hold two races at once.
+export const raceState = pgTable('race_state', {
   id: uuid('id').primaryKey().defaultRandom(),
-  leaderArtist: text('leader_artist').notNull(),
-  challengerArtist: text('challenger_artist').notNull(),
+  // The race's id in races.json. The key.
+  raceId: text('race_id').notNull(),
+  // The pairing this row was keyed on before 0052. Nullable and no longer written —
+  // kept for one release as the only record of where a migrated row came from.
+  leaderArtist: text('leader_artist'),
+  challengerArtist: text('challenger_artist'),
   leaderPlays: integer('leader_plays').notNull(),
   challengerPlays: integer('challenger_plays').notNull(),
   // Tightest milestone already announced. Ratchets downward only — the leader
@@ -706,7 +711,7 @@ export const scrobbleRaceState = pgTable('scrobble_race_state', {
   lastNowPlayingAt: timestamp('last_nowplaying_at', { withTimezone: true }),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
-  uniqueIndex('scrobble_race_pair_idx').on(t.leaderArtist, t.challengerArtist),
+  uniqueIndex('race_state_race_idx').on(t.raceId),
 ])
 
 /**

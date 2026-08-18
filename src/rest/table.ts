@@ -43,6 +43,7 @@ import {
   getHashtagTrendsSchema, getHashtagTrends,
 } from '../mcp/tools/hashtag-stats.js'
 import { getScrobbleRaceSchema, getScrobbleRace } from '../mcp/tools/scrobble-race.js'
+import { listScrobbleRacesSchema, listScrobbleRaces } from '../mcp/tools/scrobble-races.js'
 import { getPostBreakoutsSchema, getPostBreakouts } from '../mcp/tools/post-breakouts.js'
 import {
   getEngagementSchema, getEngagement,
@@ -224,9 +225,19 @@ export const endpoints: RestEndpoint[] = [
     arrays: [],
   },
   {
+    path: '/scrobble-races',
+    name: 'list_scrobble_races',
+    description: 'Every configured scrobble race with its current standings: id, title, archived, ntfy topic, both sides (artist, album or track) with exact play counts, the gap and the result if it has one. Pick a race_id here, then ask /scrobble-race about it.',
+    schema: listScrobbleRacesSchema,
+    handler: listScrobbleRaces,
+    numbers: [],
+    booleans: ['include_archived'],
+    arrays: [],
+  },
+  {
     path: '/scrobble-race',
     name: 'get_scrobble_race',
-    description: 'Head-to-head standings between two artists in the scrobble history: exact all-time play counts, the gap, plays needed to level and to overtake, plays/day over a trailing window, and a projected crossover date. Defaults to the configured race; pass leader/challenger to race any two artists. Artist names are matched EXACTLY here, unlike /scrobble-stats.',
+    description: 'Head-to-head standings for one scrobble race: exact all-time play counts for both sides, the gap, plays needed to level and to overtake, plays/day over a trailing window, and a projected crossover date. A side is an artist, an album or a track. Pass race_id for a configured race, or leader/challenger to race two artists ad hoc. Entity (object) sides need POST — a GET query string cannot carry them. Names are matched EXACTLY here, unlike /scrobble-stats.',
     schema: getScrobbleRaceSchema,
     handler: getScrobbleRace,
     numbers: ['pace_days'],

@@ -1353,28 +1353,86 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/scrobble-races:
+    get:
+      tags: [REST API]
+      summary: Every configured scrobble race, with standings
+      description:
+        One entry per race defined in `races.json` — id, title, whether it is
+        archived, its ntfy topic, both sides (an artist, an album or a track) with
+        their exact play counts, the gap, and the result if the race has one. Pick a
+        `race_id` here and ask `/scrobble-race` about it. An archived race is one
+        already resolved — it stays queryable and the notifier skips it.
+      operationId: listScrobbleRaces
+      parameters:
+        - {
+            name: include_archived,
+            in: query,
+            description: Include races already resolved.,
+            schema: { type: boolean, default: true },
+          }
+      responses:
+        "200":
+          description: The configured races.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScrobbleRacesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Every configured scrobble race, with standings (JSON body)
+      operationId: listScrobbleRacesPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                include_archived: { type: boolean, default: true }
+      responses:
+        "200":
+          description: The configured races.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScrobbleRacesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/scrobble-race:
     get:
       tags: [REST API]
-      summary: Head-to-head standings between two artists
+      summary: Head-to-head standings for one scrobble race
       description:
-        Exact all-time play counts for two artists, the gap between them, plays
-        needed to level and to overtake, plays/day over a trailing window, and a
-        projected crossover date. Defaults to the configured race; pass leader and
-        challenger to race any two artists. Artist names are matched EXACTLY here,
-        unlike `/scrobble-stats`, which does a substring match.
+        Exact all-time play counts for both sides of a race, the gap between them,
+        plays needed to level and to overtake, plays/day over a trailing window, and
+        a projected crossover date. A side is an artist, an album or a track. Pass
+        `race_id` for a configured race (see `/scrobble-races`), or `leader` and
+        `challenger` to race two artists ad hoc; with nothing passed it answers about
+        the first unresolved configured race. Names are matched EXACTLY here, unlike
+        `/scrobble-stats`, which does a substring match. Album and track sides need
+        the POST form — a query string cannot carry an entity object.
       operationId: getScrobbleRace
       parameters:
         - {
+            name: race_id,
+            in: query,
+            description: Id of a configured race — see /scrobble-races.,
+            schema: { type: string },
+          }
+        - {
             name: leader,
             in: query,
-            description: Exact artist name of the artist in front.,
+            description: Exact artist name of the side in front.,
             schema: { type: string },
           }
         - {
             name: challenger,
             in: query,
-            description: Exact artist name of the artist catching up.,
+            description: Exact artist name of the side catching up.,
             schema: { type: string },
           }
         - {
@@ -1403,8 +1461,15 @@ paths:
             schema:
               type: object
               properties:
-                leader: { type: string }
-                challenger: { type: string }
+                race_id: { type: string }
+                leader:
+                  oneOf:
+                    - { type: string }
+                    - { $ref: "#/components/schemas/RaceEntity" }
+                challenger:
+                  oneOf:
+                    - { type: string }
+                    - { $ref: "#/components/schemas/RaceEntity" }
                 pace_days:
                   { type: integer, minimum: 1, maximum: 3650, default: 90 }
       responses:
@@ -5358,6 +5423,13 @@ components:
     ScrobbleRaceResponse:
       type: object
       properties:
+        race_id:
+          type: [string, "null"]
+          description: Id of the configured race, or null for an ad-hoc one.
+        title: { type: string }
+        archived:
+          type: boolean
+          description: The race is resolved. Still queryable; the notifier skips it.
         leader: { $ref: "#/components/schemas/RaceSide" }
         challenger: { $ref: "#/components/schemas/RaceSide" }
         gap:
@@ -5380,7 +5452,7 @@ components:
             projected_days: { type: [integer, "null"] }
         notifications:
           type: object
-          description: State of the ntfy watcher for the configured pairing.
+          description: State of the ntfy watcher for this race.
           properties:
             armed: { type: boolean }
             topic: { type: [string, "null"] }
@@ -5389,7 +5461,7 @@ components:
             endgame_gap:
               type: integer
               description: >-
-                The endgame countdown band (RACE_COUNTDOWN_GAP). At or below this gap the
+                The race's endgame countdown band. At or below this gap the
                 milestone ladder stands down and every challenger play that moves the
                 number gets its own alert. 0 disables the countdown; the decisive alerts
                 at gap 1 and gap 0, and the overtake, fire regardless.
@@ -5414,13 +5486,74 @@ components:
           type: string
           description: Present when no race is configured and none was given.
 
+    RaceEntity:
+      type: object
+      description: >-
+        What counts as a play for one side of a race. Matched EXACTLY, unlike the
+        substring filters on /scrobbles and /scrobble-stats. `albums` and `tracks` are
+        lists because Last.fm files a single under its own album name, so one campaign
+        is several album rows; listing them folds the side back together.
+      required: [type, artist]
+      properties:
+        type: { type: string, enum: [artist, album, track] }
+        artist: { type: string }
+        albums:
+          type: array
+          items: { type: string }
+          description: Required when type is album.
+        tracks:
+          type: array
+          items: { type: string }
+          description: Required when type is track.
+
     RaceSide:
       type: object
       properties:
         artist: { type: string }
+        label:
+          type: string
+          description: How the side is named in the alerts — the artist, record or song.
+        entity: { $ref: "#/components/schemas/RaceEntity" }
         plays: { type: integer }
         last_played_at: { type: [string, "null"], format: date-time }
-        last_track: { type: [string, "null"] }
+        last_track:
+          type: [string, "null"]
+          description: >-
+            The last play matching this side — for an album race, the last track played
+            from that record, not the artist's last play.
+
+    ScrobbleRacesResponse:
+      type: object
+      properties:
+        total: { type: integer }
+        races:
+          type: array
+          items:
+            type: object
+            properties:
+              race_id: { type: string }
+              title: { type: string }
+              archived: { type: boolean }
+              topic:
+                type: string
+                description: The ntfy topic this race's alerts are published to.
+              leader: { $ref: "#/components/schemas/RaceStanding" }
+              challenger: { $ref: "#/components/schemas/RaceStanding" }
+              gap: { type: integer }
+              leader_ahead: { type: boolean }
+              plays_to_overtake: { type: integer }
+              overtaken_at:
+                type: [string, "null"]
+                format: date-time
+                description: When the challenger took the lead, or null.
+
+    RaceStanding:
+      type: object
+      properties:
+        artist: { type: string }
+        label: { type: string }
+        entity: { $ref: "#/components/schemas/RaceEntity" }
+        plays: { type: integer }
 
     Trip:
       type: object

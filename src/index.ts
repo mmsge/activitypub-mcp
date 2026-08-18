@@ -16,6 +16,7 @@ import { startScheduler } from './jobs/scheduler.js'
 import { syncFollows } from './jobs/sync-follows.js'
 import { syncScrobbles } from './jobs/sync-scrobbles.js'
 import { runScrobbleRace } from './jobs/scrobble-race.js'
+import { getRaces } from './lib/races-config.js'
 import { syncBookMetadata } from './jobs/sync-book-metadata.js'
 import { syncNeodbMetadata } from './jobs/sync-neodb-metadata.js'
 import { syncGigMetadata } from './jobs/sync-gig-metadata.js'
@@ -80,6 +81,17 @@ async function main() {
     await syncFollows()
   } catch (e) {
     logger.error(e, 'Follow sync failed on startup')
+  }
+
+  // Validate the race definitions HERE, not lazily inside the job below. That block
+  // catches and logs, so a broken races.json reached from inside it would come out as
+  // one warning line and the service would boot looking healthy with nothing watched.
+  {
+    const races = getRaces()
+    logger.info(
+      { races: races.map(r => r.id), active: races.filter(r => !r.archived).length },
+      'Race definitions loaded',
+    )
   }
 
   // Ingest Last.fm scrobbles (backfill on first run, incremental after), then settle

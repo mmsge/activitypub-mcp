@@ -1,0 +1,25 @@
+{
+  "races": [
+    {
+      "id": "fixture-artists",
+      "title": "Fixture artist race",
+      "topic": "fixture-topic",
+      "milestones": [50, 10],
+      "endgame_gap": 4,
+      "nowplaying_gap": 2,
+      "leader": { "type": "artist", "artist": "Taylor Swift" },
+      "challenger": { "type": "artist", "artist": "Maisie Peters" }
+    },
+    {
+      "id": "fixture-albums",
+      "title": "Fixture album race",
+      "archived": true,
+      "leader": {
+        "type": "album",
+        "artist": "Maisie Peters",
+        "albums": ["The Good Witch", "Lost The Breakup"]
+      },
+      "challenger": { "type": "album", "artist": "Maisie Peters", "albums": ["Florescence"] }
+    }
+  ]
+}
