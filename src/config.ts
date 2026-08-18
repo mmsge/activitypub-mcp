@@ -41,6 +41,20 @@ const schema = z.object({
   // HTTP basic as the single shared `markus` user (hetzner-server ADR 0011); an empty
   // NTFY_PASSWORD leaves every push a logged no-op, so the feature is inert until the
   // password is present in /srv/bot/.env.
+  // Where to POST when the train-trip import changes something, so `bartenderen`
+  // (which tends the "Neste togtur" field on @markus@skvip.lol) recomputes at once
+  // instead of at its next four-hour poll. The bridge gateway rather than a
+  // hostname: bartenderen is its own Compose project and binds 172.18.0.1:4031, so
+  // this is the same dial other /srv services use for `epost`. An empty
+  // BARTENDEREN_WEBHOOK_SECRET leaves every notification a logged no-op, so the
+  // feature is inert until the secret is present in /srv/bot/.env — the same shape
+  // as NTFY_PASSWORD above, and for the same reason.
+  //
+  // The secret must match WEBHOOK_SECRET in /srv/bartenderen/.env. If it drifts,
+  // bartenderen answers 403 and the TRIP WEBHOOK FAILED line says so; nothing here
+  // retries, because the four-hour cap on the other side is already the backstop.
+  BARTENDEREN_WEBHOOK_URL: z.string().default('http://172.18.0.1:4031/webhook/tog'),
+  BARTENDEREN_WEBHOOK_SECRET: z.string().default(''),
   NTFY_URL: z.string().default('https://n.msge.no'),
   NTFY_TOPIC: z.string().default('scrobble-race'),
   NTFY_USER: z.string().default('markus'),
