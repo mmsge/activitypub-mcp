@@ -40,6 +40,7 @@ import { repairNeodbIngest } from '../jobs/repair-neodb-ingest.js'
 import { parseLinkedinExport } from '../lib/parse-linkedin-export.js'
 import { deriveTokenStatus, getSourceHealth, LINKEDIN_SOURCE } from '../lib/source-health.js'
 import { parseTrainTripsCsv } from '../lib/parse-trips-csv.js'
+import { notifyTripsChanged } from '../lib/trip-webhook.js'
 import { resolveActorByHandle } from '../lib/fetch-actor.js'
 import { logger } from '../lib/logger.js'
 
@@ -460,6 +461,13 @@ app.post(
 
     const result = await importTrainTrips(rows)
     logger.info({ ...result }, 'Train trips import complete')
+
+    // Wake bartenderen, which tends the "Neste togtur" field on the fediverse
+    // profile from exactly these rows. Without this it would pick the change up
+    // within four hours, which is its backstop rather than its mechanism — and a
+    // leg is usually entered *because* it is imminent. Only when something
+    // actually changed; never throws, so a failure here cannot fail the import.
+    await notifyTripsChanged(result.inserted + result.updated)
 
     const params = new URLSearchParams({
       actor: 'train trips (CSV)',
