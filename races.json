@@ -1,0 +1,49 @@
+{
+  "$comment": [
+    "Head-to-head scrobble races. Each race has exactly two sides; a side is an entity",
+    "matched EXACTLY against the scrobbles store — never the substring match",
+    "get_scrobble_stats does. See docs/decision-records/0051.",
+    "",
+    "  artist  requires `artist`",
+    "  album   requires `artist` and `albums` (a list)",
+    "  track   requires `artist` and `tracks` (a list)",
+    "",
+    "The lists are lists on purpose: Last.fm files a single under its own album name, so",
+    "`The Good Witch` and `Lost The Breakup` are separate rows for one campaign. Listing",
+    "both folds them into one side without any code change.",
+    "",
+    "`archived: true` means the race is resolved. It stays queryable and the notifier",
+    "skips it. Omitted topic / milestones / endgame_gap / nowplaying_gap fall back to",
+    "NTFY_TOPIC, RACE_MILESTONES, RACE_COUNTDOWN_GAP and RACE_NOWPLAYING_GAP."
+  ],
+  "races": [
+    {
+      "id": "maisie-vs-taylor",
+      "title": "Maisie Peters vs Taylor Swift",
+      "topic": "scrobble-race",
+      "milestones": [1000, 500, 250, 100, 50, 25, 10],
+      "endgame_gap": 10,
+      "nowplaying_gap": 0,
+      "archived": true,
+      "leader": { "type": "artist", "artist": "Taylor Swift" },
+      "challenger": { "type": "artist", "artist": "Maisie Peters" }
+    },
+    {
+      "id": "good-witch-vs-florescence",
+      "title": "The Good Witch vs Florescence",
+      "topic": "scrobble-race-album",
+      "milestones": [100, 50, 25, 10],
+      "endgame_gap": 10,
+      "leader": {
+        "type": "album",
+        "artist": "Maisie Peters",
+        "albums": ["The Good Witch"]
+      },
+      "challenger": {
+        "type": "album",
+        "artist": "Maisie Peters",
+        "albums": ["Florescence"]
+      }
+    }
+  ]
+}

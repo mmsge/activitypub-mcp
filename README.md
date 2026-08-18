@@ -541,7 +541,8 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_recent_activities` | "What has come in recently?" |
 | `get_scrobbles` | "What did I listen to yesterday? Show my Aphex Twin scrobbles." |
 | `get_scrobble_stats` | "Who are my top artists this month? How many tracks have I scrobbled?" |
-| `get_scrobble_race` | "How far behind Taylor Swift is Maisie Peters? When will she overtake?" |
+| `list_scrobble_races` | "Which races are running? Which one is closest?" |
+| `get_scrobble_race` | "How far behind The Good Witch is Florescence? When will it overtake?" |
 | `get_youtube_watches` | "What did I watch on YouTube yesterday? Show every Any Austin video I've opened." |
 | `get_youtube_stats` | "Which channels do I watch most? What hour of day do I watch at? How many Shorts?" |
 | `get_post_breakouts` | "Which of my posts are doing unusually well? Where does my engagement bar sit right now? Why haven't I had an alert?" |
@@ -914,32 +915,67 @@ without paginating backward through thousands of rows:
   keyset cursor, `null` when exhausted). Pass it back as `cursor` to continue from where the last page
   ended — far cheaper than large offsets. Offset-based `page` remains available for compatibility.
 
-#### The scrobble race
+#### The scrobble races
 
-Two artists can be watched head-to-head: `get_scrobble_race` reports their exact all-time
-counts, the gap, the recent closing rate and a projected crossover date. Set
-`RACE_LEADER_ARTIST` and `RACE_CHALLENGER_ARTIST` (plus `NTFY_PASSWORD`) and a background
-watcher also pushes to ntfy as the gap closes: one alert per milestone in
-`RACE_MILESTONES`, then — once the gap is inside `RACE_COUNTDOWN_GAP` — an alert on every
-play that moves the number, then the two decisive rungs at a gap of 1 ("one more levels
-it") and at a dead heat ("whatever you play next takes the all-time #1"), and finally the
-overtake itself. The first run after enabling it seeds state silently, so switching it on
-mid-race never replays the ladder.
+Two things in the listening history can be watched head-to-head. A **side** is an artist,
+an album or a track, so this races two artists, two records, or two songs:
+
+```json
+{
+  "id": "good-witch-vs-florescence",
+  "title": "The Good Witch vs Florescence",
+  "topic": "scrobble-race-album",
+  "milestones": [100, 50, 25, 10],
+  "endgame_gap": 10,
+  "leader":     { "type": "album", "artist": "Maisie Peters", "albums": ["The Good Witch"] },
+  "challenger": { "type": "album", "artist": "Maisie Peters", "albums": ["Florescence"] }
+}
+```
+
+Races live in **`races.json`** at the repo root (`RACES_CONFIG_PATH` points elsewhere), and
+several run at once. `list_scrobble_races` lists them with their standings;
+`get_scrobble_race` reports one race's exact all-time counts, the gap, the recent closing
+rate and a projected crossover date — by `race_id`, or from `leader`/`challenger` passed
+as bare artist names, or as entity objects for a race that isn't in the file. A race
+marked `archived` is resolved: still queryable, skipped by the notifier.
+
+`albums` and `tracks` are **lists** on purpose. Last.fm files a single under its own album
+name, so `The Good Witch` and `Lost The Breakup` are separate rows for one campaign; a
+list folds them into one side. Matching is **exact** here, unlike `get_scrobble_stats`,
+which does a substring match — a countdown reaching zero must not have its finish line
+moved by a stray `feat.` credit.
+
+With `NTFY_PASSWORD` set, a background watcher pushes to each race's own ntfy `topic` as
+its gap closes: one alert per milestone in that race's `milestones`, then — once the gap
+is inside its `endgame_gap` — an alert on every play that moves the number, then the two
+decisive rungs at a gap of 1 ("one more levels it") and at a dead heat ("whatever you play
+next takes the all-time #1"), and finally the overtake itself. The first run after adding
+a race seeds state silently, so a new race never replays the ladder. If it is added after
+its crossover, the crossover timestamp is reconstructed from the stored plays rather than
+guessed from the latest one.
+
+The environment variables that used to define the single race — `RACE_LEADER_ARTIST` and
+`RACE_CHALLENGER_ARTIST` — are deprecated and honoured for one release;
+`RACE_MILESTONES`, `RACE_COUNTDOWN_GAP`, `RACE_NOWPLAYING_GAP` and `NTFY_TOPIC` are now the
+defaults for a race that does not set its own.
 
 The countdown is driven by newly ingested scrobbles, not by the polling loop: a poll that
 finds no new plays sends nothing, each gap value inside the band notifies at most once,
 and an ingest that brings in several plays at once sends one alert for the resulting gap
 rather than one per value skipped. `get_scrobble_race` reports the band as `endgame_gap`,
-and `endgame_armed` latches the first time the race is seen inside it. Setting
-`RACE_COUNTDOWN_GAP=0` leaves you the ladder; the two decisive rungs and the overtake fire
+and `endgame_armed` latches the first time the race is seen inside it. Setting a race's
+`endgame_gap` to 0 leaves you the ladder; the two decisive rungs and the overtake fire
 regardless. See decision record 0022.
 
 The decisive alerts fire **one play early** on purpose. A scrobbler reports what finished
 playing, never what is about to start, so the only honest way to say "this one wins it" is
-to say it before you press play. There is an optional live variant (`RACE_NOWPLAYING_GAP`,
-off by default) that names the currently-playing track instead — but it only works if your
-scrobbler sends Last.fm the separate `track.updateNowPlaying` call, which many players
-never do. Verify with `get_now_playing` before enabling it. See decision record 0016.
+to say it before you press play. There is an optional live variant (a race's
+`nowplaying_gap`, 0 by default) that names the currently-playing track instead — but it
+only works if your scrobbler sends Last.fm the separate `track.updateNowPlaying` call,
+which many players never do. Verify with `get_now_playing` before enabling it. Note that
+an album side needs the live read to report an album, and many scrobblers omit it: no
+album, no alert, because falling back to the artist would fire the decisive alert for the
+other side of a same-artist race. See decision record 0016.
 
 On this account `get_now_playing` is permanently `{ nowPlaying: false }`, mid-song
 included: the scrobbler has never sent `track.updateNowPlaying`, so Last.fm has no live
@@ -1248,7 +1284,8 @@ All paths accept `GET`, `QUERY`, and `POST`.
 | `/reading-events` | `get_reading_events` | `actor_handle`, `event_type`, `limit`, `since`, `sort_order`, `cursor` |
 | `/scrobbles` | `get_scrobbles` | `artist`, `album`, `track`, `from`, `to`, `since`, `sort_order`, `limit`, `page`, `cursor` |
 | `/scrobble-stats` | `get_scrobble_stats` | `artist`, `album`, `track`, `from`, `to`, `since`, `group_by`, `limit` |
-| `/scrobble-race` | `get_scrobble_race` | `leader`, `challenger`, `pace_days` |
+| `/scrobble-races` | `list_scrobble_races` | `include_archived` |
+| `/scrobble-race` | `get_scrobble_race` | `race_id`, `leader`, `challenger`, `pace_days` |
 | `/youtube-watches` | `get_youtube_watches` | `account`, `channel`, `title`, `video_id`, `from`, `to`, `year`, `shorts`, `include_unresolved`, `sort_order`, `limit`, `page`, `cursor` |
 | `/youtube-stats` | `get_youtube_stats` | `account`, `channel`, `title`, `video_id`, `from`, `to`, `year`, `shorts`, `include_unresolved`, `group_by`, `limit` |
 | `/post-breakouts` | `get_post_breakouts` | `actor_handle`, `days`, `limit` |

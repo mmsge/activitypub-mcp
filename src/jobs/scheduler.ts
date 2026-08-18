@@ -22,6 +22,7 @@ import { resolveTripLines } from './resolve-trip-lines.js'
 import { syncLinkedinPosts } from './sync-linkedin-posts.js'
 import { classifyYoutubeShorts } from './classify-youtube-shorts.js'
 import { config } from '../config.js'
+import { activeRaces } from '../lib/races-config.js'
 import { logger } from '../lib/logger.js'
 
 const SIX_HOURS_MS = 6 * 60 * 60_000
@@ -51,7 +52,7 @@ export function startScheduler(): void {
 
   // Live now-playing watch for the endgame of the scrobble race. Outside the endgame
   // this is one indexed row read and no API call, so a short interval is cheap.
-  if (config.RACE_NOWPLAYING_GAP > 0) {
+  if (activeRaces().some(r => r.nowplayingGap > 0)) {
     setInterval(async () => {
       try { await checkRaceNowPlaying() } catch (e) { logger.error(e, 'Scrobble race now-playing error') }
     }, config.RACE_NOWPLAYING_INTERVAL_SECONDS * 1_000)

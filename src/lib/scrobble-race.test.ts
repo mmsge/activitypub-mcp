@@ -4,14 +4,18 @@ import {
   NOWPLAYING_REARM_MS,
   type RaceSnapshot, type RaceState,
 } from './scrobble-race.js'
+import { type RaceSide } from './race-entity.js'
 
 const MILESTONES = [300, 250, 200, 150, 100, 75, 50, 25, 20, 15, 10]
+
+/** A side that is just an artist — what every case here was written against. */
+const A = (artist: string): RaceSide => ({ label: artist, entity: { type: 'artist', artist } })
 const NOW = new Date('2026-09-14T19:04:00Z')
 
 function snap(leaderPlays: number, challengerPlays: number, over: Partial<RaceSnapshot> = {}): RaceSnapshot {
   return {
-    leaderArtist: 'Taylor Swift',
-    challengerArtist: 'Maisie Peters',
+    leaderLabel: 'Taylor Swift',
+    challengerLabel: 'Maisie Peters',
     leaderPlays,
     challengerPlays,
     latestChallengerPlay: { track: 'Body Better', url: 'https://last.fm/t', playedAt: NOW },
@@ -387,39 +391,39 @@ describe('decideNowPlayingAlert', () => {
   const none = { key: null, at: null }
 
   it('ignores anything that is not the challenger', () => {
-    expect(decideNowPlayingAlert(null, 1, 'Maisie Peters', 'Taylor Swift', none, NOW)).toBeNull()
+    expect(decideNowPlayingAlert(null, 1, A('Maisie Peters'), A('Taylor Swift'), none, NOW)).toBeNull()
     expect(decideNowPlayingAlert(
       { artist: 'Taylor Swift', track: 'Cruel Summer', url: null },
-      1, 'Maisie Peters', 'Taylor Swift', none, NOW,
+      1, A('Maisie Peters'), A('Taylor Swift'), none, NOW,
     )).toBeNull()
   })
 
   it('says the song levels it when the gap is 1', () => {
-    const a = decideNowPlayingAlert(playing, 1, 'Maisie Peters', 'Taylor Swift', none, NOW)
+    const a = decideNowPlayingAlert(playing, 1, A('Maisie Peters'), A('Taylor Swift'), none, NOW)
     expect(a?.message.body).toContain('draws level')
     expect(a?.message.priority).toBe('max')
   })
 
   it('shouts only at gap 0, where the next play actually takes the lead', () => {
-    const a = decideNowPlayingAlert(playing, 0, 'Maisie Peters', 'Taylor Swift', none, NOW)
+    const a = decideNowPlayingAlert(playing, 0, A('Maisie Peters'), A('Taylor Swift'), none, NOW)
     expect(a?.message.title).toBe('THIS SONG TAKES THE LEAD')
     expect(a?.message.body).toContain('passes Taylor Swift')
     expect(a?.message.click).toBe('https://last.fm/x')
   })
 
   it('fires once per track, not once per poll', () => {
-    const first = decideNowPlayingAlert(playing, 0, 'Maisie Peters', 'Taylor Swift', none, NOW)!
+    const first = decideNowPlayingAlert(playing, 0, A('Maisie Peters'), A('Taylor Swift'), none, NOW)!
     const again = decideNowPlayingAlert(
-      playing, 0, 'Maisie Peters', 'Taylor Swift',
+      playing, 0, A('Maisie Peters'), A('Taylor Swift'),
       { key: first.key, at: NOW }, new Date(NOW.getTime() + 30_000),
     )
     expect(again).toBeNull()
   })
 
   it('re-arms for a genuine repeat play later on', () => {
-    const first = decideNowPlayingAlert(playing, 0, 'Maisie Peters', 'Taylor Swift', none, NOW)!
+    const first = decideNowPlayingAlert(playing, 0, A('Maisie Peters'), A('Taylor Swift'), none, NOW)!
     const later = decideNowPlayingAlert(
-      playing, 0, 'Maisie Peters', 'Taylor Swift',
+      playing, 0, A('Maisie Peters'), A('Taylor Swift'),
       { key: first.key, at: NOW }, new Date(NOW.getTime() + NOWPLAYING_REARM_MS + 1_000),
     )
     expect(later).not.toBeNull()

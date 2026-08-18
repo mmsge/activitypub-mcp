@@ -18,6 +18,9 @@ COPY tsconfig.json ./
 COPY src ./src
 COPY scripts ./scripts
 COPY drizzle ./drizzle
+# The race definitions. Without this line the image boots, finds no races, and the
+# whole feature disappears silently — which looks exactly like it working.
+COPY races.json ./
 
 EXPOSE 3000
 

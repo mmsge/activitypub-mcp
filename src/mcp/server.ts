@@ -10,6 +10,7 @@ import { getReadingStatsSchema, getReadingStats } from './tools/reading-stats.js
 import { getReadingPaceSchema, getReadingPace } from './tools/reading-pace.js'
 import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleStats } from './tools/scrobbles.js'
 import { getScrobbleRaceSchema, getScrobbleRace } from './tools/scrobble-race.js'
+import { listScrobbleRacesSchema, listScrobbleRaces } from './tools/scrobble-races.js'
 import { getYoutubeWatchesSchema, getYoutubeWatches, getYoutubeStatsSchema, getYoutubeStats } from './tools/youtube-watches.js'
 import { getPostBreakoutsSchema, getPostBreakouts } from './tools/post-breakouts.js'
 import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
@@ -181,10 +182,20 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_scrobble_race',
-    "Head-to-head standings between two artists in the Last.fm scrobble history: exact all-time play counts, the gap, plays needed to level and to overtake, plays/day over a trailing window, and a projected crossover date. Defaults to the configured race (RACE_LEADER_ARTIST vs RACE_CHALLENGER_ARTIST) — pass leader/challenger to race any two artists. Artist names are matched EXACTLY here, unlike get_scrobble_stats, which does a substring match.",
+    "Head-to-head standings for one scrobble race: exact all-time play counts for both sides, the gap, plays needed to level and to overtake, plays/day over a trailing window, a projected crossover date, and the state of the ntfy watcher. A side is an ARTIST, an ALBUM or a TRACK, so this races two artists, two records, or two songs — see list_scrobble_races for the configured ones and pass `race_id`. Passing bare `leader`/`challenger` strings races those two artists ad hoc; passing them as {type, artist, albums|tracks} objects races any two entities without touching the config. With nothing passed it answers about the first unresolved configured race. Names are matched EXACTLY here, unlike get_scrobble_stats, which does a substring match — and an album side may list SEVERAL album names, because Last.fm files a single under its own album.",
     getScrobbleRaceSchema.shape,
     async (input) => {
       const result = await getScrobbleRace(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'list_scrobble_races',
+    "Every configured scrobble race with its current standings — id, title, whether it is archived, its ntfy topic, both sides (artist, album or track) with their exact play counts, the gap and the result if it has one. Use this to pick a race_id for get_scrobble_race without a second round trip. An archived race is one that is already resolved: it stays queryable and the notifier skips it.",
+    listScrobbleRacesSchema.shape,
+    async (input) => {
+      const result = await listScrobbleRaces(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

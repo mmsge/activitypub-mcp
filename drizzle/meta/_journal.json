@@ -267,6 +267,13 @@
       "when": 1786958701000,
       "tag": "0037_reset_consent_blocked_probes",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786958702000,
+      "tag": "0038_race_state_per_race",
+      "breakpoints": true
     }
   ]
 }

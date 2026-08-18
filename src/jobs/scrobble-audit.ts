@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm'
 import { getScrobbleRacers } from '../config.js'
+import { defaultRace } from '../lib/races-config.js'
 import { getDb } from '../db/client.js'
 import { logger } from '../lib/logger.js'
 import {
@@ -90,12 +91,16 @@ const gapsCte = (ceiling: number) => sql`
 export async function auditScrobbles(
   opts: ScrobbleAuditOptions = {},
 ): Promise<ScrobbleAuditResult> {
-  const configured = getScrobbleRacers()
+  // The audit is artist-shaped: every figure it reports is per artist_name. So it takes
+  // the deprecated env pair, or the default race when BOTH its sides are plain artists —
+  // an album or track race has no two artist names to audit, and inventing them would
+  // quote a corrected gap for a race this tool never measured.
+  const configured = getScrobbleRacers() ?? defaultRaceArtists()
   const leader = opts.leader ?? configured?.leader
   const challenger = opts.challenger ?? configured?.challenger
   if (!leader || !challenger) {
     throw new Error(
-      'No race configured — pass leader/challenger, or set RACE_LEADER_ARTIST and RACE_CHALLENGER_ARTIST.',
+      'No artist race to audit — pass leader/challenger, or add an artist-vs-artist race to races.json.',
     )
   }
 
@@ -233,4 +238,12 @@ export async function auditScrobbles(
     )
     return result
   })
+}
+
+
+/** The default race's two sides, when both are plain artists. */
+function defaultRaceArtists(): { leader: string; challenger: string } | null {
+  const race = defaultRace()
+  if (race?.leader.entity.type !== 'artist' || race.challenger.entity.type !== 'artist') return null
+  return { leader: race.leader.entity.artist, challenger: race.challenger.entity.artist }
 }

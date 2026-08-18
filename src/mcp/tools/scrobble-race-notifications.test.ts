@@ -26,6 +26,42 @@ vi.mock('../../config.js', () => ({
   getScrobbleRacers: () => ({ leader: 'Taylor Swift', challenger: 'Maisie Peters' }),
 }))
 
+// The race this file has always been about, now as a definition rather than two env
+// vars. Its knobs are exactly the old env defaults, which is what makes every
+// expectation below a statement about the response shape rather than about the config.
+const artist = (name: string) => ({ label: name, entity: { type: 'artist', artist: name } })
+const RACE = {
+  id: 'maisie-vs-taylor',
+  title: 'Maisie Peters vs Taylor Swift',
+  topic: 'scrobble-race',
+  milestones: [300, 250, 200, 150, 100, 75, 50, 25, 20, 15, 10],
+  endgameGap: 10,
+  nowplayingGap: 0,
+  archived: false,
+  leader: artist('Taylor Swift'),
+  challenger: artist('Maisie Peters'),
+}
+
+vi.mock('../../lib/races-config.js', async () => {
+  const real = await vi.importActual<typeof import('../../lib/races-config.js')>(
+    '../../lib/races-config.js',
+  )
+  return {
+    ...real,
+    getRaces: () => [RACE],
+    activeRaces: () => [RACE],
+    defaultRace: () => RACE,
+    legacyEnvRace: () => RACE,
+    adHocRace: (leader: any, challenger: any) => ({
+      ...RACE,
+      id: '',
+      title: `${leader.artist} vs ${challenger.artist}`,
+      leader: artist(leader.artist),
+      challenger: artist(challenger.artist),
+    }),
+  }
+})
+
 const { getScrobbleRace } = await import('./scrobble-race.js')
 
 const storedState = (over: Record<string, unknown> = {}) => ({
