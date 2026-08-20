@@ -101,3 +101,20 @@ describe('breakoutEnabled', () => {
     Object.assign(config, { BREAKOUT_ENABLED: prev.enabled, NTFY_PASSWORD: prev.pw })
   })
 })
+
+describe('the trip-prune bounds', () => {
+  it('default to a fifth of the window, with a floor that needs a populated one', () => {
+    // The defaults are the safety property, so they are pinned rather than assumed:
+    // a share alone is too blunt for a handful of corrections, and a floor alone
+    // would empty a narrow window. See decision record 0054.
+    expect(config.TRIP_PRUNE_MAX_SHARE).toBe(0.2)
+    expect(config.TRIP_PRUNE_MIN_CANDIDATES).toBe(3)
+    expect(config.TRIP_PRUNE_MIN_WINDOW).toBe(10)
+  })
+
+  it('reads the share as a fraction, not an integer percentage', () => {
+    // The one non-integer number in the schema. Coerced to `.int()` by a reader
+    // pattern-matching its neighbours, 0.2 would round to 0 and refuse everything.
+    expect(Number.isInteger(config.TRIP_PRUNE_MAX_SHARE)).toBe(false)
+  })
+})

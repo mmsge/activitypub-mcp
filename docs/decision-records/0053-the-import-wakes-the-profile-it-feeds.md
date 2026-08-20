@@ -1,6 +1,6 @@
 # 0053 — The import wakes the profile it feeds, and only when something changed
 
-**Status:** Accepted (final bullet amended by 0054)
+**Status:** Accepted (final bullet amended by 0055)
 **Date:** 2026-08-18
 **Topics:** trains, import, webhooks, notifications, configuration, integration
 
@@ -77,7 +77,7 @@ shape, for the same reason.
   reason name no host.
 - A second consumer would want its own config pair and its own call here, not a
   generalised fan-out. One consumer is not a pattern.
-  **Amended by 0054.** msge.no became that second consumer and this held for the
+  **Amended by 0055.** msge.no became that second consumer and this held for the
   domain logic — it does have its own module, config pair and call, and there is
   still no fan-out. What it did not anticipate is that the never-throw / never-retry
   / log-loudly rules above are *transport*, not policy, and a second copy of them is

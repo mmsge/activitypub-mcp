@@ -19,7 +19,13 @@ import { getPostBreakouts } from '../mcp/tools/post-breakouts.js'
 import { config } from '../config.js'
 import { streamEnabled } from '../stream/host.js'
 import { parseSources } from '../stream/sources.js'
-import { ImportPage, ImportResultPage, YoutubeImportResultPage } from './views/import.js'
+import {
+  ImportPage,
+  ImportResultPage,
+  TripImportResultPage,
+  TripPruneResultPage,
+  YoutubeImportResultPage,
+} from './views/import.js'
 import { ToolsPage, INFRA_ROUTES } from './views/tools.js'
 import { endpoints } from '../rest/table.js'
 import { mediaRouter } from './media-router.js'
@@ -42,6 +48,7 @@ import { deriveTokenStatus, getSourceHealth, LINKEDIN_SOURCE } from '../lib/sour
 import { parseTrainTripsCsv } from '../lib/parse-trips-csv.js'
 import { notifyTripsChanged } from '../lib/trip-webhook.js'
 import { notifyMsgeChanged } from '../lib/msge-webhook.js'
+import { applyTripPrune } from './prune-trips.js'
 import { resolveActorByHandle } from '../lib/fetch-actor.js'
 import { logger } from '../lib/logger.js'
 
@@ -461,13 +468,28 @@ app.post(
     }
 
     const result = await importTrainTrips(rows)
-    logger.info({ ...result }, 'Train trips import complete')
+    logger.info(
+      {
+        total: result.total,
+        inserted: result.inserted,
+        updated: result.updated,
+        unchanged: result.unchanged,
+        pruneCandidates: result.prune.candidates.length,
+        inWindow: result.prune.inWindow,
+        refused: result.prune.refusal !== null,
+      },
+      'Train trips import complete',
+    )
 
     // Wake bartenderen, which tends the "Neste togtur" field on the fediverse
     // profile from exactly these rows. Without this it would pick the change up
     // within four hours, which is its backstop rather than its mechanism — and a
     // leg is usually entered *because* it is imminent. Only when something
     // actually changed; never throws, so a failure here cannot fail the import.
+    //
+    // Inserts and updates only. This run deleted nothing — it merely reported what
+    // it would delete — and waking a service to recompute an unchanged answer is
+    // exactly the noise the fire-on-change rule exists to avoid (ADR 0053).
     await notifyTripsChanged(result.inserted + result.updated)
 
     // And msge.no, whose /tog, /meir and both train counters are rebuilt by pollers
@@ -475,17 +497,70 @@ app.post(
     // something actually changed, and never fatal to the import.
     await notifyMsgeChanged('tog', result.inserted + result.updated)
 
-    const params = new URLSearchParams({
-      actor: 'train trips (CSV)',
-      total: String(result.total),
-      imported: String(result.inserted),
-      updated: String(result.updated),
-      skipped: String(result.unchanged),
-      errorCount: '0',
-    })
-    return c.redirect(`/admin/import/result?${params}`)
+    // Rendered rather than redirected, unlike the other importers: the list of trips
+    // this export no longer contains is the substance of the report and will not
+    // survive a query string. Re-POSTing on refresh is harmless — the import is
+    // idempotent, and the page deletes nothing on its own.
+    return c.html(<TripImportResultPage result={result} />)
   },
 )
+
+// Step two, and the only route that can delete a trip. The ids come from the result
+// page the admin has just read; every guarantee that page made — the export's range,
+// the threshold, and that nothing has been stored since the plan was drawn — is
+// re-established here against the live database, so the posted list can only ever
+// narrow what goes. See decision record 0054.
+app.post(
+  '/import/trips/prune',
+  bodyLimit({ maxSize: 256 * 1024 }),
+  async (c) => {
+    const body = await c.req.parseBody({ all: true })
+    const raw = body['trip']
+    const ids = (Array.isArray(raw) ? raw : raw === undefined ? [] : [raw])
+      .filter((v): v is string => typeof v === 'string')
+      .filter((v) => UUID.test(v))
+
+    const window = {
+      from: parseInstant(body['window_from']),
+      to: parseInstant(body['window_to']),
+    }
+    const derivedAt = parseInstant(body['derived_at'])
+    if (!window.from || !window.to || !derivedAt) {
+      return c.html(<ImportPage error="Prune request was missing its export range" />)
+    }
+    if (ids.length === 0) {
+      return c.html(<ImportPage error="Prune request named no trips" />)
+    }
+
+    const result = await applyTripPrune({
+      ids,
+      window: { from: window.from, to: window.to },
+      derivedAt,
+    })
+
+    // A prune is a change like any other, and the one that matters most to the
+    // receiver: a phantom future leg is exactly what it would be advertising as
+    // "Neste togtur".
+    await notifyTripsChanged(result.deleted)
+
+    // And msge.no, for the same reason and then some: a pruned future leg is what
+    // /tog and the "Akkurat no" countdown are advertising as the next train, and
+    // both re-derive `upcoming` from a schedule this deletion just invalidated.
+    // Left alone it would count down to a train that no longer exists for six hours.
+    await notifyMsgeChanged('tog', result.deleted)
+
+    return c.html(<TripPruneResultPage result={result} />)
+  },
+)
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** An ISO instant from a form field, or null. Never a partial or shifted date. */
+function parseInstant(value: unknown): Date | null {
+  if (typeof value !== 'string') return null
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? null : d
+}
 
 // LinkedIn monthly analytics export. An upload rather than a watched directory:
 // the file is produced by hand on Markus' laptop once a month, so the browser he
@@ -674,8 +749,6 @@ app.get('/import/result', (c) => {
   const result = {
     total: Number(c.req.query('total') ?? '0'),
     imported: Number(c.req.query('imported') ?? '0'),
-    // Only the trips importer matches and updates in place; the others omit it.
-    updated: c.req.query('updated') === undefined ? undefined : Number(c.req.query('updated')),
     skipped: Number(c.req.query('skipped') ?? '0'),
     errors: Number(c.req.query('errorCount') ?? '0') > 0
       ? [`${c.req.query('errorCount')} error(s) — see server logs for details`]

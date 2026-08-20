@@ -1,9 +1,10 @@
 /** @jsxImportSource hono/jsx */
 import type { FC } from 'hono/jsx'
 import { Layout } from './layout.js'
-import type { ImportResult } from '../import.js'
+import type { ImportResult, TripImportResult } from '../import.js'
 import type { ParseProblem, ParseNormalisation } from '../../lib/parse-youtube-takeout.js'
 import type { RowFailure } from '../../jobs/import-youtube-watches.js'
+import type { ApplyPruneResult } from '../prune-trips.js'
 
 export const ImportPage: FC<{ error?: string }> = ({ error }) => (
   <Layout title="Import">
@@ -52,6 +53,13 @@ export const ImportPage: FC<{ error?: string }> = ({ error }) => (
         travelling it <em>updates</em> the stored one — filling in the train code, the delay and
         the real distance, and moving it from Planned to Completed — rather than storing it a
         second time. Re-importing an unchanged export writes nothing at all.
+      </p>
+      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
+        The import also lists the stored trips that this export <em>no longer contains</em>, so a
+        leg deleted or re-timed in viaduct can be removed here too. It deletes nothing on its
+        own: the result page shows what would go, and pruning happens only if you confirm it
+        there. Only trips departing between the earliest and latest departure in the file are
+        ever eligible, so a partial export cannot reach outside its own range.
       </p>
       <form method="post" action="/admin/import/trips" enctype="multipart/form-data">
         <div class="filters">
@@ -146,9 +154,7 @@ export const ImportPage: FC<{ error?: string }> = ({ error }) => (
 )
 
 export const ImportResultPage: FC<{
-  // `updated` only comes from the trips importer, which matches an incoming trip to the
-  // stored one and refreshes it in place (ADR 0048). The other importers insert or skip.
-  result: ImportResult & { updated?: number }
+  result: ImportResult
   actor: string
 }> = ({ result, actor }) => (
   <Layout title="Import Result">
@@ -164,12 +170,6 @@ export const ImportResultPage: FC<{
         <div class="num" style="color: #4ade80;">{result.imported}</div>
         <div class="label">Imported</div>
       </div>
-      {result.updated !== undefined && (
-        <div class="card">
-          <div class="num" style="color: #60a5fa;">{result.updated}</div>
-          <div class="label">Updated in place</div>
-        </div>
-      )}
       <div class="card">
         <div class="num" style="color: #888;">{result.skipped}</div>
         <div class="label">Skipped (already exist)</div>
@@ -299,3 +299,187 @@ export const YoutubeImportResultPage: FC<{
     </Layout>
   )
 }
+
+/**
+ * The trips importer reports more than the generic result page can hold, and the extra
+ * is the point: the trips this export NO LONGER CONTAINS. That list will not survive a
+ * query string, so this is rendered rather than redirected to — the same reasoning as
+ * the watch-history page above.
+ *
+ * Nothing on this page has been deleted. The confirm form below is the only route to
+ * `applyTripPrune`, and it is rendered only when the plan is one the threshold would
+ * accept. See decision record 0054.
+ */
+export const TripImportResultPage: FC<{ result: TripImportResult }> = ({ result }) => {
+  const { prune } = result
+  const canConfirm = prune.refusal === null && prune.candidates.length > 0
+
+  return (
+    <Layout title="Import Result">
+      <h1>Train Trips Imported</h1>
+      <p style="color: #888; margin-bottom: 20px;">viaduct.world CSV export</p>
+
+      <div class="grid" style="margin-bottom: 24px;">
+        <div class="card">
+          <div class="num">{result.total}</div>
+          <div class="label">Rows in file</div>
+        </div>
+        <div class="card">
+          <div class="num" style="color: #4ade80;">{result.inserted}</div>
+          <div class="label">Inserted</div>
+        </div>
+        <div class="card">
+          <div class="num" style="color: #60a5fa;">{result.updated}</div>
+          <div class="label">Updated in place</div>
+        </div>
+        <div class="card">
+          <div class="num" style="color: #888;">{result.unchanged}</div>
+          <div class="label">Unchanged</div>
+        </div>
+        <div class="card">
+          <div
+            class="num"
+            style={prune.candidates.length ? 'color: #fbbf24;' : 'color: #888;'}
+          >
+            {prune.candidates.length}
+          </div>
+          <div class="label">Missing from this export</div>
+        </div>
+      </div>
+
+      {prune.window && (
+        <p style="color: #888; margin-bottom: 16px; line-height: 1.5;">
+          This export covers <strong class="mono">{prune.window.fromKey}</strong> to{' '}
+          <strong class="mono">{prune.window.toKey}</strong> UTC, and the archive holds{' '}
+          <strong>{prune.inWindow}</strong> trips in that range. Only those are eligible —
+          a trip departing outside it cannot be pruned by this file however absent it is.
+        </p>
+      )}
+
+      {prune.refusal && <div class="error">{prune.refusal}</div>}
+
+      {prune.candidates.length > 0 && (
+        <div class="section">
+          <h2>Stored, but not in this export</h2>
+          <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
+            Nothing here has been deleted. {canConfirm
+              ? 'Read the list, then confirm below to remove them.'
+              : 'The prune was refused, so there is nothing to confirm.'}
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Departure (UTC)</th>
+                <th>From</th>
+                <th>To</th>
+                <th>Journey</th>
+                <th>Train</th>
+                <th>Status</th>
+                <th>km</th>
+              </tr>
+            </thead>
+            <tbody>
+              {prune.candidates.map((t) => (
+                <tr key={t.id}>
+                  <td class="mono">{t.key}</td>
+                  <td>{t.fromStation}</td>
+                  <td>{t.toStation}</td>
+                  <td>{t.journey ?? '—'}</td>
+                  <td>{t.trainCode ?? '—'}</td>
+                  <td>{t.status ?? '—'}</td>
+                  <td>{t.distanceKm ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {canConfirm && prune.window && (
+        <div class="section">
+          {/* The trips are posted back by id, and every guarantee this page makes is
+              re-established server-side against the live database before anything is
+              deleted — so this list can only ever narrow what goes. */}
+          <form method="post" action="/admin/import/trips/prune">
+            {prune.candidates.map((t) => (
+              <input key={t.id} type="hidden" name="trip" value={t.id} />
+            ))}
+            <input type="hidden" name="window_from" value={prune.window.from.toISOString()} />
+            <input type="hidden" name="window_to" value={prune.window.to.toISOString()} />
+            <input type="hidden" name="derived_at" value={result.derivedAt.toISOString()} />
+            <button type="submit" style="background: #b91c1c;">
+              Prune {prune.candidates.length} trip{prune.candidates.length === 1 ? '' : 's'}
+            </button>
+          </form>
+        </div>
+      )}
+
+      <div class="filters">
+        <a href="/admin/import" class="btn">Import More</a>
+        <a href="/admin/objects" class="btn" style="background: #333;">View Posts</a>
+      </div>
+    </Layout>
+  )
+}
+
+/** The outcome of a confirmed prune. */
+export const TripPruneResultPage: FC<{ result: ApplyPruneResult }> = ({ result }) => (
+  <Layout title="Trips Pruned">
+    <h1>{result.deleted > 0 ? 'Trips Pruned' : 'Nothing Pruned'}</h1>
+
+    {result.refusal && <div class="error">{result.refusal}</div>}
+
+    <div class="grid" style="margin-bottom: 24px;">
+      <div class="card">
+        <div class="num" style={result.deleted ? 'color: #f87171;' : 'color: #888;'}>
+          {result.deleted}
+        </div>
+        <div class="label">Deleted</div>
+      </div>
+      <div class="card">
+        <div class="num" style="color: #888;">{result.rejected.length}</div>
+        <div class="label">Declined</div>
+      </div>
+      <div class="card">
+        <div class="num" style={result.orphaned.length ? 'color: #fbbf24;' : 'color: #888;'}>
+          {result.orphaned.length}
+        </div>
+        <div class="label">Posts left unbound</div>
+      </div>
+    </div>
+
+    <p style="color: #888; margin-bottom: 16px; line-height: 1.5;">
+      Posts that were bound to a pruned trip have been re-bound to the trip they were
+      actually made on. No post was deleted — only the derived link moved. Each pruned
+      trip is in the server log with everything needed to re-enter it by hand.
+    </p>
+
+    {result.rejected.length > 0 && (
+      <div class="section">
+        <h2>Declined</h2>
+        <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
+          Offered by the result page, refused here because the database no longer agrees
+          with what that page said.
+        </p>
+        <pre>{result.rejected.map((r) => `${r.id}: ${r.reason}`).join('\n')}</pre>
+      </div>
+    )}
+
+    {result.orphaned.length > 0 && (
+      <div class="section">
+        <h2>Posts left unbound</h2>
+        <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
+          These posts fall in no remaining trip's window, which is usually correct — the
+          only trip they matched is gone. The hourly re-derivation will pick them up if
+          that is not the reason.
+        </p>
+        <pre>{result.orphaned.join('\n')}</pre>
+      </div>
+    )}
+
+    <div class="filters">
+      <a href="/admin/import" class="btn">Import More</a>
+      <a href="/admin/objects" class="btn" style="background: #333;">View Posts</a>
+    </div>
+  </Layout>
+)

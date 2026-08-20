@@ -1,4 +1,4 @@
-# 0054 — A second consumer splits the transport from the policy
+# 0055 — A second consumer splits the transport from the policy
 
 **Status:** Accepted
 **Date:** 2026-08-20
@@ -7,6 +7,11 @@
 **Contributors:** Markus (asked & decided: give msge.no the same webhook behaviour bartenderen has, and wire both sides rather than shipping the endpoint alone) + Claude (agent decision on the transport extraction, the topic vocabulary, the debounce ceiling, and on not notifying scrobbles)
 
 **Affects:** `src/lib/webhook-post.ts`, `src/lib/msge-webhook.ts`, `src/lib/trip-webhook.ts`, `src/config.ts`, `src/admin/router.tsx`, `src/activitypub/handlers/create.ts`, `src/jobs/sync-garden-content.ts`
+
+> Numbered 0055, not 0054: 0054 (the viaduct prune) landed on `hovud` while this
+> branch was open. That record is also why msge.no is woken from the **prune**
+> confirmation as well as the import — a leg a prune removes is very often the one
+> `/tog` is counting down to.
 
 ## Context
 

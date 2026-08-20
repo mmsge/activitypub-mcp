@@ -130,8 +130,8 @@ latency and nothing else.
 
 | Receiver | Module | Config pair | Fired by |
 |----------|--------|-------------|----------|
-| `bartenderen` (`/webhook/tog`) | `src/lib/trip-webhook.ts` | `BARTENDEREN_WEBHOOK_*` | the train-trip import |
-| `msge.no` (`/webhook/:emne`) | `src/lib/msge-webhook.ts` | `MSGE_WEBHOOK_*` | trip + YouTube imports, the garden sync, and every ingested object |
+| `bartenderen` (`/webhook/tog`) | `src/lib/trip-webhook.ts` | `BARTENDEREN_WEBHOOK_*` | the train-trip import and prune |
+| `msge.no` (`/webhook/:emne`) | `src/lib/msge-webhook.ts` | `MSGE_WEBHOOK_*` | trip + YouTube imports, the trip **prune**, the garden sync, and every ingested object |
 
 The three rules live once, in **`src/lib/webhook-post.ts`**: never throw (a failed
 notification must not fail the import that triggered it), never retry (every receiver
@@ -140,7 +140,7 @@ of it), and never stay quiet about a failure (hetzner-server ADR 0011 — weeks 
 silently-401ing ntfy pushes behind `curl -sf … || true`). ADR 0053 predicted a second
 consumer would want its own config pair and its own call rather than a fan-out, and
 that held — what it did not anticipate is that those three are **transport, not
-policy**. ADR 0054 records the split.
+policy**. ADR 0055 records the split.
 
 Rules not to "simplify" back:
 

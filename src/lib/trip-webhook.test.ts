@@ -27,6 +27,14 @@ describe('notifyTripsChanged', () => {
     expect((init.headers as Record<string, string>)['X-Bartenderen-Token']).toBe('hunter2')
   })
 
+  it('wakes bartenderen for a run that only deleted', async () => {
+    // A confirmed prune inserts and updates nothing. It is still the change that
+    // matters most to the receiver: the trip removed is often the very one it was
+    // advertising as the next departure (ADR 0054).
+    mockFetch(200)
+    expect(await notifyTripsChanged(2, target)).toBe(true)
+  })
+
   it('sends nothing when the import changed nothing', async () => {
     // Re-uploading an export is the common case, and waking a service to
     // recompute an identical answer is pure noise — it would read the same legs,
