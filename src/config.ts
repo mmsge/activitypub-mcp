@@ -55,6 +55,20 @@ const schema = z.object({
   // retries, because the four-hour cap on the other side is already the backstop.
   BARTENDEREN_WEBHOOK_URL: z.string().default('http://172.18.0.1:4031/webhook/tog'),
   BARTENDEREN_WEBHOOK_SECRET: z.string().default(''),
+  // How much of a viaduct export's own coverage the prune is allowed to remove. A CSV
+  // carries no tombstones, so absence is the only deletion signal there is — and a
+  // filtered or truncated export is nothing BUT absence, which is why these exist.
+  // See decision record 0054.
+  //
+  // A fraction, not a percentage, and the one non-integer number in this file.
+  TRIP_PRUNE_MAX_SHARE: z.coerce.number().min(0).max(1).default(0.2),
+  // A handful of deletions always passes, whatever the share works out to — but only
+  // once the window holds enough trips for "a handful" to be a small number. Without
+  // that gate the floor overrides the share exactly where the share matters most: a
+  // two-leg export over a window holding four real trips is 50% and must refuse,
+  // even though 2 <= 3.
+  TRIP_PRUNE_MIN_CANDIDATES: z.coerce.number().int().min(0).default(3),
+  TRIP_PRUNE_MIN_WINDOW: z.coerce.number().int().min(0).default(10),
   NTFY_URL: z.string().default('https://n.msge.no'),
   NTFY_TOPIC: z.string().default('scrobble-race'),
   NTFY_USER: z.string().default('markus'),

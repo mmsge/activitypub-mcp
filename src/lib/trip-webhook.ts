@@ -44,10 +44,17 @@ function currentTarget(): TripWebhookTarget {
  * POST the wake signal. Returns true on a 2xx, false on anything else —
  * including "nothing changed" and "not configured", which are not failures.
  *
- * `changed` is inserted + updated. Zero means the CSV re-stated what was already
- * stored, which is the common case when re-uploading an export, and waking a
- * service to recompute an identical answer is pure noise: it would read the same
- * legs, render the same string, and write nothing.
+ * `changed` is inserted + updated on an import, and deleted on a confirmed prune.
+ * Zero means the CSV re-stated what was already stored, which is the common case
+ * when re-uploading an export, and waking a service to recompute an identical
+ * answer is pure noise: it would read the same legs, render the same string, and
+ * write nothing.
+ *
+ * A deletion is the case this matters most for. bartenderen advertises the next
+ * departure, so the row a prune removes is very often the exact row it is
+ * advertising — a leg deleted or re-timed in viaduct that has not happened yet.
+ * Left alone it would keep advertising a train that does not exist for up to four
+ * hours. See decision records 0053 and 0054.
  */
 export async function notifyTripsChanged(
   changed: number,

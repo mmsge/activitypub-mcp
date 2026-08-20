@@ -8,6 +8,19 @@ import { logger } from '../lib/logger.js'
 import type { LinkedinExport } from '../lib/parse-linkedin-export.js'
 import type { TripRow } from '../lib/parse-trips-csv.js'
 import { linkTripPosts } from '../jobs/link-trip-posts.js'
+import {
+  identityKey,
+  planTripPrune,
+  pruneWindow,
+  type PrunePlan,
+  type StoredTrip,
+  type TripIdentity,
+} from '../lib/trip-prune.js'
+import {
+  buildStoredInWindowSelect,
+  departureKeySql,
+  tripPruneLimits,
+} from './prune-trips.js'
 
 type AnyObject = Record<string, unknown>
 
@@ -188,6 +201,18 @@ export interface TripImportResult {
   updated: number
   /** Matched an existing trip and had nothing to add, or repeated a row in the file. */
   unchanged: number
+  /**
+   * The trips stored inside this export's range that the export does not contain.
+   * Reported here and removed nowhere: applying a plan is `applyTripPrune`, which the
+   * confirm route reaches and the import never does. See decision record 0054.
+   */
+  prune: PrunePlan
+  /**
+   * When the plan was drawn, carried to the confirm step so a trip stored after this
+   * run — one re-added in viaduct and re-imported between the two clicks — cannot be
+   * deleted on the strength of a page that never showed it.
+   */
+  derivedAt: Date
 }
 
 /**
@@ -215,6 +240,47 @@ const REFRESHABLE = [
 const AMENITIES = ['cycling', 'wifi', 'diningCar', 'night', 'replacement', 'reservation'] as const
 
 const incoming = (col: PgColumn): SQL => sql`excluded.${sql.identifier(col.name)}`
+
+/**
+ * A row's absolute departure, computed in Postgres from the wall clock and the origin's
+ * IANA zone. One expression, used both by the upsert that writes `departure_at` and by
+ * the query that resolves the file's identity keys, because the prune compares the two:
+ * a second spelling here would be a second answer to "when did this leave".
+ */
+export function departureInstantSql(localTs: SQL | string, tz: SQL | string): SQL {
+  // A string binds as a parameter (the upsert's per-row values); an SQL fragment
+  // inlines (the VALUES columns in buildDepartureKeyQuery). Same expression either way.
+  return sql`(${localTs}::timestamp AT TIME ZONE ${tz})`
+}
+
+/**
+ * Resolve every parsed row to the identity the archive stores it under.
+ *
+ * It has to be a query. `departure_at` is an instant derived from a wall clock and a
+ * named zone, and ADR 0048 is emphatic that the derivation lives in Postgres — a JS
+ * copy would be a second implementation of DST. And it cannot be salvaged from the
+ * upsert's `RETURNING`: the idempotency guard means an unchanged row is not returned
+ * at all, which is precisely the re-import case the prune has to handle.
+ *
+ * Every parameter is cast inside its VALUES row rather than on the outer column
+ * reference. Postgres resolves the VALUES rowtype before the outer select's casts, and
+ * postgres-js sends strings with no type OID, so casting outside is the classic
+ * "failed to determine data type of parameter $1".
+ *
+ * Rows come back tagged with their index rather than trusted to arrive in order.
+ * Three parameters a row, so the 65535-parameter cap sits around 21,000 legs — two
+ * orders of magnitude past the archive, which is why this is not chunked.
+ */
+export function buildDepartureKeyQuery(rows: readonly TripRow[]): SQL {
+  const values = rows.map(
+    (r, i) => sql`(${i}::int, ${r.departureLocal}::text, ${r.fromTz}::text)`,
+  )
+  const instant = departureInstantSql(sql`v.local`, sql`v.tz`)
+  return sql`select v.i as i, ${departureKeySql(instant)} as key from (values ${sql.join(
+    values,
+    sql`, `,
+  )}) as v(i, local, tz)`
+}
 
 /**
  * The upsert's SET clause and the guard that keeps a repeat import from writing at all,
@@ -285,25 +351,47 @@ export function buildTrainTripsUpsert(values: unknown[]) {
     })
 }
 
+const NO_PRUNE: PrunePlan = { window: null, inWindow: 0, candidates: [], refusal: null }
+
 /**
  * Import parsed train trips, updating a matching trip in place rather than storing it
  * twice. Absolute instants are computed in Postgres from the local wall-clock + IANA
  * zone so DST and overnight legs resolve correctly. Re-importing the same export writes
  * nothing at all.
+ *
+ * It also reports what the export no longer contains — and removes none of it. Applying
+ * a prune is `applyTripPrune`, which only the confirm step reaches, so a plain import
+ * writes exactly what it wrote before that existed. See decision record 0054.
  */
 export async function importTrainTrips(rows: TripRow[]): Promise<TripImportResult> {
   const total = rows.length
-  if (total === 0) return { total: 0, inserted: 0, updated: 0, unchanged: 0 }
+  const derivedAt = new Date()
+  if (total === 0) {
+    return { total: 0, inserted: 0, updated: 0, unchanged: 0, prune: NO_PRUNE, derivedAt }
+  }
+
+  // Resolve every row's departure instant before anything else. It is what the archive
+  // keys on, so it is what an in-file duplicate has to be judged by, what the export's
+  // coverage is measured in, and what the prune compares against.
+  const fileIdentities = await resolveTripIdentities(rows)
 
   // Drop in-file duplicates so the single statement never reaches the same stored row
   // twice — Postgres rejects that outright ("ON CONFLICT DO UPDATE command cannot affect
-  // row a second time"). Keyed on what `departure_at` is derived from, which is the
-  // identity tuple spelled in the columns the CSV actually carries.
+  // row a second time"). Keyed on the identity itself rather than on the columns it is
+  // derived from: two rows spelling one instant differently — 07:34 Europe/Oslo and
+  // 05:34 UTC — survive a wall-clock key, then collide on the conflict target and kill
+  // the whole statement.
   const seen = new Set<string>()
-  const unique = rows.filter((r) => {
-    const key = [r.fromStation, r.toStation, r.departureLocal, r.fromTz].join(' ')
-    return seen.has(key) ? false : (seen.add(key), true)
-  })
+  const unique: TripRow[] = []
+  const incomingIds: TripIdentity[] = []
+  for (let i = 0; i < rows.length; i++) {
+    const identity = fileIdentities[i]
+    const key = identityKey(identity)
+    if (seen.has(key)) continue
+    seen.add(key)
+    unique.push(rows[i])
+    incomingIds.push(identity)
+  }
 
   const assumed = rows.filter((r) => r.tzAssumed).length
   if (assumed > 0) {
@@ -337,8 +425,8 @@ export async function importTrainTrips(rows: TripRow[]): Promise<TripImportResul
     arrivalLocal: r.arrivalLocal ? sql`${r.arrivalLocal}::timestamp` : null,
     fromTz: r.fromTz,
     toTz: r.toTz,
-    departureAt: sql`(${r.departureLocal}::timestamp AT TIME ZONE ${r.fromTz})`,
-    arrivalAt: r.arrivalLocal ? sql`(${r.arrivalLocal}::timestamp AT TIME ZONE ${r.toTz})` : null,
+    departureAt: departureInstantSql(r.departureLocal, r.fromTz),
+    arrivalAt: r.arrivalLocal ? departureInstantSql(r.arrivalLocal, r.toTz) : null,
     distanceKm: r.distanceKm,
     delay: r.delay,
     departureDelay: r.departureDelay,
@@ -399,9 +487,87 @@ export async function importTrainTrips(rows: TripRow[]): Promise<TripImportResul
     }
   }
 
+  // Planned after the upsert, so a leg this very file inserted is structurally incapable
+  // of being a candidate — it is in `incomingIds`, and it is now in the window too.
+  const prune = await planPrune(incomingIds)
+
+  // Logged as well as returned. The page is one route away from being closed and
+  // forgotten; this is the record that the file said these trips were gone, whether or
+  // not the prune was ever confirmed.
+  for (const c of prune.candidates) {
+    logger.info(
+      {
+        id: c.id,
+        from: c.fromStation,
+        to: c.toStation,
+        departureAt: c.departureAt,
+        journey: c.journey,
+        trainCode: c.trainCode,
+        status: c.status,
+        distanceKm: c.distanceKm,
+      },
+      'Trip is a prune candidate — this export does not contain it (nothing deleted)',
+    )
+  }
+  if (prune.refusal) {
+    logger.warn(
+      { candidates: prune.candidates.length, inWindow: prune.inWindow },
+      `Trip prune would be refused: ${prune.refusal}`,
+    )
+  }
+
   // Rows repeated within the file collapse into whichever copy was written, so they land
   // in `unchanged` alongside the trips that had nothing new to offer.
-  return { total, inserted, updated, unchanged: total - inserted - updated }
+  return {
+    total,
+    inserted,
+    updated,
+    unchanged: total - inserted - updated,
+    prune,
+    derivedAt,
+  }
+}
+
+/**
+ * Resolve each parsed row to `(from_station, to_station, departure_at)` — the tuple the
+ * archive stores it under — with the instant computed by Postgres and rendered as
+ * canonical UTC text. Indexed rather than trusted to come back in order.
+ */
+async function resolveTripIdentities(rows: readonly TripRow[]): Promise<TripIdentity[]> {
+  const resolved = (await getDb().execute(buildDepartureKeyQuery(rows))) as unknown as {
+    i: number
+    key: string
+  }[]
+
+  const keys = new Map(resolved.map((r) => [Number(r.i), String(r.key)]))
+  return rows.map((r, i) => {
+    const key = keys.get(i)
+    // Postgres was handed one VALUES row per parsed row and returns one per row; a gap
+    // would mean the two sides disagree about what was asked, which must not be papered
+    // over with a guess at the instant.
+    if (key === undefined) {
+      throw new Error(`Postgres returned no departure instant for CSV row ${i + 1}`)
+    }
+    return { fromStation: r.fromStation, toStation: r.toStation, key }
+  })
+}
+
+/**
+ * What the export does not contain, inside the range it covers.
+ *
+ * The window is computed from the file alone and the stored read is bounded by it, so
+ * a partial or truncated export cannot reach a single trip outside what it describes.
+ */
+async function planPrune(fileIds: readonly TripIdentity[]): Promise<PrunePlan> {
+  const window = pruneWindow(fileIds)
+  if (!window) return NO_PRUNE
+
+  const storedInWindow = (await buildStoredInWindowSelect(
+    window.from,
+    window.to,
+  )) as StoredTrip[]
+
+  return planTripPrune(fileIds, storedInWindow, tripPruneLimits())
 }
 
 export interface LinkedinImportResult {
