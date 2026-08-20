@@ -12,6 +12,7 @@ import { upsertGigAttendance } from '../../jobs/sync-gig-attendances.js'
 import { queueGigEnrichment } from '../../jobs/sync-gig-metadata.js'
 import { objectApId, resolveRef } from '../../lib/ap-object.js'
 import { logger } from '../../lib/logger.js'
+import { notifyMsgeDebounced, type MsgeTopic } from '../../lib/msge-webhook.js'
 
 type AnyObject = Record<string, unknown>
 
@@ -168,6 +169,35 @@ export async function ingestObject(
       }
     }
   }
+
+  // Last, and deliberately so: everything above is the durable work, and a wake
+  // signal must never be the reason an ingest half-happened. Debounced, because
+  // this runs once per OBJECT and a re-crawl pushes hundreds through in seconds.
+  notifyMsgeDebounced(msgeTopicFor(type, obj, tags))
+}
+
+/**
+ * Which of msge.no's surfaces this object feeds.
+ *
+ * Exported and pure so the mapping is testable without an ingest. It is coarse on
+ * purpose: msge.no decides which pollers a topic wakes, and its `tut` topic already
+ * covers the togselfie gallery, the engagement board AND the photo gallery — so
+ * there is nothing to gain here by telling Pixelfed apart from Mastodon, which
+ * would mean parsing an actor URI and getting it wrong the day he moves instance.
+ */
+export function msgeTopicFor(type: string, obj: AnyObject, tags: unknown[] = []): MsgeTopic {
+  if (BOOKWYRM_TYPES.has(type)) return 'bok'
+  if (isNeodbMark(obj)) {
+    // /film is built from /watched, which is film and TV. A NeoDB *book* mark
+    // belongs to /bokhylla instead — isNeodbBookUrl is already imported here to
+    // route enrichment, so this costs nothing and is the difference between waking
+    // the right poller and waking a wrong one on every book he marks.
+    return collectNeodbTagHrefs(tags).some((u) => isNeodbBookUrl(u)) ? 'bok' : 'film'
+  }
+  // Everything else: ordinary tuts, togselfies, Pixelfed photos, and gig
+  // attendances — msge.no has no gig page yet, so they land here rather than
+  // inventing a topic nothing listens to. Add one the day /konsertar exists.
+  return 'tut'
 }
 
 // An AP timestamp, or null when absent/unparseable. Dates are taken verbatim: a mark is

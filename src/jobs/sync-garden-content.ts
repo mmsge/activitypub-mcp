@@ -3,6 +3,7 @@ import { gardenNotes } from '../db/schema.js'
 import { fetchGardenNoteRefs, noteAccessUrl, type GardenNoteRef } from '../lib/fetch-garden.js'
 import { deriveGardenDates } from './derive-garden-dates.js'
 import { logger } from '../lib/logger.js'
+import { notifyMsgeChanged } from '../lib/msge-webhook.js'
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm'
 
 const FETCH_DELAY_MS = 200
@@ -220,6 +221,15 @@ export async function syncGardenContent(): Promise<void> {
       still_undated: dates.stillUndated,
     },
     'Garden content sync complete'
+  )
+
+  // msge.no's /tankehav section is rebuilt from /garden-pages every six hours, and
+  // this job runs every six too — so without a wake the worst case is twelve. Sent
+  // only when the pass actually moved something: a cycle where every note answered
+  // 304 has re-stated what msge.no already has, and waking it would be pure noise.
+  await notifyMsgeChanged(
+    'tankehav',
+    fetched + plan.toUpsertMeta.length + plan.toSoftDelete.length,
   )
 }
 

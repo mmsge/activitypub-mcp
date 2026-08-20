@@ -121,6 +121,51 @@ Two more rules not to "simplify" back:
   HTML for anything ambiguous, so a browser-ish header silently returns a web page and
   looks exactly like a missing ActivityPub representation.
 
+## Webhooks out
+
+This service wakes two others on the box when data lands, so neither has to wait out
+its own timer. Both are **fire-and-forget optimisations**: every receiver still
+re-reads on its own schedule, so a dropped, failed or unconfigured notification costs
+latency and nothing else.
+
+| Receiver | Module | Config pair | Fired by |
+|----------|--------|-------------|----------|
+| `bartenderen` (`/webhook/tog`) | `src/lib/trip-webhook.ts` | `BARTENDEREN_WEBHOOK_*` | the train-trip import and prune |
+| `msge.no` (`/webhook/:emne`) | `src/lib/msge-webhook.ts` | `MSGE_WEBHOOK_*` | trip + YouTube imports, the trip **prune**, the garden sync, and every ingested object |
+
+The three rules live once, in **`src/lib/webhook-post.ts`**: never throw (a failed
+notification must not fail the import that triggered it), never retry (every receiver
+already re-reads on a timer, and a retry loop here is a second worse implementation
+of it), and never stay quiet about a failure (hetzner-server ADR 0011 — weeks of
+silently-401ing ntfy pushes behind `curl -sf … || true`). ADR 0053 predicted a second
+consumer would want its own config pair and its own call rather than a fan-out, and
+that held — what it did not anticipate is that those three are **transport, not
+policy**. ADR 0055 records the split.
+
+Rules not to "simplify" back:
+
+- **Scrobbles are deliberately NOT notified.** Both sides tick at 60 s, so the saving
+  is under 30 seconds — against a POST every minute forever, and a permanently
+  occupied rate-limit slot on the receiver. ADR 0053's value was collapsing a
+  four-hour worst case; here the worst case is one minute.
+- **`ingestObject` is debounced, and the debounce has a CEILING.** It fires once per
+  object and a NeoDB repair or outbox re-crawl pushes hundreds through in seconds. A
+  trailing debounce with no ceiling is reset by every new object, so a long backfill
+  would send *nothing at all* — `MAX_DELAY_MS` is not optional. The timer is
+  `unref()`d, or a pending debounce holds a short-lived script (and vitest) open.
+- **The topic is the upstream event, not the page.** `tog`, `tuben`, `bok`, `film`,
+  `tut`, `bilete`, `tankehav`, `lyttar`, `poppis`. Which pollers each wakes is
+  msge.no's business, declared in its own registry, so it can add a page without a
+  change here.
+- **A NeoDB *book* mark is `bok`, not `film`.** msge.no's `/film` is built from
+  `/watched`, which is film and TV; routing a book there wakes a poller that will
+  never show it. `isNeodbBookUrl` is already imported in `create.ts` for enrichment
+  routing, so the check is free.
+- **`msge.no` must be dialled on `172.18.0.1:4003`.** Its receiver refuses anything
+  carrying `X-Forwarded-*`, so going through `https://msge.no` answers 404 by design.
+- **Gig attendances map to `tut`** until msge.no grows a gig page — inventing a topic
+  nothing listens to would be a wake that always 400s.
+
 ## Stack
 
 Hono + TypeScript, PostgreSQL. The `db` service (postgres) is internal-only and not exposed to the host. The `app` service exposes port 3000 to the host so central Caddy can reach it.

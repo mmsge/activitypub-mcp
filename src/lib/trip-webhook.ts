@@ -1,5 +1,6 @@
 import { config } from '../config.js'
 import { logger } from './logger.js'
+import { postWebhook } from './webhook-post.js'
 
 /**
  * Tell `bartenderen` that the train-trip archive changed.
@@ -24,9 +25,13 @@ import { logger } from './logger.js'
  *    silently-401ing ntfy pushes hidden behind `curl -sf … || true`. A non-2xx is
  *    logged loudly for the same reason: a drifted secret answers 403, and that
  *    line is the only thing that makes it visible.
+ *
+ * All three now live in `postWebhook`, shared with the msge.no notifier. Decision
+ * record 0053 predicted that a second consumer would want its own config pair and
+ * its own call rather than a generalised fan-out, and that held — what it did not
+ * anticipate is that the three rules above are transport, not policy, and a second
+ * copy of them is a second chance to lose one. See decision record 0055.
  */
-
-const TIMEOUT_MS = 5_000
 
 export interface TripWebhookTarget {
   url: string
@@ -69,33 +74,13 @@ export async function notifyTripsChanged(
     return false
   }
 
-  let res: Response
-  try {
-    res = await fetch(target.url, {
-      method: 'POST',
-      headers: { 'X-Bartenderen-Token': target.secret },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    })
-  } catch (e) {
-    // The message only, never the error object: pino would serialise `cause`,
-    // which on a connection failure carries the address we dialled. That is an
-    // IP in a log line, which the box's logging convention forbids. undici's
-    // messages here are "fetch failed" and the timeout's abort reason — neither
-    // names the host.
-    logger.error(
-      { error: e instanceof Error ? e.message : String(e) },
-      'TRIP WEBHOOK FAILED (network)',
-    )
-    return false
-  }
-
-  if (!res.ok) {
-    // 403 means the secret drifted from bartenderen's WEBHOOK_SECRET; 503 means
-    // bartenderen has none set, so its own webhook is disabled. Both are
-    // configuration, and both stay silent forever if this line is not here.
-    logger.error({ status: res.status }, 'TRIP WEBHOOK FAILED')
-    return false
-  }
+  const ok = await postWebhook({
+    url: target.url,
+    headerName: 'X-Bartenderen-Token',
+    secret: target.secret,
+    label: 'TRIP WEBHOOK',
+  })
+  if (!ok) return false
 
   logger.info({ changed }, 'trip webhook sent — bartenderen will recompute')
   return true
