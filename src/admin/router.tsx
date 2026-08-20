@@ -41,6 +41,7 @@ import { parseLinkedinExport } from '../lib/parse-linkedin-export.js'
 import { deriveTokenStatus, getSourceHealth, LINKEDIN_SOURCE } from '../lib/source-health.js'
 import { parseTrainTripsCsv } from '../lib/parse-trips-csv.js'
 import { notifyTripsChanged } from '../lib/trip-webhook.js'
+import { notifyMsgeChanged } from '../lib/msge-webhook.js'
 import { resolveActorByHandle } from '../lib/fetch-actor.js'
 import { logger } from '../lib/logger.js'
 
@@ -469,6 +470,11 @@ app.post(
     // actually changed; never throws, so a failure here cannot fail the import.
     await notifyTripsChanged(result.inserted + result.updated)
 
+    // And msge.no, whose /tog, /meir and both train counters are rebuilt by pollers
+    // that would otherwise not look again for six hours. Same rules: only when
+    // something actually changed, and never fatal to the import.
+    await notifyMsgeChanged('tog', result.inserted + result.updated)
+
     const params = new URLSearchParams({
       actor: 'train trips (CSV)',
       total: String(result.total),
@@ -574,6 +580,12 @@ app.post(
       { ...result, failed: result.failed.length, problems: problems.length, normalisations: normalisations.length },
       'YouTube watch import complete (admin upload)',
     )
+
+    // /tuben is ~96k watch events rendered as a hub, five sub-pages and one page per
+    // year, and its poller opens with a single fingerprint call that returns early
+    // when nothing moved. An import that inserted rows moves that fingerprint, so
+    // this wake turns into a real rebuild; one that inserted nothing never gets sent.
+    await notifyMsgeChanged('tuben', result.inserted)
 
     // Rendered rather than redirected, unlike the other importers: the problem,
     // normalisation and refusal lists are the substance of this report and will not

@@ -55,6 +55,24 @@ const schema = z.object({
   // retries, because the four-hour cap on the other side is already the backstop.
   BARTENDEREN_WEBHOOK_URL: z.string().default('http://172.18.0.1:4031/webhook/tog'),
   BARTENDEREN_WEBHOOK_SECRET: z.string().default(''),
+  // The same signal for msge.no, whose pages are rebuilt by sixteen pollers on
+  // fixed intervals — the slow ones six-hourly. Because the sync jobs on this side
+  // are periodic too, the worst case from "an import lands" to "the site shows it"
+  // is the sum of both, which is what this collapses.
+  //
+  // A BASE url: the topic is appended, so `…/webhook` + `tog`. The bridge gateway
+  // again, and for one more reason than bartenderen — msge.no's Caddy block is a
+  // catch-all `reverse_proxy`, so the receiver refuses anything arriving with
+  // X-Forwarded-* headers. Dialling it through https://msge.no would answer 404 by
+  // design; it must be the internal address.
+  //
+  // The secret must match WEBHOOK_SECRET in /srv/msge/.env. Empty here leaves every
+  // notification a logged no-op, so the feature is inert until it is set — the same
+  // shape as NTFY_PASSWORD and the bartenderen pair above. A drifted secret answers
+  // 401 and the MSGE WEBHOOK FAILED line says so; nothing retries, because msge.no's
+  // own intervals are already the backstop.
+  MSGE_WEBHOOK_URL: z.string().default('http://172.18.0.1:4003/webhook'),
+  MSGE_WEBHOOK_SECRET: z.string().default(''),
   NTFY_URL: z.string().default('https://n.msge.no'),
   NTFY_TOPIC: z.string().default('scrobble-race'),
   NTFY_USER: z.string().default('markus'),
