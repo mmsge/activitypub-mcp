@@ -2,6 +2,7 @@ import { runDeliveryWorker } from './deliver.js'
 import { refreshStaleActors } from './refresh-actors.js'
 import { syncScrobbles } from './sync-scrobbles.js'
 import { runScrobbleRace } from './scrobble-race.js'
+import { runConvergenceWatch } from './convergence.js'
 import { checkRaceNowPlaying } from './scrobble-race-nowplaying.js'
 import { syncBookMetadata } from './sync-book-metadata.js'
 import { syncBookwyrmShelves } from './sync-bookwyrm-shelves.js'
@@ -42,12 +43,22 @@ export function startScheduler(): void {
   // (default 60s). The race watcher is chained to the sync rather than given its own
   // timer: it reacts to rows the sync just wrote, so an independent interval would
   // only add a window in which it reads stale counts.
+  //
+  // The convergence watcher rides the same chain for the same reason, and it must:
+  // the one time the scrobble count and the train kilometres have been level, they
+  // were level for three minutes and ten seconds. Nothing coarser than this tick can
+  // see a window that narrow. It also evaluates on every tick rather than only when
+  // the sync wrote something, because a train departing moves the other counter with
+  // no ingest of any kind to react to.
   const scrobbleIntervalMs = config.LASTFM_SYNC_INTERVAL_SECONDS * 1_000
   setInterval(async () => {
     try {
       await syncScrobbles()
       await runScrobbleRace()
     } catch (e) { logger.error(e, 'Scrobble sync error') }
+    try {
+      await runConvergenceWatch()
+    } catch (e) { logger.error(e, 'Convergence watch error') }
   }, scrobbleIntervalMs)
 
   // Live now-playing watch for the endgame of the scrobble race. Outside the endgame

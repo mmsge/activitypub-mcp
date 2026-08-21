@@ -44,6 +44,7 @@ import {
 } from '../mcp/tools/hashtag-stats.js'
 import { getScrobbleRaceSchema, getScrobbleRace } from '../mcp/tools/scrobble-race.js'
 import { listScrobbleRacesSchema, listScrobbleRaces } from '../mcp/tools/scrobble-races.js'
+import { getConvergenceSchema, getConvergence } from '../mcp/tools/convergence.js'
 import { getPostBreakoutsSchema, getPostBreakouts } from '../mcp/tools/post-breakouts.js'
 import {
   getEngagementSchema, getEngagement,
@@ -222,6 +223,18 @@ export const endpoints: RestEndpoint[] = [
     handler: getYoutubeStats,
     numbers: ['limit', 'year'],
     booleans: ['include_unresolved'],
+    arrays: [],
+  },
+  {
+    path: '/convergence',
+    name: 'get_convergence',
+    description: 'Where the cumulative scrobble count stands against the cumulative train kilometres, and every time they have met or swapped places. Two monotonic counters over the same archive: one ticks up a play at a time, the other arrives in lumps of up to 1,176 km. Returns both totals, the signed gap (km minus scrobbles), who leads, the per-day rates over a trailing window, a projected next meeting, and the recorded crossings newest first — each with what caused it (a scrobble, with artist/track/album, or a named trip leg), whether it was found retrospectively, and how long an equality held. Kilometres are whole per leg as viaduct stores them, and a leg counts from the moment it departed rather than from a Completed status.',
+    schema: getConvergenceSchema,
+    handler: getConvergence,
+    // Both are z.number(), so they MUST be listed here — coerceQuery only converts the
+    // keys it is told about, and an omitted one 400s every GET that carries it.
+    numbers: ['limit', 'pace_days'],
+    booleans: [],
     arrays: [],
   },
   {

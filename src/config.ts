@@ -97,6 +97,17 @@ const schema = z.object({
   // ever ends. publishNtfy() takes an explicit target, so nothing has to mutate
   // NTFY_TOPIC to reach it.
   NTFY_TOPIC_BREAKOUT: z.string().default('tut-treff'),
+  // Third topic, for the convergence watcher: scrobbles vs train kilometres meeting or
+  // swapping places (decision record 0056). Its own topic for the same reason the
+  // breakout alerts have one — this fires a handful of times a decade, and nobody
+  // should have to mute a race countdown to keep it.
+  NTFY_TOPIC_CONVERGENCE: z.string().default('konvergens'),
+  // Master switch for the convergence watcher. ON by default, unlike BREAKOUT_ENABLED:
+  // the feature is quiet by nature rather than by configuration, so the switch is a
+  // kill switch rather than an arming step. An unset NTFY_PASSWORD still makes every
+  // push a logged no-op, which is what convergenceEnabled() below refuses on.
+  CONVERGENCE_ENABLED: z.string().default('1')
+    .transform(v => ['1', 'true', 'yes', 'on'].includes(v.trim().toLowerCase())),
   // Where the race definitions live. A race is a pair of entities — artist, album or
   // track — with its own topic, milestones and countdown band; see races.json and
   // decision record 0051. Overridable so the tests can point at a fixture.
@@ -467,6 +478,17 @@ export function getBreakoutActors(): string[] {
  *  loudly rather than idling quietly. */
 export function breakoutEnabled(): boolean {
   return config.BREAKOUT_ENABLED && config.NTFY_PASSWORD !== ''
+}
+
+/** Whether the convergence watcher may run at all.
+ *
+ *  NTFY_PASSWORD is part of the condition for the reason record 0015 gives and
+ *  `breakoutEnabled` repeats: advancing state past a crossing nobody was ever told
+ *  about is the silent no-op hetzner-server ADR 0011 exists to forbid. Here it would
+ *  be worse than a missed rung — a crossing recorded while unconfigured can never be
+ *  announced afterwards, because the row is itself the "already announced" mark. */
+export function convergenceEnabled(): boolean {
+  return config.CONVERGENCE_ENABLED && config.NTFY_PASSWORD !== ''
 }
 
 export function getBookwyrmActors(): string[] {

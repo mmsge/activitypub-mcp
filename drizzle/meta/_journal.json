@@ -274,6 +274,13 @@
       "when": 1786958702000,
       "tag": "0038_race_state_per_race",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786958703000,
+      "tag": "0039_convergence_watch",
+      "breakpoints": true
     }
   ]
 }

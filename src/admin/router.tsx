@@ -48,6 +48,7 @@ import { deriveTokenStatus, getSourceHealth, LINKEDIN_SOURCE } from '../lib/sour
 import { parseTrainTripsCsv } from '../lib/parse-trips-csv.js'
 import { notifyTripsChanged } from '../lib/trip-webhook.js'
 import { notifyMsgeChanged } from '../lib/msge-webhook.js'
+import { runConvergenceWatch } from '../jobs/convergence.js'
 import { applyTripPrune } from './prune-trips.js'
 import { resolveActorByHandle } from '../lib/fetch-actor.js'
 import { logger } from '../lib/logger.js'
@@ -497,6 +498,20 @@ app.post(
     // something actually changed, and never fatal to the import.
     await notifyMsgeChanged('tog', result.inserted + result.updated)
 
+    // Re-settle the convergence watcher, with a FULL recompute rather than the tick's
+    // resume-from-watermark. This is the one path that can change the past: an export
+    // inserts or corrects a leg at any date, and every kilometre it adds shifts the
+    // running difference for every event after it. A crossing that only exists now
+    // that this leg does is announced with the date it actually happened.
+    //
+    // Its own try/catch, and after both webhooks: the import is the durable thing, and
+    // a watcher that throws must not turn a successful import into an error page.
+    try {
+      await runConvergenceWatch({ recompute: true })
+    } catch (e) {
+      logger.error(e, 'Convergence watch failed after trip import')
+    }
+
     // Rendered rather than redirected, unlike the other importers: the list of trips
     // this export no longer contains is the substance of the report and will not
     // survive a query string. Re-POSTing on refresh is harmless — the import is
@@ -548,6 +563,15 @@ app.post(
     // both re-derive `upcoming` from a schedule this deletion just invalidated.
     // Left alone it would count down to a train that no longer exists for six hours.
     await notifyMsgeChanged('tog', result.deleted)
+
+    // A deletion rewrites the past exactly as an insertion does — the kilometres those
+    // legs contributed are gone from every total after them, so a crossing derived from
+    // them is no longer true. Full recompute, same reasoning as the import above.
+    try {
+      await runConvergenceWatch({ recompute: true })
+    } catch (e) {
+      logger.error(e, 'Convergence watch failed after trip prune')
+    }
 
     return c.html(<TripPruneResultPage result={result} />)
   },
