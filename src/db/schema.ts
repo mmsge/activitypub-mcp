@@ -715,6 +715,89 @@ export const raceState = pgTable('race_state', {
 ])
 
 /**
+ * A moment when the cumulative scrobble count and the cumulative train kilometres met,
+ * or swapped places. One row per crossing; the row IS the "already announced" record.
+ *
+ * Keyed on `(kind, occurred_at)` — the crossing's own instant, never a row id. A trip
+ * re-imported from a fresh export gets a new uuid for the same leg, and a recomputed
+ * walk re-derives the same crossing from the same data; keying on an id would read
+ * both as something new to push about. The instant is what the crossing *is*.
+ *
+ * `occurred_at` is the causing event's own timestamp — a scrobble's `played_at`, a
+ * leg's `departure_at` — and never the moment the watcher noticed. A backfilled export
+ * can put a crossing years in the past, and `historical` says the push named a date
+ * rather than a discovery. See decision record 0056.
+ */
+export const convergenceEvents = pgTable('convergence_events', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // 'equality' — the two were exactly level. 'crossover' — the lead changed hands
+  // without ever being level, which only a kilometre lump can do.
+  kind: text('kind').notNull(),
+  occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull(),
+  // The shared figure, for an equality. Null on a crossover, which by definition has
+  // no single value.
+  value: bigint('value', { mode: 'number' }),
+  // km − scrobbles immediately after the event. Zero on an equality.
+  gap: integer('gap').notNull(),
+  // 'km' | 'scrobbles' | 'tie'.
+  leader: text('leader').notNull(),
+  scrobbles: bigint('scrobbles', { mode: 'number' }).notNull(),
+  km: bigint('km', { mode: 'number' }).notNull(),
+  // What moved the number: 'scrobble' or 'leg', with that side's columns filled in.
+  causeKind: text('cause_kind').notNull(),
+  causeArtist: text('cause_artist'),
+  causeTrack: text('cause_track'),
+  causeAlbum: text('cause_album'),
+  causeUrl: text('cause_url'),
+  causeFrom: text('cause_from'),
+  causeTo: text('cause_to'),
+  causeJourney: text('cause_journey'),
+  causeKm: integer('cause_km'),
+  // Equality only: when the two stopped being level. Null while the window is still
+  // open — and filled in later WITHOUT a second push, because one crossing is one
+  // notification.
+  endedAt: timestamp('ended_at', { withTimezone: true }),
+  detectedAt: timestamp('detected_at', { withTimezone: true }).notNull().defaultNow(),
+  // The crossing predated what the watcher already knew — an import rewrote history
+  // under it. Drives the past tense and the "oppdaga i ettertid" line.
+  historical: boolean('historical').notNull().default(false),
+  // Set once the push actually went out. A row with this null was recorded but never
+  // announced, which is what a failed ntfy publish leaves behind.
+  notifiedAt: timestamp('notified_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  // The exactly-once enforcement. Insert ON CONFLICT DO NOTHING RETURNING, and push
+  // only for the rows that actually came back.
+  uniqueIndex('convergence_events_identity_idx').on(t.kind, t.occurredAt),
+  index('convergence_events_occurred_idx').on(t.occurredAt),
+])
+
+/**
+ * Where the last evaluation left off. Exactly one row.
+ *
+ * `watermark_at` is the instant of the last event folded in, and the totals are the
+ * two counters at that instant — so the 60-second tick reads only the handful of
+ * scrobbles that landed since, instead of walking the whole archive every minute.
+ *
+ * That shortcut is sound for scrobbles and NOT for legs: `sync-scrobbles` cursors on
+ * `max(uts) + 1` and so can never ingest a play older than the newest one stored,
+ * while a Viaduct import can insert, correct or delete a leg anywhere in the past.
+ * Which is why the import path recomputes from zero rather than trusting this row.
+ */
+export const convergenceState = pgTable('convergence_state', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // A constant, so the unique index below can hold the table to one row.
+  singleton: boolean('singleton').notNull().default(true),
+  scrobbles: bigint('scrobbles', { mode: 'number' }).notNull(),
+  km: bigint('km', { mode: 'number' }).notNull(),
+  watermarkAt: timestamp('watermark_at', { withTimezone: true }),
+  seededAt: timestamp('seeded_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('convergence_state_singleton_idx').on(t.singleton),
+])
+
+/**
  * One YouTube watch event, ingested from a Google Takeout-shaped `watch-history.json`.
  *
  * **`watched_at_local` is the authority; `watched_at` is derived.** The source records a

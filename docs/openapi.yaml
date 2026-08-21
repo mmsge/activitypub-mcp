@@ -1353,6 +1353,66 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/convergence:
+    get:
+      tags: [REST API]
+      summary: Scrobbles against train kilometres, and every time they have crossed
+      description:
+        Two monotonic counters over the same archive — one ticks up a play at a time,
+        the other arrives in lumps of up to 1,176 km. Returns both totals, the signed
+        gap (`total_km` minus `total_scrobbles`), who leads, the per-day rates over a
+        trailing window, a projected next meeting, and the recorded crossings newest
+        first. A crossing is either an `equality` (exactly level) or a `crossover` (the
+        lead changed hands without ever being level, which only a kilometre lump can
+        do). Kilometres are whole per leg, exactly as viaduct stores them, and a leg
+        counts from the moment it departed rather than from a `Completed` status.
+      operationId: getConvergence
+      parameters:
+        - {
+            name: limit,
+            in: query,
+            description: "How many recorded crossings to return, newest first.",
+            schema: { type: integer, minimum: 1, maximum: 100, default: 20 },
+          }
+        - {
+            name: pace_days,
+            in: query,
+            description: Trailing window the rates and the projection are computed over.,
+            schema: { type: integer, minimum: 1, maximum: 3650, default: 365 },
+          }
+      responses:
+        "200":
+          description: The standing and the recorded crossings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConvergenceResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Scrobbles against train kilometres (JSON body)
+      operationId: getConvergencePost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                limit: { type: integer, minimum: 1, maximum: 100, default: 20 }
+                pace_days:
+                  { type: integer, minimum: 1, maximum: 3650, default: 365 }
+      responses:
+        "200":
+          description: The standing and the recorded crossings.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConvergenceResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/scrobble-races:
     get:
       tags: [REST API]
@@ -5522,6 +5582,67 @@ components:
             The last play matching this side — for an album race, the last track played
             from that record, not the artist's last play.
 
+    ConvergenceResponse:
+      type: object
+      properties:
+        total_scrobbles: { type: integer }
+        total_km: { type: integer }
+        gap:
+          type: integer
+          description: total_km minus total_scrobbles. Negative while the listening leads.
+        leader: { type: string, enum: [km, scrobbles, tie] }
+        kilometre_resolution: { type: string }
+        counted_legs: { type: string }
+        pace:
+          type: object
+          properties:
+            days: { type: integer }
+            scrobbles_per_day: { type: number }
+            km_per_day: { type: number }
+            net_per_day: { type: number }
+        projected_meeting:
+          description: Null when the gap is not closing at the current rates.
+          type: [object, "null"]
+          properties:
+            days: { type: integer }
+            date: { type: string, format: date }
+        crossings:
+          type: array
+          items:
+            type: object
+            properties:
+              kind: { type: string, enum: [equality, crossover] }
+              occurred_at:
+                type: string
+                format: date-time
+                description:
+                  The causing event's own instant — a scrobble's played_at or a leg's
+                  departure_at. Never when the watcher noticed.
+              ended_at: { type: [string, "null"], format: date-time }
+              held_seconds:
+                type: [integer, "null"]
+                description: How long an equality held. Null while the window is still open.
+              value: { type: [integer, "null"] }
+              gap: { type: integer }
+              leader: { type: string, enum: [km, scrobbles, tie] }
+              total_scrobbles: { type: integer }
+              total_km: { type: integer }
+              historical:
+                type: boolean
+                description: The crossing predated what the watcher knew; an import rewrote history under it.
+              notified_at: { type: [string, "null"], format: date-time }
+              cause:
+                type: object
+                properties:
+                  kind: { type: string, enum: [scrobble, leg] }
+                  artist: { type: [string, "null"] }
+                  track: { type: [string, "null"] }
+                  album: { type: [string, "null"] }
+                  url: { type: [string, "null"] }
+                  from: { type: [string, "null"] }
+                  to: { type: [string, "null"] }
+                  journey: { type: [string, "null"] }
+                  km: { type: [integer, "null"] }
     ScrobbleRacesResponse:
       type: object
       properties:

@@ -11,6 +11,7 @@ import { getReadingPaceSchema, getReadingPace } from './tools/reading-pace.js'
 import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleStats } from './tools/scrobbles.js'
 import { getScrobbleRaceSchema, getScrobbleRace } from './tools/scrobble-race.js'
 import { listScrobbleRacesSchema, listScrobbleRaces } from './tools/scrobble-races.js'
+import { getConvergenceSchema, getConvergence } from './tools/convergence.js'
 import { getYoutubeWatchesSchema, getYoutubeWatches, getYoutubeStatsSchema, getYoutubeStats } from './tools/youtube-watches.js'
 import { getPostBreakoutsSchema, getPostBreakouts } from './tools/post-breakouts.js'
 import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
@@ -186,6 +187,16 @@ export function createMcpServer(): McpServer {
     getScrobbleRaceSchema.shape,
     async (input) => {
       const result = await getScrobbleRace(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_convergence',
+    "Where the cumulative scrobble count stands against the cumulative train kilometres, and every time they have met or swapped places. Two monotonic counters over the same archive: one ticks up a play at a time, the other arrives in lumps of up to 1,176 km. Returns both totals, the signed gap (km minus scrobbles), who leads, the per-day rates over a trailing window, a projected next meeting, and the recorded crossings newest first — each with what caused it (a scrobble, with artist/track/album, or a named trip leg), whether it was found retrospectively, and how long an equality held. Kilometres are whole per leg as viaduct stores them, and a leg counts from the moment it departed rather than from a Completed status.",
+    getConvergenceSchema.shape,
+    async (input) => {
+      const result = await getConvergence(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

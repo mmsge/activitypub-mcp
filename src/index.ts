@@ -16,6 +16,7 @@ import { startScheduler } from './jobs/scheduler.js'
 import { syncFollows } from './jobs/sync-follows.js'
 import { syncScrobbles } from './jobs/sync-scrobbles.js'
 import { runScrobbleRace } from './jobs/scrobble-race.js'
+import { runConvergenceWatch } from './jobs/convergence.js'
 import { getRaces } from './lib/races-config.js'
 import { syncBookMetadata } from './jobs/sync-book-metadata.js'
 import { syncNeodbMetadata } from './jobs/sync-neodb-metadata.js'
@@ -102,6 +103,15 @@ async function main() {
     await runScrobbleRace()
   } catch (e) {
     logger.error(e, 'Scrobble sync failed on startup')
+  }
+
+  // Settle the convergence watcher against the same rows. Its own try/catch: a first
+  // run walks the whole archive, and a watcher that fails to seed must not take the
+  // race down with it.
+  try {
+    await runConvergenceWatch()
+  } catch (e) {
+    logger.error(e, 'Convergence watch failed on startup')
   }
 
   // Backfill BookWyrm reading history + shelf membership + enrich book metadata

@@ -92,6 +92,45 @@ Rules not to "simplify" back:
   release by the tool only; the notifier reads `races.json`. Remove them from
   `/srv/bot/.env`.
 
+## Convergence watcher
+
+Two monotonic counters over the same archive — `total_scrobbles` and `total_km` — and an
+ntfy push the moment they **meet** (priority `high`) or **swap places** (priority
+`default`), on its own topic (`NTFY_TOPIC_CONVERGENCE`, default `konvergens`).
+`CONVERGENCE_ENABLED` is **on** by default. They have met once, 2020-01-11 at 3,298 each,
+and that state held three minutes and ten seconds. Inspect at `get_convergence` or
+`/api/v1/convergence`. See ADR 0056.
+
+Rules not to "simplify" back:
+
+- **A leg counts from when it DEPARTED, not from `status = 'Completed'`.** Viaduct
+  freezes `Planned` on any row imported once and never re-exported — the ADR 0031 trap
+  that hid 13 journeys from the public stream. Two legs today (397 km) are departed and
+  still `Planned`, and at ~35 km/day that is a week and a half of difference in when the
+  counters next meet. `departure_at <= now()` is what "Completed, or departed" means.
+- **The dedupe key is `(kind, occurred_at)`, never a row id.** A re-imported leg gets a
+  new uuid for the same journey (identity is `from/to/departure_at`, ADR 0048) and the
+  post-import walk re-derives every crossing from scratch. Keyed on an id, both would
+  read as new and push again.
+- **`occurred_at` is the cause's own instant, never detection time.** A backfilled export
+  puts a crossing in the past; `historical` is what makes the copy past tense.
+- **The watermark is valid for scrobbles and NOT for legs.** `sync-scrobbles` cursors on
+  `max(uts) + 1`, so a play can never arrive behind it. An import can insert, correct or
+  delete a leg at any date, which shifts the running difference for everything after —
+  so the import and prune paths call `runConvergenceWatch({ recompute: true })` and walk
+  the whole archive. The tick's fast path exists only because that hazard cannot reach it.
+- **A scrobble can never flip the sign without landing on zero.** It steps by one, so it
+  always visits `d = 0`. Every crossover is therefore a kilometre lump, and *leaving* an
+  equality window is the resolution of a crossing already announced — not a new one.
+- **The row is written before the push and stamped after it.** `notified_at` makes the
+  table a retry queue: a failed publish leaves the crossing owed and does not advance the
+  watermark. The watcher refuses to run without `NTFY_PASSWORD` for the same reason — the
+  row is its own "already told you" mark, so anything recorded while unarmed is buried.
+- **It evaluates on every tick, not only when the sync wrote rows.** A train departing
+  moves the other counter on a clock, with no ingest to react to.
+- **Several new crossings collapse into ONE push.** Only a backfill produces more than
+  one; announcing each would be a burst about a single edited CSV row.
+
 ## Gigs
 
 Concert attendances federate from **Gigowl** (`@markus@gigowl.social`, software name
