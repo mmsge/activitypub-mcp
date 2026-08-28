@@ -56,6 +56,10 @@ try {
     console.log(`  ${String(value).padStart(7)}  ${label}`)
 
   console.log(`\n${result.mode} run:`)
+  if (result.actors?.length) {
+    const from = result.actors.every(a => a.source === 'followed') ? ' (from followed accounts)' : ''
+    console.log(`  walking roots by ${result.actors.map(a => a.handle).join(', ')}${from}`)
+  }
   line('roots in the queue', result.candidates)
   line('threads asked about', result.requested)
   line('threads walked', result.walked)
@@ -74,8 +78,42 @@ try {
   if (result.stopped === 'bounded') {
     console.log('  Request budget spent. Re-run to continue where this left off.')
   }
-  if (result.stopped === 'no_actors') {
-    console.log('  Set THREAD_ACTORS (or OWNER_ACTOR) to an account this server has stored.')
+  // Two different problems, two different fixes — and the stored handles are printed so
+  // neither needs a psql session to work out.
+  if (result.stopped === 'not_configured' || result.stopped === 'no_match') {
+    console.log(
+      result.stopped === 'not_configured'
+        ? '\n  Nothing configured, and no followed Mastodon account to fall back to.\n' +
+          '  Set THREAD_ACTORS (or OWNER_ACTOR) in /srv/bot/.env to one of the handles below.'
+        : '\n  THREAD_ACTORS/OWNER_ACTOR is set, but it matched nothing in the archive.\n' +
+          '  It has to match one of the handles below exactly (an actor URL works too).',
+    )
+    const stored = result.storedHandles ?? []
+    console.log(
+      stored.length === 0
+        ? '\n  The `actors` table is EMPTY — nothing has been ingested yet, so this is not a\n' +
+          '  thread-walk problem. Check the follow/ingest side first.'
+        : `\n  Stored accounts (${stored.length}):\n${stored.map(h => `    ${h}`).join('\n')}`,
+    )
+    // Why the fallback did not fire. "You follow nothing" and "you follow three accounts
+    // and none of them reported Mastodon" are different problems; `software` is null
+    // until the hourly NodeInfo probe has reached that host.
+    const followed = result.followed ?? []
+    if (followed.length > 0) {
+      console.log(
+        `\n  The fallback looked at ${followed.length} accepted follow(s) and none reported\n` +
+        '  Mastodon, so none could be asked for a thread context:',
+      )
+      for (const f of followed) {
+        console.log(`    ${f.handle.padEnd(32)} software: ${f.software ?? 'null (not probed yet)'}`)
+      }
+      if (followed.some(f => f.software === null)) {
+        console.log(
+          '\n  A null means the NodeInfo probe has not reached that host yet; it runs hourly.\n' +
+          '  Naming the account in THREAD_ACTORS skips the probe entirely.',
+        )
+      }
+    }
   }
 } finally {
   await closeDb()

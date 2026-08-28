@@ -234,7 +234,11 @@ const schema = z.object({
   ENGAGEMENT_SAMPLE_RECENT_POSTS: z.coerce.number().int().min(0).max(50).default(20),
   // ── Thread shape: walk the conversations rooted in his own toots (record 0057) ──
   // Whose toots count as roots, as @user@domain or actor URLs, comma-separated. Empty
-  // falls back to OWNER_ACTOR, so a correctly configured deploy needs nothing new here.
+  // falls back to OWNER_ACTOR, and then to every accepted follow whose NodeInfo software
+  // is 'mastodon' — the auto-watchlist idiom sampleEngagement uses, narrowed because the
+  // context endpoint is a Mastodon API and asking BookWyrm or Gigowl for one would only
+  // manufacture walk errors. So a deploy with neither variable set still walks his own
+  // Mastodon account rather than silently doing nothing.
   THREAD_ACTORS: z.string().default(''),
   // The daily incremental pass. 0 disables the timer entirely; the backfill script still
   // runs by hand. Gated at registration AND inside the job, the fast-lane idiom.

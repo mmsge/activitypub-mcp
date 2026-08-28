@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, gt, inArray, isNull, isNotNull, or, sql } from 'drizzle-orm'
 import { config, getThreadActors } from '../config.js'
 import { getDb } from '../db/client.js'
-import { actors, objects, threadNodes, threadRoots } from '../db/schema.js'
+import { actors, follows, objects, threadNodes, threadRoots } from '../db/schema.js'
 import { SAMPLED_TYPES } from '../jobs/sample-engagement.js'
 import { handleFromActorApId, splitApId } from './thread-context.js'
 import type { ThreadNode, ThreadStats } from './thread-context.js'
@@ -33,32 +33,146 @@ export interface ThreadActor {
   /** `@user@host`, lowercase. Derived from the actor id when the stored row carries no
    *  handle, so "is this node mine?" never depends on a field that happens to be null. */
   handle: string
+  /** Where this actor came from: named in THREAD_ACTORS/OWNER_ACTOR, or picked up from
+   *  the followed-accounts fallback. Reported, so "why is it walking that?" is answerable. */
+  source: 'configured' | 'followed'
 }
 
 /**
- * Whose toots are roots. Resolved against the stored `actors` table rather than over
- * WebFinger: the walker runs on a timer and must not depend on a remote lookup to know
- * whose archive it is reading. An entry that matches nothing is dropped, and a run with
- * no actors at all logs and does nothing rather than walking the whole archive.
+ * Which stored actors a configured entry names. Pure, so the spellings that do and do not
+ * match are assertable without a database — that is the whole failure mode this function
+ * exists to make legible.
+ *
+ * An entry is either an actor URL or a handle, and both are matched forgivingly, because
+ * every spelling below names the same account and a mismatch is otherwise a silent
+ * "no actors":
+ *
+ *   - a handle, case-insensitively, with the leading `@` optional on both sides — `.env`
+ *     files are written by people, and `markus@skvip.lol` is the same account;
+ *   - an actor URL, against `ap_id` exactly;
+ *   - an actor URL that is NOT the stored `ap_id`, by the handle derived from it — which
+ *     is what rescues the profile URL a person copies out of a browser
+ *     (`https://skvip.lol/@markus`) against the id the archive keys on
+ *     (`https://skvip.lol/users/markus`).
  */
-export async function resolveThreadActors(): Promise<ThreadActor[]> {
-  const configured = getThreadActors()
-  if (configured.length === 0) return []
-
+export function matchThreadActors(
+  configured: string[],
+  rows: Array<{ apId: string; handle: string | null }>,
+): ThreadActor[] {
   const urls = new Set(configured.filter(c => c.startsWith('http')))
   const handles = new Set(
-    configured.filter(c => !c.startsWith('http')).map(h => `@${h.replace(/^@/, '').toLowerCase()}`),
+    configured
+      .filter(c => !c.startsWith('http'))
+      .map(h => `@${h.trim().replace(/^@/, '').toLowerCase()}`),
   )
+  // A URL entry also matches by its DERIVED handle. `OWNER_ACTOR` is documented as
+  // accepting "an @user@domain handle or an actor URL", and the profile URL
+  // (`https://skvip.lol/@markus`) is the one a person copies out of a browser — but the
+  // archive keys on the actor id (`https://skvip.lol/users/markus`). Matching those two
+  // spellings only by string equality is a silence with no visible cause.
+  for (const url of urls) {
+    const derived = handleFromActorApId(url)?.toLowerCase()
+    if (derived) handles.add(derived)
+  }
 
-  const rows = await getDb().select({ apId: actors.apId, handle: actors.handle }).from(actors)
   const out: ThreadActor[] = []
   for (const r of rows) {
-    const handle = r.handle ? (r.handle.startsWith('@') ? r.handle : `@${r.handle}`).toLowerCase() : ''
+    const handle = normaliseStoredHandle(r.handle, r.apId)
     if (!urls.has(r.apId) && !(handle && handles.has(handle))) continue
-    const resolved = handle || handleFromActorApId(r.apId)?.toLowerCase() || ''
-    if (resolved) out.push({ apId: r.apId, handle: resolved })
+    if (handle) out.push({ apId: r.apId, handle, source: 'configured' })
   }
   return out
+}
+
+/**
+ * The outcome of working out whose toots are roots.
+ *
+ * Three states, not two. "No actors" collapses **nothing was configured** and
+ * **something was configured and matched nothing** into one silence, and those have
+ * completely different fixes: the first is an env var, the second is a handle that does
+ * not look the way the archive spells it. Telling them apart — and listing what the
+ * archive *does* hold — is the difference between a two-minute fix and a psql session.
+ * ADR 0039's lesson, and ADR 0034's: two conditions that mean different things must not
+ * be spelled the same way.
+ */
+export type ThreadActorResolution =
+  | { kind: 'ok'; actors: ThreadActor[] }
+  | {
+      kind: 'unconfigured'
+      stored: string[]
+      /** The accepted follows the fallback considered, and the NodeInfo software each
+       *  reports. Without this, "you follow nothing" and "you follow three accounts and
+       *  none of them said Mastodon" are the same silence — the very defect one level
+       *  down. `software` is null until the hourly NodeInfo probe has reached the host. */
+      followed: Array<{ handle: string; software: string | null }>
+    }
+  | { kind: 'unmatched'; configured: string[]; stored: string[] }
+
+/** `@user@host`, lowercase, however the row happens to spell it. */
+function normaliseStoredHandle(handle: string | null, apId: string): string {
+  const stored = handle ? (handle.startsWith('@') ? handle : `@${handle}`).toLowerCase() : ''
+  return stored || handleFromActorApId(apId)?.toLowerCase() || ''
+}
+
+/**
+ * Whose toots are roots.
+ *
+ * Resolved against the stored `actors` table rather than over WebFinger: the walker runs
+ * on a timer and must not depend on a remote lookup to know whose archive it is reading.
+ *
+ * With nothing configured it falls back to every **accepted follow running Mastodon** —
+ * the auto-watchlist `sampleEngagement` already uses, narrowed by `software` because the
+ * context endpoint is a Mastodon API and asking a BookWyrm or NeoDB account for one would
+ * only manufacture walk errors. Every stored actor is an account this server was pointed
+ * at deliberately, so that fallback is his own accounts and nobody else's.
+ */
+export async function resolveThreadActorsDetailed(): Promise<ThreadActorResolution> {
+  const rows = await getDb()
+    .select({ apId: actors.apId, handle: actors.handle, software: actors.software })
+    .from(actors)
+  const stored = rows.map(r => normaliseStoredHandle(r.handle, r.apId)).filter(Boolean).sort()
+
+  const configured = getThreadActors()
+
+  if (configured.length === 0) {
+    // The fallback. Accepted follows only — the inbox rejects everyone else, so these are
+    // accounts this server was pointed at on purpose.
+    const accepted = await getDb()
+      .select({ apId: follows.actorApId })
+      .from(follows)
+      .where(eq(follows.status, 'accepted'))
+    const acceptedIds = new Set(accepted.map(f => f.apId))
+
+    const candidates = rows.filter(r => acceptedIds.has(r.apId))
+    const out = candidates
+      .filter(r => r.software === 'mastodon')
+      .flatMap((r) => {
+        const handle = normaliseStoredHandle(r.handle, r.apId)
+        return handle ? [{ apId: r.apId, handle, source: 'followed' as const }] : []
+      })
+
+    if (out.length > 0) return { kind: 'ok', actors: out }
+    return {
+      kind: 'unconfigured',
+      stored,
+      followed: candidates.map(r => ({
+        handle: normaliseStoredHandle(r.handle, r.apId),
+        software: r.software,
+      })),
+    }
+  }
+
+  const out = matchThreadActors(configured, rows)
+
+  // Configured and matched nothing. That is a different failure from configuring nothing,
+  // and the stored handles are what makes it fixable without opening psql.
+  return out.length > 0 ? { kind: 'ok', actors: out } : { kind: 'unmatched', configured, stored }
+}
+
+/** The resolved actors, or an empty list. For callers that only need the happy path. */
+export async function resolveThreadActors(): Promise<ThreadActor[]> {
+  const result = await resolveThreadActorsDetailed()
+  return result.kind === 'ok' ? result.actors : []
 }
 
 export interface RootToWalk {
