@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { ContextStatus, ThreadNode, ThreadStats } from '../lib/thread-context.js'
 import type { ContextOutcome } from '../lib/thread-fetch.js'
-import type { RootToWalk, ThreadActor, WalkMode } from '../lib/thread-store.js'
+import type { RootToWalk, ThreadActorResolution, WalkMode } from '../lib/thread-store.js'
 
 /**
  * The orchestration, not the arithmetic — `thread-context.test.ts` pins what a tree looks
@@ -10,13 +10,13 @@ import type { RootToWalk, ThreadActor, WalkMode } from '../lib/thread-store.js'
  * walking the whole archive on a nightly timer.
  */
 
-const resolveThreadActors = vi.fn<() => Promise<ThreadActor[]>>()
+const resolveThreadActorsDetailed = vi.fn<() => Promise<ThreadActorResolution>>()
 const loadRootsToWalk = vi.fn<(o: { mode: WalkMode; actorApIds: string[]; limit: number }) => Promise<RootToWalk[]>>()
 const replaceThread = vi.fn<(r: RootToWalk, n: ThreadNode[], s: ThreadStats) => Promise<void>>(async () => {})
 const recordWalkFailure = vi.fn(async () => {})
 
 vi.mock('../lib/thread-store.js', () => ({
-  resolveThreadActors,
+  resolveThreadActorsDetailed,
   loadRootsToWalk,
   replaceThread,
   recordWalkFailure,
@@ -77,7 +77,10 @@ function descendant(id: string, parent: string, acct: string): ContextStatus {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  resolveThreadActors.mockResolvedValue([{ apId: ACTOR, handle: '@markus@skvip.lol' }])
+  resolveThreadActorsDetailed.mockResolvedValue({
+    kind: 'ok',
+    actors: [{ apId: ACTOR, handle: '@markus@skvip.lol', source: 'configured' }],
+  })
   loadRootsToWalk.mockResolvedValue([])
   fetchThreadContext.mockResolvedValue({ ok: true, descendants: [], authenticated: false })
 })
@@ -92,10 +95,39 @@ describe('walkThreads', () => {
   })
 
   it('does nothing at all when no actor resolves, rather than walking every stored post', async () => {
-    resolveThreadActors.mockResolvedValue([])
+    resolveThreadActorsDetailed.mockResolvedValue({ kind: 'unconfigured', stored: [] })
     const result = await walkThreads()
-    expect(result.stopped).toBe('no_actors')
+    expect(result.stopped).toBe('not_configured')
     expect(loadRootsToWalk).not.toHaveBeenCalled()
+  })
+
+  it('says WHICH silence it hit, because the two have different fixes', async () => {
+    // Nothing configured → set an env var. Configured but unmatched → the handle is
+    // spelled differently from the way the archive spells it. One `no_actors` for both
+    // sent a real backfill on the box to a psql session to find out which (ADR 0039).
+    resolveThreadActorsDetailed.mockResolvedValue({
+      kind: 'unmatched',
+      configured: ['@markus@skvip.lol'],
+      stored: ['@markus@bokwyrm.example', '@markus@gigowl.social'],
+    })
+
+    const result = await walkThreads()
+
+    expect(result.stopped).toBe('no_match')
+    // And it hands back what the archive DOES hold, so the fix needs no database.
+    expect(result.storedHandles).toEqual(['@markus@bokwyrm.example', '@markus@gigowl.social'])
+    expect(loadRootsToWalk).not.toHaveBeenCalled()
+  })
+
+  it('reports which actors it is walking and where they came from', async () => {
+    resolveThreadActorsDetailed.mockResolvedValue({
+      kind: 'ok',
+      actors: [{ apId: ACTOR, handle: '@markus@skvip.lol', source: 'followed' }],
+    })
+    const result = await walkThreads()
+    expect(result.actors).toEqual([
+      { apId: ACTOR, handle: '@markus@skvip.lol', source: 'followed' },
+    ])
   })
 
   it('writes the walked shape, with the root as node 0 and the replies under it', async () => {

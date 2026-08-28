@@ -199,6 +199,11 @@ Rules not to "simplify" back:
 - **One request per ROOT, not per node.** Mastodon's context endpoint returns the whole
   descendant subtree; walking node by node would be ~40,000 requests for data one call
   already gives.
+- **"No actors" is TWO conditions and they are reported separately.** Nothing configured
+  (set `THREAD_ACTORS`/`OWNER_ACTOR`) and configured-but-matched-nothing (the handle is
+  not spelled the way the archive spells it) have different fixes, and both print the
+  stored handles so neither needs a psql session. Unset falls back to accepted follows
+  running Mastodon, so a deploy that configures nothing still walks.
 
 ## Webhooks out
 

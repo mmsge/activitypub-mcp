@@ -6,8 +6,9 @@ import {
   loadRootsToWalk,
   recordWalkFailure,
   replaceThread,
-  resolveThreadActors,
+  resolveThreadActorsDetailed,
   type RootToWalk,
+  type ThreadActor,
   type WalkMode,
 } from '../lib/thread-store.js'
 
@@ -51,7 +52,15 @@ export interface WalkThreadsResult {
   nodesWritten: number
   /** Replies the shape builder refused, summed across the run. */
   dropped: { visibility: number; skippedHost: number; unparseable: number; orphaned: number }
-  stopped: null | 'disabled' | 'no_actors' | 'bounded' | 'dry_run' | 'rate_limited'
+  // 'not_configured' and 'no_match' were one value once. They mean completely different
+  // things — an env var versus a handle spelled differently from the archive — and a
+  // single 'no_actors' made the run say nothing about which (ADR 0039).
+  stopped: null | 'disabled' | 'not_configured' | 'no_match' | 'bounded' | 'dry_run' | 'rate_limited'
+  /** Filled in on 'not_configured' / 'no_match': what the archive actually holds, so the
+   *  fix does not need a psql session. */
+  storedHandles?: string[]
+  /** The actors that WILL be walked, and where each came from. */
+  actors?: ThreadActor[]
 }
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -82,11 +91,23 @@ export async function walkThreads(options: WalkThreadsOptions = {}): Promise<Wal
 
   if (maxRequests <= 0) return { ...result, stopped: 'bounded' }
 
-  const threadActors = await resolveThreadActors()
-  if (threadActors.length === 0) {
-    logger.debug('No THREAD_ACTORS resolved, skipping thread walk')
-    return { ...result, stopped: 'no_actors' }
+  const resolution = await resolveThreadActorsDetailed()
+  if (resolution.kind === 'unconfigured') {
+    logger.warn(
+      { storedHandles: resolution.stored },
+      'Thread walk: no actor configured and no followed Mastodon account to fall back to',
+    )
+    return { ...result, stopped: 'not_configured', storedHandles: resolution.stored }
   }
+  if (resolution.kind === 'unmatched') {
+    logger.warn(
+      { configured: resolution.configured, storedHandles: resolution.stored },
+      'Thread walk: the configured actor matched nothing in the archive',
+    )
+    return { ...result, stopped: 'no_match', storedHandles: resolution.stored }
+  }
+  const threadActors = resolution.actors
+  result.actors = threadActors
 
   // Whose nodes count as "mine". Every configured actor, not just the root's author: he
   // replies to himself from the same account, and a second account of his in the same

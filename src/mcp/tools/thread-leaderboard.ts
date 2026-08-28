@@ -4,7 +4,7 @@ import { threadWalkBlockedReason } from '../../jobs/walk-threads.js'
 import {
   lastWalkAt,
   loadLeaderboard,
-  resolveThreadActors,
+  resolveThreadActorsDetailed,
   threadCoverage,
   type LeaderboardRow,
   type LeaderboardSort,
@@ -60,12 +60,23 @@ export async function getThreadLeaderboard(
   input: z.infer<typeof getThreadLeaderboardSchema>,
   scope?: QueryScope,
 ) {
-  let tracked = await resolveThreadActors()
-  if (tracked.length === 0) {
+  // Two different silences with two different fixes, and the stored handles make either
+  // one actionable without a database session (ADR 0039).
+  const resolution = await resolveThreadActorsDetailed()
+  if (resolution.kind === 'unconfigured') {
     return {
-      error: 'No thread actors resolved. Set THREAD_ACTORS (or OWNER_ACTOR) to an account this server has stored.',
+      error: 'No thread actor configured, and no followed Mastodon account to fall back to. Set THREAD_ACTORS (or OWNER_ACTOR) to one of `stored_handles`.',
+      stored_handles: resolution.stored,
     }
   }
+  if (resolution.kind === 'unmatched') {
+    return {
+      error: 'THREAD_ACTORS/OWNER_ACTOR is set but matched nothing in the archive. It must match one of `stored_handles` exactly, or be an actor URL.',
+      configured: resolution.configured,
+      stored_handles: resolution.stored,
+    }
+  }
+  let tracked = resolution.actors
 
   if (input.actor_handle) {
     const wanted = input.actor_handle.startsWith('http')
@@ -103,7 +114,7 @@ export async function getThreadLeaderboard(
       roots_unsettled: coverage.unsettled,
       roots_failing: coverage.failing,
     },
-    actors: tracked.map(a => ({ actor_ap_id: a.apId, handle: a.handle })),
+    actors: tracked.map(a => ({ actor_ap_id: a.apId, handle: a.handle, source: a.source })),
     sort: input.sort,
     /** Threads made only of his own replies score zero external nodes and are excluded. */
     threads: threads.map(r => row(r, config.THREAD_SETTLED_DAYS)),
