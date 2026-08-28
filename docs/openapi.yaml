@@ -3597,6 +3597,147 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/thread-leaderboard:
+    get:
+      tags: [REST API]
+      summary: His own toots ranked by the conversation they started
+      description:
+        "`replies_count` counts DIRECT children only, so it cannot tell a toot that
+        started an argument from one that collected thirteen flat replies. This ranks on
+        the walked thread tree instead: total nodes, how many of them somebody else
+        wrote, how deep it went, and how many distinct people took part. Every
+        `external_*` figure excludes his own replies — the root counts as node 0 and is
+        his — so a thread he is only talking to himself in scores zero and is not listed
+        at all. `text` is the ROOT toot's own text; no reply text is returned, because
+        none is stored. `walk` reports the walker's own state, so an empty leaderboard
+        because nothing has been walked yet is distinguishable from one because nothing
+        drew a reply. REST serves publicly-visible roots only."
+      operationId: getThreadLeaderboard
+      parameters:
+        - {
+            name: sort,
+            in: query,
+            description: "Rank by external reply count, by maximum depth, or by distinct external participants.",
+            schema:
+              {
+                type: string,
+                enum: [external_nodes, depth, participants],
+                default: external_nodes,
+              },
+          }
+        - {
+            name: limit,
+            in: query,
+            description: Maximum threads returned.,
+            schema: { type: integer, minimum: 1, maximum: 200, default: 20 },
+          }
+        - {
+            name: days,
+            in: query,
+            description: Only threads whose ROOT was published within this many days. Omit for the whole archive.,
+            schema: { type: integer, minimum: 1, maximum: 3650 },
+          }
+        - {
+            name: actor_handle,
+            in: query,
+            description: Narrow to one tracked account (@user@domain or an actor URL).,
+            schema: { type: string },
+          }
+      responses:
+        "200":
+          description: The ranked threads and the walker's state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ThreadLeaderboardResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: His own toots ranked by the conversation they started (JSON body)
+      operationId: getThreadLeaderboardPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sort:
+                  {
+                    type: string,
+                    enum: [external_nodes, depth, participants],
+                    default: external_nodes,
+                  }
+                limit: { type: integer, minimum: 1, maximum: 200, default: 20 }
+                days: { type: integer, minimum: 1, maximum: 3650 }
+                actor_handle: { type: string }
+      responses:
+        "200":
+          description: The ranked threads and the walker's state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ThreadLeaderboardResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/thread-tree:
+    get:
+      tags: [REST API]
+      summary: One thread's stored shape, as nodes and edges
+      description:
+        "The walked tree for one root toot, shaped for a visualisation to render
+        directly. Each node carries its id, origin-local id, origin host, permalink,
+        `@user@host` handle, depth and whether it is his; the root is node 0 of its own
+        tree. `edges` is the parent→child list, `participants` the distinct external
+        handles. There is NO REPLY TEXT anywhere in the response — only the root's own
+        text — because the store holds the shape of the conversation and never its
+        words, enforced by CHECK constraints on every column. A renderer opens each node
+        live at its own instance. Note that this endpoint does serve the handles of the
+        external people who replied. Answers only for threads the walker has already
+        stored; REST serves publicly-visible roots only."
+      operationId: getThreadTree
+      parameters:
+        - {
+            name: status,
+            in: query,
+            required: true,
+            description: "The ROOT toot — its AP id, its permalink, or a bare numeric id resolved against OWNER_INSTANCE.",
+            schema: { type: string },
+          }
+      responses:
+        "200":
+          description: The thread's nodes and edges.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ThreadTreeResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: One thread's stored shape (JSON body)
+      operationId: getThreadTreePost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status: { type: string }
+              required: [status]
+      responses:
+        "200":
+          description: The thread's nodes and edges.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ThreadTreeResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   # ------------------------------------------------------------- Discovery
   /.well-known/webfinger:
     get:
@@ -6376,3 +6517,124 @@ components:
           type: array
           items: { type: object }
         next: { type: string, format: uri }
+
+    ThreadWalkState:
+      type: object
+      description:
+        The walker's own state. Reported alongside the results so an empty leaderboard
+        because nothing has been walked yet is distinguishable from one because nothing
+        drew a reply.
+      properties:
+        blocked_reason:
+          type: [string, "null"]
+          description: Why a scheduled run would do nothing, or null when the walker can run.
+        interval_hours: { type: integer }
+        settled_days:
+          type: integer
+          description:
+            A thread whose newest node is at least this old is settled; the daily pass
+            skips it and only a backfill revisits it.
+        last_walk_at: { type: [string, "null"], format: date-time }
+        roots_total: { type: integer }
+        roots_walked: { type: integer }
+        roots_unsettled: { type: integer }
+        roots_failing:
+          type: integer
+          description: Roots whose last walk failed. Their previously stored tree is kept, not emptied.
+
+    ThreadLeaderboardRow:
+      type: object
+      properties:
+        root_ap_id: { type: string, format: uri }
+        actor_ap_id: { type: string, format: uri }
+        url: { type: [string, "null"], format: uri }
+        published_at: { type: [string, "null"], format: date-time }
+        text:
+          type: [string, "null"]
+          description: The ROOT toot's own text. No reply text is returned, because none is stored.
+        node_count:
+          type: integer
+          description: Every node in the tree, the root included.
+        external_node_count:
+          type: integer
+          description: Nodes somebody else wrote. Always at least 1 — a thread of only his own replies is not listed.
+        max_depth: { type: integer, description: Hops from the root. }
+        external_participant_count: { type: integer }
+        newest_node_at: { type: [string, "null"], format: date-time }
+        settled: { type: boolean }
+        walked_at: { type: [string, "null"], format: date-time }
+
+    ThreadLeaderboardResponse:
+      type: object
+      properties:
+        walk: { $ref: "#/components/schemas/ThreadWalkState" }
+        actors:
+          type: array
+          items:
+            type: object
+            properties:
+              actor_ap_id: { type: string, format: uri }
+              handle: { type: string }
+        sort: { type: string, enum: [external_nodes, depth, participants] }
+        threads:
+          type: array
+          items: { $ref: "#/components/schemas/ThreadLeaderboardRow" }
+
+    ThreadNode:
+      type: object
+      description:
+        One node of the tree. Ids, a permalink, a handle, a depth and a timestamp —
+        nothing about what was said, and nothing else about who said it.
+      properties:
+        id: { type: string, format: uri, description: The canonical AP id. }
+        status_id: { type: string, description: The id local to `origin`. }
+        origin: { type: string, description: The host that minted the status. }
+        url: { type: [string, "null"], format: uri }
+        handle:
+          type: string
+          description: "`@user@host`. The only piece of data about an external participant that is stored."
+          example: "@someone@mastodon.social"
+        depth:
+          { type: integer, description: Hops from the root. The root is 0. }
+        published_at: { type: [string, "null"], format: date-time }
+        is_mine: { type: boolean }
+        is_root: { type: boolean }
+
+    ThreadTreeResponse:
+      type: object
+      properties:
+        root:
+          type: object
+          properties:
+            root_ap_id: { type: string, format: uri }
+            actor_ap_id: { type: string, format: uri }
+            url: { type: [string, "null"], format: uri }
+            published_at: { type: [string, "null"], format: date-time }
+            text:
+              type: [string, "null"]
+              description: The root toot's own text. The only text in this response.
+        stats:
+          type: object
+          properties:
+            node_count: { type: integer }
+            external_node_count: { type: integer }
+            max_depth: { type: integer }
+            external_participant_count: { type: integer }
+            newest_node_at: { type: [string, "null"], format: date-time }
+            settled: { type: boolean }
+            walked_at: { type: [string, "null"], format: date-time }
+        nodes:
+          type: array
+          items: { $ref: "#/components/schemas/ThreadNode" }
+        edges:
+          type: array
+          description: Parent→child links, ready for a graph layout.
+          items:
+            type: object
+            properties:
+              from: { type: string, format: uri }
+              to: { type: string, format: uri }
+        participants:
+          type: array
+          description: The distinct external handles in the thread, sorted.
+          items: { type: string }

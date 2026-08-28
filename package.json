@@ -25,6 +25,7 @@
     "youtube-import-verify": "tsx scripts/youtube-import-verify.ts",
     "classify-youtube-shorts": "tsx scripts/classify-youtube-shorts.ts",
     "post-breakouts": "tsx scripts/post-breakouts.ts",
+    "walk-threads": "tsx scripts/walk-threads.ts",
     "lint:openapi": "redocly lint docs/openapi.yaml",
     "format:check": "prettier --check docs/openapi.yaml",
     "format": "prettier --write docs/openapi.yaml",

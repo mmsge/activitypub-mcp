@@ -34,6 +34,8 @@ import { getEngagementSchema, getEngagement, getEngagementTrendsSchema, getEngag
 import { getActorEngagementTrendsSchema, getActorEngagementTrends } from './tools/actor-engagement-trends.js'
 import { getLinkedinPostsSchema, getLinkedinPosts, getLinkedinPostSchema, getLinkedinPost } from './tools/linkedin-posts.js'
 import { getLinkedinStatsSchema, getLinkedinStats } from './tools/linkedin-stats.js'
+import { getThreadLeaderboardSchema, getThreadLeaderboard } from './tools/thread-leaderboard.js'
+import { getThreadTreeSchema, getThreadTree } from './tools/thread-tree.js'
 
 export function createMcpServer(): McpServer {
   const server = new McpServer({
@@ -467,6 +469,26 @@ export function createMcpServer(): McpServer {
     getLinkedinStatsSchema.shape,
     async (input) => {
       const result = await getLinkedinStats(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_thread_leaderboard',
+    "Rank his OWN toots by the size of the conversation they started, from the walked thread trees rather than from `replies_count` — which counts DIRECT children only and so cannot tell a toot that started an argument from one that collected thirteen flat replies. Sort by external_node_count (default), max_depth or external_participant_count. Every `external_*` figure excludes his own replies, so a thread he is talking to himself in scores zero and is not listed at all. `text` is the ROOT toot's own text; NO REPLY TEXT IS RETURNED because none is stored — the walker keeps ids, permalinks, depths and @user@host handles and nothing else, enforced by CHECK constraints rather than by convention. `walk` reports the walker's state: an empty leaderboard because nothing has been walked yet and one because nothing drew a reply look identical without it. A thread is `settled` once its newest node is THREAD_SETTLED_DAYS old, after which only a backfill revisits it.",
+    getThreadLeaderboardSchema.shape,
+    async (input) => {
+      const result = await getThreadLeaderboard(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_thread_tree',
+    "Return one thread's full tree as `nodes` and `edges`, shaped for a visualisation to render directly. Takes the ROOT toot's AP id, permalink or bare numeric id. Each node carries its id, origin-local id, origin host, permalink, @user@host handle, depth and whether it is his; the root is node 0 of its own tree. `participants` lists the distinct external handles. There is NO REPLY TEXT anywhere in the response — only the root's own text — because the store holds the shape of the conversation and never its words; a renderer opens each node live at its own instance. Answers only for threads the walker has already stored.",
+    getThreadTreeSchema.shape,
+    async (input) => {
+      const result = await getThreadTree(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

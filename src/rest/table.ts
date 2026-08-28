@@ -55,6 +55,8 @@ import {
   getLinkedinPostSchema, getLinkedinPost,
 } from '../mcp/tools/linkedin-posts.js'
 import { getLinkedinStatsSchema, getLinkedinStats } from '../mcp/tools/linkedin-stats.js'
+import { getThreadLeaderboardSchema, getThreadLeaderboard } from '../mcp/tools/thread-leaderboard.js'
+import { getThreadTreeSchema, getThreadTree } from '../mcp/tools/thread-tree.js'
 
 /**
  * One row per MCP tool. Each REST endpoint reuses the same (schema, handler) pair
@@ -510,6 +512,26 @@ export const endpoints: RestEndpoint[] = [
     description: "Aggregate LinkedIn performance, including the median engagement rate per weekday (Europe/Oslo, over each post's latest observation). Every by_weekday bucket carries `n` so thin buckets are visible. totals carry p25/p75 for impressions and rate. source_health reports whether the DMA token is still working, with last_note carrying the last attempt's verdict and evidence; join_health reports whether the content and performance halves are actually meeting. REST aggregates publicly-visible posts only, so its figures can differ from MCP's.",
     schema: getLinkedinStatsSchema,
     handler: publicOnly(getLinkedinStats),
+    numbers: [],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/thread-leaderboard',
+    name: 'get_thread_leaderboard',
+    description: "Markus' own toots ranked by the size of the conversation they started, from walked thread trees rather than `replies_count` (which counts direct children only). Sort by external_node_count (default), max_depth or external_participant_count; every external_* figure excludes his own replies, so a thread of only his own replies scores zero and is not listed. `text` is the root toot's own text — no reply text is returned, because none is stored. REST serves publicly-visible roots only.",
+    schema: getThreadLeaderboardSchema,
+    handler: publicOnly(getThreadLeaderboard),
+    numbers: ['limit', 'days'],
+    booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/thread-tree',
+    name: 'get_thread_tree',
+    description: "One thread's stored shape as nodes and edges, ready for a visualisation. Takes the root toot's AP id, permalink or bare numeric id. Each node carries its id, permalink, @user@host handle, depth and whether it is Markus' own; the root is node 0. No reply text is returned, because none is stored — a renderer opens each node live at its own instance. NOTE: this endpoint does serve the handles of the external people who replied. REST serves publicly-visible roots only.",
+    schema: getThreadTreeSchema,
+    handler: publicOnly(getThreadTree),
     numbers: [],
     booleans: [],
     arrays: [],

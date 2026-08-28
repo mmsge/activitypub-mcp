@@ -232,6 +232,29 @@ const schema = z.object({
   ENGAGEMENT_SAMPLE_INTERVAL_MINUTES: z.coerce.number().int().min(5).default(60),
   // How many of the owner's most recent posts the sampler tracks. 0 disables it.
   ENGAGEMENT_SAMPLE_RECENT_POSTS: z.coerce.number().int().min(0).max(50).default(20),
+  // ── Thread shape: walk the conversations rooted in his own toots (record 0057) ──
+  // Whose toots count as roots, as @user@domain or actor URLs, comma-separated. Empty
+  // falls back to OWNER_ACTOR, so a correctly configured deploy needs nothing new here.
+  THREAD_ACTORS: z.string().default(''),
+  // The daily incremental pass. 0 disables the timer entirely; the backfill script still
+  // runs by hand. Gated at registration AND inside the job, the fast-lane idiom.
+  THREAD_WALK_INTERVAL_HOURS: z.coerce.number().int().min(0).default(24),
+  // A thread whose newest node is older than this is SETTLED and the daily pass skips it,
+  // which is the only reason a daily job is not a repeat of the backfill. A settled thread
+  // that somehow gains a reply is picked up by the next backfill, not by the daily run.
+  THREAD_SETTLED_DAYS: z.coerce.number().int().min(1).default(7),
+  // The bounded bite. One request covers a whole thread — Mastodon's context endpoint
+  // returns the entire descendant subtree — so this is also the number of threads a run
+  // can walk. ~2,000 roots is a single backfill of about 35 minutes at the spacing below.
+  THREAD_MAX_REQUESTS_PER_RUN: z.coerce.number().int().min(0).default(300),
+  // Milliseconds between context requests. Mastodon's default limit is 300 requests per
+  // five minutes, so one per second sits just under it with room for a retry.
+  THREAD_REQUEST_SPACING_MS: z.coerce.number().int().min(250).default(1000),
+  // Hosts whose replies are dropped from every tree, comma-separated. Mostly a second
+  // lever rather than the primary mechanism: the context comes from the owner's own
+  // instance, so a host it has defederated never appears in the response at all. This is
+  // for the ones it still federates with and he does not want in his archive.
+  THREAD_SKIP_HOSTS: z.string().default(''),
   // ── Breakout alerts: "this post is doing better than your usual" (record 0036) ──
   // Master switch, off by default. The code can therefore be deployed and inspected
   // at /admin/breakouts days before anything is allowed to push — the same
@@ -496,4 +519,21 @@ export function getBookwyrmActors(): string[] {
     .split(',')
     .map(s => s.trim())
     .filter(Boolean)
+}
+
+/** Whose toots are thread roots, as given (handles or actor URLs). Falls back to
+ *  OWNER_ACTOR, which is the same identity every other owner-scoped default uses. */
+export function getThreadActors(): string[] {
+  const raw = config.THREAD_ACTORS.trim() || config.OWNER_ACTOR
+  return raw.split(',').map(s => s.trim()).filter(Boolean)
+}
+
+/** Lowercase hosts whose replies never enter a tree. */
+export function getThreadSkipHosts(): Set<string> {
+  return new Set(
+    config.THREAD_SKIP_HOSTS
+      .split(',')
+      .map(s => s.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
+      .filter(Boolean),
+  )
 }

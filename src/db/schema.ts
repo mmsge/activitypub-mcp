@@ -1,6 +1,6 @@
 import {
   pgTable, text, uuid, timestamp, boolean, jsonb,
-  bigserial, bigint, numeric, date, integer, index, uniqueIndex,
+  bigserial, bigint, numeric, date, integer, index, uniqueIndex, check,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 
@@ -1397,4 +1397,95 @@ export const oauthTokens = pgTable('oauth_tokens', {
 }, (t) => [
   index('oauth_tokens_client_idx').on(t.clientId),
   index('oauth_tokens_expires_idx').on(t.expiresAt),
+])
+
+// ── Thread shape: the skeleton of a conversation, never its words (record 0057) ──
+//
+// `replies_count` counts direct children only, so it cannot tell a toot that started an
+// argument from one that collected thirteen flat replies. These two tables hold the
+// walked tree — ids, links, depths, handles — for every root toot of the owner's, and
+// nothing else. A renderer reads the shape from here and opens each node live at its
+// origin, so nobody else's words come to rest in this database.
+//
+// **The CHECK constraints are the privacy promise, enforced.** "There is no content
+// column" is a fact about today's schema, not a rule: a later ALTER TABLE could add one,
+// and a later INSERT could stuff prose into `handle`. Every text column below is
+// therefore constrained to an identifier, a hostname or an https URL — none of which can
+// carry a sentence. `thread-schema.test.ts` pins the column set as the second layer, so
+// adding a column fails CI rather than passing review.
+export const threadRoots = pgTable('thread_roots', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  // No foreign key to objects.ap_id, matching engagement_snapshots and
+  // post_breakout_state: a delete-and-re-ingest cycle must not cascade a walk away.
+  rootApId: text('root_ap_id').notNull().unique(),
+  actorApId: text('actor_ap_id').notNull(),
+  rootStatusId: text('root_status_id').notNull(),
+  origin: text('origin').notNull(),
+  /** Includes the root, which is stored as a node at depth 0. */
+  nodeCount: integer('node_count').notNull().default(0),
+  /** Excludes the owner's own nodes — a thread of only his replies scores zero here and
+   *  is filtered out of the leaderboard entirely. */
+  externalNodeCount: integer('external_node_count').notNull().default(0),
+  maxDepth: integer('max_depth').notNull().default(0),
+  externalParticipantCount: integer('external_participant_count').notNull().default(0),
+  // The settled/unsettled split: the daily pass re-walks while this is under
+  // THREAD_SETTLED_DAYS old. Falls back to the ROOT's own published_at when the tree has
+  // no replies — left null, a fresh toot would read as settled during exactly the week
+  // its replies arrive.
+  newestNodeAt: timestamp('newest_node_at', { withTimezone: true }),
+  walkedAt: timestamp('walked_at', { withTimezone: true }),
+  walkAttempts: integer('walk_attempts').notNull().default(0),
+  /** The one column holding a message, and it holds OURS — a fetch failure, never
+   *  anything read out of a reply. A failed walk leaves the stored tree untouched. */
+  walkError: text('walk_error'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('thread_roots_newest_node_idx').on(t.newestNodeAt),
+  index('thread_roots_walked_idx').on(t.walkedAt),
+  index('thread_roots_actor_external_idx').on(t.actorApId, t.externalNodeCount),
+  check('thread_roots_root_ap_id_shape', sql`${t.rootApId} ~ '^https?://[^[:space:]]+$' AND length(${t.rootApId}) <= 500`),
+  check('thread_roots_actor_ap_id_shape', sql`${t.actorApId} ~ '^https?://[^[:space:]]+$' AND length(${t.actorApId}) <= 500`),
+  check('thread_roots_status_id_shape', sql`${t.rootStatusId} ~ '^[A-Za-z0-9_-]{1,64}$'`),
+  check('thread_roots_origin_shape', sql`${t.origin} ~ '^[a-z0-9.-]{1,253}$'`),
+  check('thread_roots_walk_error_len', sql`${t.walkError} IS NULL OR length(${t.walkError}) <= 500`),
+])
+
+// One row per node in the tree, INCLUDING the root at depth 0.
+//
+// A walk REPLACES a thread's rows inside one transaction rather than merging into them.
+// That is what makes a deleted reply disappear on the next walk with no tombstone to
+// reason about, and it is why `parentStatusApId` can be a plain id: the whole set is
+// written together, so it is internally consistent by construction.
+export const threadNodes = pgTable('thread_nodes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  rootApId: text('root_ap_id').notNull()
+    .references(() => threadRoots.rootApId, { onDelete: 'cascade', onUpdate: 'cascade' }),
+  statusApId: text('status_ap_id').notNull(),
+  statusId: text('status_id').notNull(),
+  origin: text('origin').notNull(),
+  /** The permalink, so a node can be opened or embedded without a lookup. Null when the
+   *  origin gave none — never guessed at. */
+  url: text('url'),
+  /** Null on the root. Another node's `statusApId` in the same tree. */
+  parentStatusApId: text('parent_status_ap_id'),
+  depth: integer('depth').notNull(),
+  publishedAt: timestamp('published_at', { withTimezone: true }),
+  /** The ONLY piece of data about an external participant kept anywhere, as @user@host.
+   *  No profile lookup is performed during the walk. */
+  handle: text('handle').notNull(),
+  isMine: boolean('is_mine').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('thread_nodes_root_status_idx').on(t.rootApId, t.statusApId),
+  index('thread_nodes_root_depth_idx').on(t.rootApId, t.depth),
+  check('thread_nodes_status_ap_id_shape', sql`${t.statusApId} ~ '^https?://[^[:space:]]+$' AND length(${t.statusApId}) <= 500`),
+  check('thread_nodes_parent_shape', sql`${t.parentStatusApId} IS NULL OR (${t.parentStatusApId} ~ '^https?://[^[:space:]]+$' AND length(${t.parentStatusApId}) <= 500)`),
+  check('thread_nodes_url_shape', sql`${t.url} IS NULL OR (${t.url} ~ '^https?://[^[:space:]]+$' AND length(${t.url}) <= 500)`),
+  check('thread_nodes_status_id_shape', sql`${t.statusId} ~ '^[A-Za-z0-9_-]{1,64}$'`),
+  check('thread_nodes_origin_shape', sql`${t.origin} ~ '^[a-z0-9.-]{1,253}$'`),
+  // @user@host and nothing else. A display name, a bio or a line of reply text all fail
+  // this, which is the point.
+  check('thread_nodes_handle_shape', sql`${t.handle} ~ '^@[^@[:space:]]{1,64}@[a-z0-9.-]{1,253}$'`),
+  check('thread_nodes_depth_range', sql`${t.depth} >= 0 AND ${t.depth} <= 1000`),
 ])

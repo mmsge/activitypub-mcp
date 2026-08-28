@@ -160,6 +160,46 @@ Two more rules not to "simplify" back:
   HTML for anything ambiguous, so a browser-ish header silently returns a web page and
   looks exactly like a missing ActivityPub representation.
 
+## Thread shape
+
+Every conversation rooted in one of Markus' own toots is walked and stored as a **tree of
+ids and links, never of words**: status id, origin, permalink, parent, depth, publish time,
+`@user@host` handle, mine-or-theirs. `get_thread_leaderboard` / `get_thread_tree`,
+`/api/v1/thread-leaderboard` and `/api/v1/thread-tree`, and **Admin → Threads**. The daily
+pass is `THREAD_WALK_INTERVAL_HOURS` (0 disables); the full pass is
+`npm run walk-threads -- --backfill --max-requests=2500`. See ADR 0057.
+
+`replies_count` counts DIRECT children only, which is the whole reason this exists — four
+replies that each spawned an argument beat thirteen flat ones on tree size, and the REST
+count cannot see it.
+
+Rules not to "simplify" back:
+
+- **No column anywhere can hold reply content, and that is enforced twice.** Every text
+  column carries a CHECK constraining it to a handle, a hostname, an id or an https URL —
+  `handle` accepts `@user@host` and nothing else — and `src/db/thread-schema.test.ts` pins
+  the column set so a new column fails CI. Either layer alone is a convention.
+- **The root is a node, at depth 0, and it is his.** So the tree renders from one query.
+  Every `external_*` figure excludes it, which is what makes a thread he is only talking to
+  himself in score zero rather than one and drop off the leaderboard.
+- **An orphan takes its subtree with it.** A reply under a followers-only reply is dropped,
+  never promoted to depth 1. Re-parenting would invent an exchange *and* disclose how many
+  answers the hidden reply drew.
+- **A walk REPLACES the node set in one transaction, and a failed fetch never reaches it.**
+  That is how a deleted reply disappears with nothing tombstoned — and why a 404 or a
+  timeout writes `walk_error` and leaves the stored tree alone. A failure is therefore
+  invisible unless listed, so `/admin/threads` lists it.
+- **`newest_node_at` falls back to the ROOT's own `published_at`.** Without it a brand-new
+  toot reads as settled the moment it is first walked, during exactly the week its replies
+  arrive. Settled (newest node ≥ `THREAD_SETTLED_DAYS`) is skipped by the daily pass; only a
+  backfill revisits it.
+- **The context is read UNAUTHENTICATED first.** An anonymous context can only contain
+  public and unlisted statuses, so a followers-only reply never reaches this process at all.
+  The token is a fallback for an instance that refuses anonymous reads, not the default.
+- **One request per ROOT, not per node.** Mastodon's context endpoint returns the whole
+  descendant subtree; walking node by node would be ~40,000 requests for data one call
+  already gives.
+
 ## Webhooks out
 
 This service wakes two others on the box when data lands, so neither has to wait out
