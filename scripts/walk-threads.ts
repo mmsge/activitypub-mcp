@@ -95,6 +95,25 @@ try {
           '  thread-walk problem. Check the follow/ingest side first.'
         : `\n  Stored accounts (${stored.length}):\n${stored.map(h => `    ${h}`).join('\n')}`,
     )
+    // Why the fallback did not fire. "You follow nothing" and "you follow three accounts
+    // and none of them reported Mastodon" are different problems; `software` is null
+    // until the hourly NodeInfo probe has reached that host.
+    const followed = result.followed ?? []
+    if (followed.length > 0) {
+      console.log(
+        `\n  The fallback looked at ${followed.length} accepted follow(s) and none reported\n` +
+        '  Mastodon, so none could be asked for a thread context:',
+      )
+      for (const f of followed) {
+        console.log(`    ${f.handle.padEnd(32)} software: ${f.software ?? 'null (not probed yet)'}`)
+      }
+      if (followed.some(f => f.software === null)) {
+        console.log(
+          '\n  A null means the NodeInfo probe has not reached that host yet; it runs hourly.\n' +
+          '  Naming the account in THREAD_ACTORS skips the probe entirely.',
+        )
+      }
+    }
   }
 } finally {
   await closeDb()

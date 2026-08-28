@@ -95,10 +95,33 @@ describe('walkThreads', () => {
   })
 
   it('does nothing at all when no actor resolves, rather than walking every stored post', async () => {
-    resolveThreadActorsDetailed.mockResolvedValue({ kind: 'unconfigured', stored: [] })
+    resolveThreadActorsDetailed.mockResolvedValue({ kind: 'unconfigured', stored: [], followed: [] })
     const result = await walkThreads()
     expect(result.stopped).toBe('not_configured')
     expect(loadRootsToWalk).not.toHaveBeenCalled()
+  })
+
+  it('says why the FALLBACK did not fire, not just that it did not', async () => {
+    // "You follow nothing" and "you follow three accounts and none of them reported
+    // Mastodon" are different problems with different fixes — the same defect this whole
+    // change is about, one level down. A null software means the hourly NodeInfo probe
+    // has not reached that host yet.
+    resolveThreadActorsDetailed.mockResolvedValue({
+      kind: 'unconfigured',
+      stored: ['@markus@gigowl.social', '@markus@skvip.lol'],
+      followed: [
+        { handle: '@markus@skvip.lol', software: null },
+        { handle: '@markus@gigowl.social', software: 'samklang' },
+      ],
+    })
+
+    const result = await walkThreads()
+
+    expect(result.stopped).toBe('not_configured')
+    expect(result.followed).toEqual([
+      { handle: '@markus@skvip.lol', software: null },
+      { handle: '@markus@gigowl.social', software: 'samklang' },
+    ])
   })
 
   it('says WHICH silence it hit, because the two have different fixes', async () => {

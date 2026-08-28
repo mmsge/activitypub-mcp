@@ -97,7 +97,15 @@ export function matchThreadActors(
  */
 export type ThreadActorResolution =
   | { kind: 'ok'; actors: ThreadActor[] }
-  | { kind: 'unconfigured'; stored: string[] }
+  | {
+      kind: 'unconfigured'
+      stored: string[]
+      /** The accepted follows the fallback considered, and the NodeInfo software each
+       *  reports. Without this, "you follow nothing" and "you follow three accounts and
+       *  none of them said Mastodon" are the same silence — the very defect one level
+       *  down. `software` is null until the hourly NodeInfo probe has reached the host. */
+      followed: Array<{ handle: string; software: string | null }>
+    }
   | { kind: 'unmatched'; configured: string[]; stored: string[] }
 
 /** `@user@host`, lowercase, however the row happens to spell it. */
@@ -135,14 +143,23 @@ export async function resolveThreadActorsDetailed(): Promise<ThreadActorResoluti
       .where(eq(follows.status, 'accepted'))
     const acceptedIds = new Set(accepted.map(f => f.apId))
 
-    const out = rows
-      .filter(r => acceptedIds.has(r.apId) && r.software === 'mastodon')
+    const candidates = rows.filter(r => acceptedIds.has(r.apId))
+    const out = candidates
+      .filter(r => r.software === 'mastodon')
       .flatMap((r) => {
         const handle = normaliseStoredHandle(r.handle, r.apId)
         return handle ? [{ apId: r.apId, handle, source: 'followed' as const }] : []
       })
 
-    return out.length > 0 ? { kind: 'ok', actors: out } : { kind: 'unconfigured', stored }
+    if (out.length > 0) return { kind: 'ok', actors: out }
+    return {
+      kind: 'unconfigured',
+      stored,
+      followed: candidates.map(r => ({
+        handle: normaliseStoredHandle(r.handle, r.apId),
+        software: r.software,
+      })),
+    }
   }
 
   const out = matchThreadActors(configured, rows)

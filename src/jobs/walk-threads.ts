@@ -61,6 +61,9 @@ export interface WalkThreadsResult {
   storedHandles?: string[]
   /** The actors that WILL be walked, and where each came from. */
   actors?: ThreadActor[]
+  /** On 'not_configured': the accepted follows the fallback considered and the software
+   *  each reports, so "none of them said Mastodon" is distinguishable from "none exist". */
+  followed?: Array<{ handle: string; software: string | null }>
 }
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -94,10 +97,15 @@ export async function walkThreads(options: WalkThreadsOptions = {}): Promise<Wal
   const resolution = await resolveThreadActorsDetailed()
   if (resolution.kind === 'unconfigured') {
     logger.warn(
-      { storedHandles: resolution.stored },
+      { storedHandles: resolution.stored, followed: resolution.followed },
       'Thread walk: no actor configured and no followed Mastodon account to fall back to',
     )
-    return { ...result, stopped: 'not_configured', storedHandles: resolution.stored }
+    return {
+      ...result,
+      stopped: 'not_configured',
+      storedHandles: resolution.stored,
+      followed: resolution.followed,
+    }
   }
   if (resolution.kind === 'unmatched') {
     logger.warn(
