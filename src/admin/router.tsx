@@ -16,6 +16,9 @@ import { ObjectsPage } from './views/objects.js'
 import { VisibilityPage } from './views/visibility.js'
 import { BreakoutsPage } from './views/breakouts.js'
 import { getPostBreakouts } from '../mcp/tools/post-breakouts.js'
+import { ThreadsPage } from './views/threads.js'
+import { getThreadLeaderboard } from '../mcp/tools/thread-leaderboard.js'
+import { loadWalkFailures } from '../lib/thread-store.js'
 import { config } from '../config.js'
 import { streamEnabled } from '../stream/host.js'
 import { parseSources } from '../stream/sources.js'
@@ -237,6 +240,22 @@ app.get('/breakouts', async (c) => {
   const report = await getPostBreakouts({ days: 30, limit: 50 })
   if ('error' in report) return c.text(report.error as string, 404)
   return c.html(<BreakoutsPage report={report} />)
+})
+
+/**
+ * The thread walker's state, plus the leaderboard. Same handler as the MCP tool and the
+ * REST endpoint, so there is one implementation behind all three.
+ *
+ * No scope is passed: the admin IS the owner, so this includes unlisted roots — unlike
+ * the REST endpoint, which is bound to public-only for the reason ADR 0026 gives.
+ */
+app.get('/threads', async (c) => {
+  const [report, failures] = await Promise.all([
+    getThreadLeaderboard({ sort: 'external_nodes', limit: 50 }),
+    loadWalkFailures(50),
+  ])
+  if ('error' in report) return c.text(report.error as string, 404)
+  return c.html(<ThreadsPage report={report} failures={failures} />)
 })
 
 app.get('/visibility', async (c) => {

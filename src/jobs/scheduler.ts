@@ -22,6 +22,7 @@ import { syncStationWeather } from './sync-station-weather.js'
 import { resolveTripLines } from './resolve-trip-lines.js'
 import { syncLinkedinPosts } from './sync-linkedin-posts.js'
 import { classifyYoutubeShorts } from './classify-youtube-shorts.js'
+import { walkThreads } from './walk-threads.js'
 import { config } from '../config.js'
 import { activeRaces } from '../lib/races-config.js'
 import { logger } from '../lib/logger.js'
@@ -191,6 +192,24 @@ export function startScheduler(): void {
     setInterval(async () => {
       try { await syncLinkedinPosts() } catch (e) { logger.error(e, 'LinkedIn sync error') }
     }, config.LINKEDIN_SYNC_INTERVAL_HOURS * 60 * 60_000)
+  }
+
+  // Thread shape — the daily incremental pass. Gated at registration, so a deployment
+  // with THREAD_WALK_INTERVAL_HOURS=0 pays nothing for the timer. The gate is
+  // deliberately NOT repeated inside the job, unlike the fast lane's: the same function
+  // backs `npm run walk-threads`, and a manual backfill must still run on a deployment
+  // that has the nightly pass switched off.
+  //
+  // Only unsettled threads are walked, which is what makes this a daily job rather than
+  // a nightly repeat of the backfill: once a thread's newest node is THREAD_SETTLED_DAYS
+  // old it is skipped, and a settled thread that quietly gains a reply waits for the next
+  // backfill. The bite is bounded by THREAD_MAX_REQUESTS_PER_RUN and paced by
+  // THREAD_REQUEST_SPACING_MS, so a run cannot outpace the instance's rate limit however
+  // large the backlog is (ADR 0057).
+  if (config.THREAD_WALK_INTERVAL_HOURS > 0) {
+    setInterval(async () => {
+      try { await walkThreads({ mode: 'incremental' }) } catch (e) { logger.error(e, 'Thread walk error') }
+    }, config.THREAD_WALK_INTERVAL_HOURS * 60 * 60_000)
   }
 
   logger.info({ scrobbleIntervalSeconds: config.LASTFM_SYNC_INTERVAL_SECONDS }, 'Scheduler started')
