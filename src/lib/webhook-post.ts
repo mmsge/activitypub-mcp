@@ -16,7 +16,7 @@ import { logger } from './logger.js'
  * 2. **Never retry.** Every receiver already re-reads on its own schedule, so a
  *    dropped notification costs latency and nothing else. A retry loop here would
  *    be a second, worse implementation of a timer that already exists.
- * 3. **Never stay quiet about a failure.** hetzner-server ADR 0011 records weeks of
+ * 3. **Never stay quiet about a failure.** naustet-server ADR 0011 records weeks of
  *    silently-401ing ntfy pushes hidden behind `curl -sf … || true`. A non-2xx is
  *    logged loudly for the same reason: a drifted secret answers 401 or 403, and
  *    that line is the only thing that makes it visible.

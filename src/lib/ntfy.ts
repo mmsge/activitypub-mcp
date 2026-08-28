@@ -45,7 +45,7 @@ function currentTarget(): NtfyTarget {
  *    quotes, accents and em dashes — the JSON body is UTF-8 throughout, so titles
  *    survive intact without RFC 2047 games.
  * 2. **Never throws, always logs a non-2xx loudly.** A failed push must not kill the
- *    job that called it, but it must not vanish either: hetzner-server ADR 0011
+ *    job that called it, but it must not vanish either: naustet-server ADR 0011
  *    records weeks of silently-401ing pushes caused by `curl -sf … || true`. The
  *    `NTFY PUBLISH FAILED` line is the thing that makes a password drift visible.
  */

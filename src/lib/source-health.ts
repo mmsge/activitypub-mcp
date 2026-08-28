@@ -226,7 +226,7 @@ export async function recordFailure(
   // One push per outage, on the transition into a refused credential. Latched on
   // `notifiedAt` because this poller runs weekly and an un-latched alert would
   // repeat until someone fixed it — which trains the recipient to ignore it, the
-  // failure mode hetzner-server ADR 0011 is about. Cleared by the next success.
+  // failure mode naustet-server ADR 0011 is about. Cleared by the next success.
   if ((status === 401 || status === 403) && !prior?.notifiedAt) {
     const sent = await publishNtfy({
       title: `${source}: token refused (${status})`,

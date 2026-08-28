@@ -96,7 +96,7 @@ describe('runPostBreakout — the guards', () => {
   })
 
   it('refuses to run a ladder that cannot notify', async () => {
-    // Spending rungs while every push 401s is the silent no-op hetzner-server ADR 0011
+    // Spending rungs while every push 401s is the silent no-op naustet-server ADR 0011
     // exists to forbid — the ladder would march past alerts nobody was ever told about.
     arm({ NTFY_PASSWORD: '' })
     const notify = notifier(true)
