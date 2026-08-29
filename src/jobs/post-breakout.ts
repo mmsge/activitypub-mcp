@@ -62,7 +62,7 @@ export async function runPostBreakout(
   opts: BreakoutRunOptions = {},
 ): Promise<void> {
   // Refuse to run a ladder that cannot notify. Advancing rungs while every push 401s
-  // would spend milestones nobody was ever told about — the silent no-op hetzner-server
+  // would spend milestones nobody was ever told about — the silent no-op naustet-server
   // ADR 0011 exists to forbid, and the same guard runScrobbleRace() carries.
   if (!config.BREAKOUT_ENABLED) return
   if (!config.NTFY_PASSWORD) {

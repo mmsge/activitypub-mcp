@@ -127,7 +127,7 @@ export async function runConvergenceWatch(
     // The crossings stay recorded and stay unannounced, so the next run retries them.
     // The watermark deliberately does NOT advance either: a silent failure here is the
     // one thing this feature cannot afford, because the row is its own "already told
-    // you" mark. hetzner-server ADR 0011.
+    // you" mark. naustet-server ADR 0011.
     logger.error(
       { crossings: pending.length, title: message.title },
       'CONVERGENCE PUSH FAILED — crossings recorded but not announced, will retry',

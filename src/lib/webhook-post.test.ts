@@ -41,7 +41,7 @@ describe('postWebhook', () => {
   })
 
   it('logs a non-2xx loudly, with the status', async () => {
-    // hetzner-server ADR 0011: weeks of silently-401ing ntfy pushes hidden behind
+    // naustet-server ADR 0011: weeks of silently-401ing ntfy pushes hidden behind
     // `curl -sf … || true`. This line is the only thing that makes a drifted
     // secret visible.
     const spy = vi.spyOn(logger, 'error').mockImplementation(() => logger)

@@ -36,9 +36,9 @@ const schema = z.object({
   // sync is a single lightweight API call, so this can run frequently; the floor
   // of 15s keeps us well within Last.fm's rate limits.
   LASTFM_SYNC_INTERVAL_SECONDS: z.coerce.number().int().min(15).default(60),
-  // ntfy push target. The broker lives in the hetzner-server Compose project, so we
+  // ntfy push target. The broker lives in the naustet-server Compose project, so we
   // reach it over its public URL rather than the internal `proxy` network. Auth is
-  // HTTP basic as the single shared `markus` user (hetzner-server ADR 0011); an empty
+  // HTTP basic as the single shared `markus` user (naustet-server ADR 0011); an empty
   // NTFY_PASSWORD leaves every push a logged no-op, so the feature is inert until the
   // password is present in /srv/bot/.env.
   // Where to POST when the train-trip import changes something, so `bartenderen`
@@ -501,7 +501,7 @@ export function getBreakoutActors(): string[] {
  *
  *  NTFY_PASSWORD is part of the condition, not a separate check, for the reason
  *  record 0015 gives: advancing a ladder past rungs nobody was ever told about is the
- *  silent no-op hetzner-server ADR 0011 exists to forbid. The jobs log the refusal
+ *  silent no-op naustet-server ADR 0011 exists to forbid. The jobs log the refusal
  *  loudly rather than idling quietly. */
 export function breakoutEnabled(): boolean {
   return config.BREAKOUT_ENABLED && config.NTFY_PASSWORD !== ''
@@ -511,7 +511,7 @@ export function breakoutEnabled(): boolean {
  *
  *  NTFY_PASSWORD is part of the condition for the reason record 0015 gives and
  *  `breakoutEnabled` repeats: advancing state past a crossing nobody was ever told
- *  about is the silent no-op hetzner-server ADR 0011 exists to forbid. Here it would
+ *  about is the silent no-op naustet-server ADR 0011 exists to forbid. Here it would
  *  be worse than a missed rung — a crossing recorded while unconfigured can never be
  *  announced afterwards, because the row is itself the "already announced" mark. */
 export function convergenceEnabled(): boolean {

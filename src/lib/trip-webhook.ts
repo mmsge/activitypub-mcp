@@ -21,7 +21,7 @@ import { postWebhook } from './webhook-post.js'
  * 2. **Retry.** The receiver's four-hour cap already re-reads the source, so a
  *    dropped notification costs latency and nothing else. A retry loop here would
  *    be a second, worse implementation of a timer that already exists.
- * 3. **Stay quiet about failures.** hetzner-server ADR 0011 records weeks of
+ * 3. **Stay quiet about failures.** naustet-server ADR 0011 records weeks of
  *    silently-401ing ntfy pushes hidden behind `curl -sf … || true`. A non-2xx is
  *    logged loudly for the same reason: a drifted secret answers 403, and that
  *    line is the only thing that makes it visible.

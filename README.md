@@ -148,7 +148,7 @@ The `DATABASE_URL` is constructed automatically from `DB_PASSWORD` inside `docke
 
 ### 5. Configure TLS (external Caddy)
 
-TLS termination is handled by a **central Caddy instance** running outside this project (e.g. `hetzner-server/Caddyfile`). The app binds only to `127.0.0.1:3000` and is not reachable directly from the internet.
+TLS termination is handled by a **central Caddy instance** running outside this project (e.g. `naustet-server/Caddyfile`). The app binds only to `127.0.0.1:3000` and is not reachable directly from the internet.
 
 Add a reverse-proxy block for your domain to that central Caddyfile:
 

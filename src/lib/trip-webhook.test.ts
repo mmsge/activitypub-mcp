@@ -53,7 +53,7 @@ describe('notifyTripsChanged', () => {
   it('logs a drifted secret loudly rather than swallowing the 403', async () => {
     // The failure this exists to catch: bartenderen's WEBHOOK_SECRET and ours
     // diverge, every notification 403s, and nothing ever says so. See
-    // hetzner-server ADR 0011 — weeks of silently-401ing ntfy pushes.
+    // naustet-server ADR 0011 — weeks of silently-401ing ntfy pushes.
     mockFetch(403)
     const err = vi.spyOn(logger, 'error').mockImplementation(() => {})
 

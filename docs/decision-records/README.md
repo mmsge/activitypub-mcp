@@ -7,7 +7,7 @@ once accepted; to change one, add a new record and mark the old one
 `Superseded by NNNN`.
 
 These are pooled into the cross-service view at `adr.msge.no` (see
-`mmsge/hetzner-server`), so an optional `**Topics:**` line surfaces them there.
+`mmsge/naustet-server`), so an optional `**Topics:**` line surfaces them there.
 
 | # | Title |
 |---|-------|

@@ -50,7 +50,7 @@ describe('notifyMsgeChanged', () => {
 
   it('reports a drifted secret rather than swallowing it', async () => {
     // 401 is what msge.no answers when WEBHOOK_SECRET no longer matches. Silence
-    // here is how the ntfy pushes 401ed for weeks (hetzner-server ADR 0011).
+    // here is how the ntfy pushes 401ed for weeks (naustet-server ADR 0011).
     mockFetch(401)
     expect(await notifyMsgeChanged('tog', 2, target)).toBe(false)
   })

@@ -96,7 +96,7 @@ describe('runScrobbleRace — one race at a time', () => {
   })
 
   it('refuses to advance any race when it cannot notify', async () => {
-    // Spending milestones nobody was ever told about is the silent failure hetzner-server
+    // Spending milestones nobody was ever told about is the silent failure naustet-server
     // ADR 0011 exists to forbid.
     races = [race('a')]
     Object.assign(config, { NTFY_PASSWORD: '' })

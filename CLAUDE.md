@@ -14,10 +14,10 @@ This service runs on a shared Hetzner VPS (SSH alias `msge`, IP `157.180.66.111`
 
 ## Central ingress — do not manage Caddy here
 
-TLS and routing are handled centrally in **`github.com/mmsge/hetzner-server`** — not in this repo.
+TLS and routing are handled centrally in **`github.com/mmsge/naustet-server`** — not in this repo.
 
-- The Caddyfile block for this service lives at `hetzner-server/Caddyfile`
-- Service documentation lives at `hetzner-server/services/activitypub-mcp.md`
+- The Caddyfile block for this service lives at `naustet-server/Caddyfile`
+- Service documentation lives at `naustet-server/services/activitypub-mcp.md`
 - To change routing or the domain, edit that repo and run `make reload` on the server
 
 This repo previously had its own bundled Caddy service in `docker-compose.yml` — that was removed (PRs #8/#9) because central Caddy now handles TLS. Do not add a Caddy service back to this repo.
@@ -32,7 +32,7 @@ This repo previously had its own bundled Caddy service in `docker-compose.yml` �
 | **activitypub-mcp** | bot.skvip.lol | **3000** |
 | **meg (offentleg straum)** | meg.msge.no | **3000** (same container) |
 
-**Port 3000 is reserved for this service.** Do not change it without updating the Caddyfile in `hetzner-server`.
+**Port 3000 is reserved for this service.** Do not change it without updating the Caddyfile in `naustet-server`.
 
 ## Two domains, one container
 
@@ -220,7 +220,7 @@ latency and nothing else.
 The three rules live once, in **`src/lib/webhook-post.ts`**: never throw (a failed
 notification must not fail the import that triggered it), never retry (every receiver
 already re-reads on a timer, and a retry loop here is a second worse implementation
-of it), and never stay quiet about a failure (hetzner-server ADR 0011 — weeks of
+of it), and never stay quiet about a failure (naustet-server ADR 0011 — weeks of
 silently-401ing ntfy pushes behind `curl -sf … || true`). ADR 0053 predicted a second
 consumer would want its own config pair and its own call rather than a fan-out, and
 that held — what it did not anticipate is that those three are **transport, not

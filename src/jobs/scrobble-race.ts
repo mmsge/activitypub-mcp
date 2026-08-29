@@ -28,7 +28,7 @@ export async function runScrobbleRace(notify: Notifier = publishNtfy): Promise<v
 
   // Refuse to run a race that cannot notify. Tracking state while every push 401s
   // would advance the ladder past milestones nobody was ever told about — the exact
-  // silent-failure mode hetzner-server ADR 0011 exists to forbid.
+  // silent-failure mode naustet-server ADR 0011 exists to forbid.
   if (!config.NTFY_PASSWORD) {
     logger.error(
       { races: races.map(r => r.id) },
