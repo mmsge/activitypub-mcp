@@ -1070,7 +1070,16 @@ Note the horizon: the sampler tracks the most recent `ENGAGEMENT_SAMPLE_RECENT_P
 (default 20) posts per account, so a post that takes off after twenty newer ones have been
 published is no longer sampled and can no longer break out.
 
-See decision record 0036.
+Note also the reach: **`ENGAGEMENT_SAMPLE_ORIGINS` decides which hosts the background jobs
+are allowed to poll**, and it is a politeness list rather than a capability one. The
+watchlist is every account you follow, and an account on someone else's instance does not
+make their server yours to poll every hour — ours polled a stranger's NeoDB instance twenty
+times an hour until its admin asked us to stop. List only hosts you are entitled to poll;
+`OWNER_INSTANCE` is always included, and blank polls that host alone rather than everything.
+It binds the sampler and the fast lane only: an explicit `get_engagement` call is a person
+asking one question and is never gated.
+
+See decision records 0036 and 0058.
 
 ### Watch dates
 
