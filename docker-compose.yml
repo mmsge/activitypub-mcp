@@ -4,6 +4,15 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    # Postgres 16 with its default 128 MB shared_buffers and a small database: 256m is
+    # the box's sidecar default (naustet-server template) and leaves headroom.
+    mem_limit: 256m
+    # Cap the container log: json-file never rotates on its own, and 10m x 3 is also how much output survives an outage of the central log collector (naustet-server ADR 0032).
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     environment:
       POSTGRES_DB: activitypub
       POSTGRES_USER: apuser
@@ -19,6 +28,19 @@ services:
   app:
     build: .
     restart: unless-stopped
+    # The box is small (3.7 GB / 2 vCPU, ~49 containers) and every service is capped.
+    # 512m rather than the 256m template default: this is the busiest Node service on
+    # the box (two hosts, the ActivityPub inbox, admin, MCP, the image proxy and the
+    # sync jobs) and it runs TypeScript through tsx at runtime. The one-off full
+    # YouTube archive import (ADR 0047) needs ~500-600 MB of heap by itself and must
+    # run outside this cap, not via `docker compose exec app`.
+    mem_limit: 512m
+    # Cap the container log: json-file never rotates on its own, and 10m x 3 is also how much output survives an outage of the central log collector (naustet-server ADR 0032).
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     env_file: .env
     environment:
       DATABASE_URL: postgres://apuser:${DB_PASSWORD:-changepassword}@db:5432/activitypub
