@@ -14,6 +14,20 @@ const AP_ACCEPT =
   'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"'
 const USER_AGENT = `activitypub-mcp/1.0 (+https://${config.APP_DOMAIN})`
 
+/**
+ * The lowercase host a status reference would be dialled on, or '' when it names no
+ * host (a bare id, or anything unparseable). Both background jobs filter their
+ * candidates through this before spending a request, so the politeness gate is applied
+ * to the host actually contacted rather than to the actor it was inferred from.
+ */
+export function statusOrigin(ref: string): string {
+  try {
+    return new URL(ref.trim()).hostname.toLowerCase()
+  } catch {
+    return ''
+  }
+}
+
 export type StatusRef = {
   input: string
   origin: string // lowercase hostname of the origin instance
@@ -133,11 +147,19 @@ export function parseStatusRef(raw: string, ownerInstanceHost: string): StatusRe
 }
 
 /** Map a REST /api/v1/statuses/:id HTTP status to a terminal error or the AP
- *  fallback. 404 may just mean "not Mastodon", so it falls through to AP. */
-export function classifyRestStatus(
-  status: number,
-): 'unauthorized' | 'rate_limited' | 'try_ap' {
-  if (status === 401 || status === 403) return 'unauthorized'
+ *  fallback. Only 429 is terminal: a rate-limited host must not be hit a second
+ *  time in the same breath, which is the whole point of backing off.
+ *
+ *  401 and 403 are NOT terminal, and used to be. `/api/v1/statuses/:id` is a
+ *  Mastodon route, and software that does not implement it answers however it
+ *  answers an unknown path — NeoDB gates its entire API behind a token and says
+ *  401. Read as "this post is private" that ends the read, so minreol.dk posts
+ *  reported no counts at all while their AP objects were serving a public reply
+ *  count the whole time. A genuinely private post refuses the AP object too, and
+ *  fetchApLeg returns `unauthorized` for it, so the terminal answer is still
+ *  reached — one request later, on the leg that can actually tell the difference
+ *  (record 0058). */
+export function classifyRestStatus(status: number): 'rate_limited' | 'try_ap' {
   if (status === 429) return 'rate_limited'
   return 'try_ap'
 }
@@ -217,11 +239,7 @@ async function fetchRestLeg(ref: StatusRef, timeoutMs: number): Promise<FetchOut
   }
 
   if (!res.ok) {
-    const cls = classifyRestStatus(res.status)
-    if (cls === 'unauthorized') {
-      return { ok: false, code: 'unauthorized', message: `REST HTTP ${res.status} from ${ref.origin}` }
-    }
-    if (cls === 'rate_limited') {
+    if (classifyRestStatus(res.status) === 'rate_limited') {
       return { ok: false, code: 'rate_limited', message: `REST HTTP 429 from ${ref.origin}` }
     }
     return 'try_ap'

@@ -33,6 +33,11 @@ function arm(over: Record<string, unknown> = {}) {
     BREAKOUT_FAST_LANE_HOURS: 24,
     BREAKOUT_FAST_LANE_MAX_POSTS: 10,
     ENGAGEMENT_MAX_BATCH: 50,
+    // The lane dials remote hosts six times an hour, so it is bounded by the same
+    // politeness list as the hourly sampler. Armed here with the two accounts the
+    // window tests use; the gate itself is exercised below.
+    OWNER_INSTANCE: 'skvip.lol',
+    ENGAGEMENT_SAMPLE_ORIGINS: 'pixelfed.babb.no',
     ...over,
   })
 }
@@ -120,11 +125,56 @@ describe('runBreakoutFastLane — the young-post window', () => {
       { apId: 'https://pixelfed.babb.no/users/markus', label: '@markus@pixelfed.babb.no' },
     ])
     loadFastLaneTargets
-      .mockResolvedValueOnce(['a'])
-      .mockResolvedValueOnce(['b'])
+      .mockResolvedValueOnce(['https://skvip.lol/x/1'])
+      .mockResolvedValueOnce(['https://pixelfed.babb.no/p/1'])
 
     await runBreakoutFastLane(notifier())
 
-    expect(getEngagement).toHaveBeenCalledWith(expect.objectContaining({ statuses: ['a', 'b'] }))
+    expect(getEngagement).toHaveBeenCalledWith(expect.objectContaining({
+      statuses: ['https://skvip.lol/x/1', 'https://pixelfed.babb.no/p/1'],
+    }))
+  })
+})
+
+/**
+ * The lane polls every ten minutes for a whole day per post, so an origin that is not
+ * ours costs the most here. Dropping the post before the fetch also keeps the ladder
+ * honest: scoring a post on counts we did not refresh would announce an old peak as
+ * news (record 0058).
+ */
+describe('runBreakoutFastLane — the origin gate', () => {
+  it('drops a post on an origin outside the list, and never scores it', async () => {
+    loadFastLaneTargets.mockResolvedValue([
+      'https://skvip.lol/x/1',
+      'https://minreol.dk/@markus@minreol.dk/posts/1',
+    ])
+
+    await runBreakoutFastLane(notifier())
+
+    expect(getEngagement).toHaveBeenCalledWith(expect.objectContaining({
+      statuses: ['https://skvip.lol/x/1'],
+    }))
+    expect(runPostBreakout).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ apIds: ['https://skvip.lol/x/1'] }),
+    )
+  })
+
+  it('spends nothing when every young post is on an excluded origin', async () => {
+    loadFastLaneTargets.mockResolvedValue(['https://minreol.dk/@markus@minreol.dk/posts/1'])
+
+    await runBreakoutFastLane(notifier())
+
+    expect(getEngagement).not.toHaveBeenCalled()
+    expect(runPostBreakout).not.toHaveBeenCalled()
+  })
+
+  it('polls nothing when the list is empty, rather than everything', async () => {
+    arm({ OWNER_INSTANCE: '', ENGAGEMENT_SAMPLE_ORIGINS: '' })
+
+    await runBreakoutFastLane(notifier())
+
+    expect(getEngagement).not.toHaveBeenCalled()
+    expect(runPostBreakout).not.toHaveBeenCalled()
   })
 })

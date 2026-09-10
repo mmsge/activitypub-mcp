@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   getOwnerIdentity, getActorPublished, getBreakoutObjectTypes, getBreakoutWeights,
-  breakoutEnabled, config,
+  breakoutEnabled, config, getEngagementSampleOrigins,
 } from './config.js'
 
 describe('getOwnerIdentity', () => {
@@ -116,5 +116,32 @@ describe('the trip-prune bounds', () => {
     // The one non-integer number in the schema. Coerced to `.int()` by a reader
     // pattern-matching its neighbours, 0.2 would round to 0 and refuse everything.
     expect(Number.isInteger(config.TRIP_PRUNE_MAX_SHARE)).toBe(false)
+  })
+})
+
+describe('getEngagementSampleOrigins', () => {
+  it('parses a comma-separated list into lowercase bare hostnames', () => {
+    expect(getEngagementSampleOrigins('Gigowl.social, https://rullen.no/ ,', 'skvip.lol'))
+      .toEqual(new Set(['skvip.lol', 'gigowl.social', 'rullen.no']))
+  })
+
+  // The breakout ladder is built on his own account. A list that leaves the owner
+  // instance out is a typo, not an instruction to stop watching it, so the host is
+  // folded in whatever is configured.
+  it('always includes the owner instance, even when the list omits it', () => {
+    expect(getEngagementSampleOrigins('gigowl.social', 'skvip.lol').has('skvip.lol')).toBe(true)
+    expect(getEngagementSampleOrigins('', 'skvip.lol')).toEqual(new Set(['skvip.lol']))
+  })
+
+  // Empty is "poll nothing", never "poll everything" — the sampler warns and stops.
+  // Defaulting the other way is how an unattended job ends up on somebody else's box.
+  it('is empty when nothing is configured and no owner instance is set', () => {
+    expect(getEngagementSampleOrigins('', '')).toEqual(new Set())
+  })
+
+  it('does not admit a host merely because an account lives there', () => {
+    const origins = getEngagementSampleOrigins('gigowl.social,rullen.no', 'skvip.lol')
+    expect(origins.has('minreol.dk')).toBe(false)
+    expect(origins.has('bookwyrm.social')).toBe(false)
   })
 })

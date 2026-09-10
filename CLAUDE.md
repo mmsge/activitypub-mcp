@@ -62,6 +62,35 @@ The one rule not to "simplify" back: every score is the post's **peak** across i
 snapshot history, never the latest snapshot. Engagement counts go down, and reading the
 latest one would let an un-favourite lower the record every other post is measured against.
 
+## Engagement sampling reaches other people's servers
+
+The hourly sampler and the ten-minute breakout fast lane are the only jobs here that poll
+remote instances on a timer, and **`ENGAGEMENT_SAMPLE_ORIGINS` is the list of hosts they
+may dial**. It is a politeness list, not a capability one. See ADR 0058.
+
+Rules not to "simplify" back:
+
+- **A follow is not a permission.** The watchlist is every accepted follow, which is every
+  service Markus has an account on — `minreol.dk` and `bookwyrm.social` are somebody else's
+  machines. Ungated, this polled them 20 times an hour forever; their admin noticed before
+  we did.
+- **Empty polls NOTHING, never everything.** Unset falls back to `OWNER_INSTANCE` alone,
+  and unset with no owner instance logs what to set and returns. Defaulting outward is the
+  whole incident.
+- **`OWNER_INSTANCE` is always in the set.** The breakout ladder is built on his own
+  account, so a list omitting it is a typo, and honouring it silences the alerts while
+  everything still looks configured.
+- **The gate binds the timers, never `getEngagement`.** An explicit call is a person asking
+  about one post, and that was never the rude part.
+- **The gate is applied to the POST's host, not the actor's.** The actor filter is the
+  cheap pass; the ap_id is the string actually dialled.
+- **`skip_unchanged` bounds the TABLE, not the traffic.** An unchanged count is still a
+  request. The only lever that reduces outbound load is not asking.
+- **A REST 401/403 is not a private post.** `/api/v1/statuses/:id` is a Mastodon route, and
+  NeoDB answers 401 for its whole API — so it falls through to the AP object like 404 does.
+  A genuinely private post refuses the AP object too, which is the leg that can tell the
+  difference.
+
 ## Scrobble races
 
 Two things in the listening history race head-to-head, and a **side is an entity**: an
