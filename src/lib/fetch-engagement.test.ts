@@ -4,6 +4,7 @@ import {
   classifyRestStatus,
   extractApCounts,
   mapPool,
+  statusOrigin,
   type StatusRef,
 } from './fetch-engagement.js'
 
@@ -83,14 +84,36 @@ describe('parseStatusRef', () => {
 })
 
 describe('classifyRestStatus', () => {
-  it('maps auth failures, rate limits, and everything else', () => {
-    expect(classifyRestStatus(401)).toBe('unauthorized')
-    expect(classifyRestStatus(403)).toBe('unauthorized')
+  it('treats only a rate limit as terminal', () => {
     expect(classifyRestStatus(429)).toBe('rate_limited')
     expect(classifyRestStatus(404)).toBe('try_ap')
     expect(classifyRestStatus(410)).toBe('try_ap')
     expect(classifyRestStatus(500)).toBe('try_ap')
     expect(classifyRestStatus(503)).toBe('try_ap')
+  })
+
+  // /api/v1/statuses/:id is a Mastodon route. Software that doesn't implement it
+  // answers however it answers an unknown path, and NeoDB — which gates its whole API
+  // behind a token — says 401. Ending the read there reported "no counts" for
+  // minreol.dk posts whose AP objects were serving a public reply count all along.
+  // A genuinely private post refuses the AP object too, and fetchApLeg is what says so.
+  it('falls through to AP on 401/403 rather than calling the post private', () => {
+    expect(classifyRestStatus(401)).toBe('try_ap')
+    expect(classifyRestStatus(403)).toBe('try_ap')
+  })
+})
+
+describe('statusOrigin', () => {
+  it('reads the host a reference would be dialled on, lowercased', () => {
+    expect(statusOrigin('https://MinReol.dk/@markus@minreol.dk/posts/612600118463511440/'))
+      .toBe('minreol.dk')
+    expect(statusOrigin('https://skvip.lol/users/markus/statuses/1')).toBe('skvip.lol')
+  })
+
+  it("returns '' for anything that names no host, so a gate excludes it", () => {
+    expect(statusOrigin('116850934803868399')).toBe('')
+    expect(statusOrigin('')).toBe('')
+    expect(statusOrigin('   ')).toBe('')
   })
 })
 

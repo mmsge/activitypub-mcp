@@ -232,6 +232,19 @@ const schema = z.object({
   ENGAGEMENT_SAMPLE_INTERVAL_MINUTES: z.coerce.number().int().min(5).default(60),
   // How many of the owner's most recent posts the sampler tracks. 0 disables it.
   ENGAGEMENT_SAMPLE_RECENT_POSTS: z.coerce.number().int().min(0).max(50).default(20),
+  // Which origins the BACKGROUND sampler is allowed to poll, comma-separated hostnames.
+  // Empty falls back to OWNER_INSTANCE alone, and the owner host is always included
+  // whatever is listed — the breakout ladder is built on his own account, and a typo
+  // here must not silently switch it off.
+  //
+  // This is a politeness gate, not a capability one. The auto-watchlist is every
+  // accepted follow, which is every service Markus has an account on — including
+  // instances that are somebody else's to run. Sampling is an unattended hourly poll
+  // of somebody's server for counts they may not even publish, so the list is the
+  // hosts we are entitled to poll, and only he knows which those are. It binds the
+  // sampler and the fast lane only: an explicit get_engagement call is a person
+  // asking one question and is never gated (record 0058).
+  ENGAGEMENT_SAMPLE_ORIGINS: z.string().default(''),
   // ── Thread shape: walk the conversations rooted in his own toots (record 0057) ──
   // Whose toots count as roots, as @user@domain or actor URLs, comma-separated. Empty
   // falls back to OWNER_ACTOR, and then to every accepted follow whose NodeInfo software
@@ -530,6 +543,22 @@ export function getBookwyrmActors(): string[] {
 export function getThreadActors(): string[] {
   const raw = config.THREAD_ACTORS.trim() || config.OWNER_ACTOR
   return raw.split(',').map(s => s.trim()).filter(Boolean)
+}
+
+/** Lowercase hostnames the background engagement sampler may poll. The owner
+ *  instance is always in the set: it is the account the breakout ladder is built on,
+ *  so a list that omits it is a typo rather than an intention. An empty set means
+ *  nothing is configured AND OWNER_INSTANCE is unset, which the sampler reports
+ *  rather than treating as "sample everything". */
+export function getEngagementSampleOrigins(
+  raw: string = config.ENGAGEMENT_SAMPLE_ORIGINS,
+  owner: string = getOwnerInstanceHost(),
+): Set<string> {
+  const listed = raw
+    .split(',')
+    .map(s => s.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, ''))
+    .filter(Boolean)
+  return new Set(owner ? [owner.toLowerCase(), ...listed] : listed)
 }
 
 /** Lowercase hosts whose replies never enter a tree. */

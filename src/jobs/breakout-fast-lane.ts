@@ -1,8 +1,9 @@
-import { config } from '../config.js'
+import { config, getEngagementSampleOrigins } from '../config.js'
 import { logger } from '../lib/logger.js'
 import { publishNtfy, type Notifier } from '../lib/ntfy.js'
 import { loadFastLaneTargets, resolveBreakoutActors } from '../lib/breakout-store.js'
 import { getEngagement } from '../mcp/tools/engagement.js'
+import { statusOrigin } from '../lib/fetch-engagement.js'
 import { runPostBreakout } from './post-breakout.js'
 
 /**
@@ -22,6 +23,12 @@ import { runPostBreakout } from './post-breakout.js'
  * Posts already at the top rung are excluded by the store: the ladder is spent, so
  * re-reading them buys nothing.
  *
+ * It obeys ENGAGEMENT_SAMPLE_ORIGINS for the same reason the hourly lane does, and more
+ * sharply: this one polls six times an hour. A post on an origin that is not ours is
+ * dropped before the fetch, and the ladder then runs over what was actually re-read —
+ * scoring a post on counts we did not refresh would announce an old peak as news
+ * (record 0058).
+ *
  * The two lanes deliberately overlap on young posts, and the overlap is harmless:
  * `skip_unchanged` writes no snapshot when counts haven't moved, and `decideBreakout`
  * returns 'none' for a rung already spent. Neither lane needs to know about the other.
@@ -36,15 +43,19 @@ export async function runBreakoutFastLane(notify: Notifier = publishNtfy): Promi
   const watched = await resolveBreakoutActors()
   if (watched.length === 0) return
 
-  const apIds: string[] = []
+  const origins = getEngagementSampleOrigins()
+  if (origins.size === 0) return
+
+  const candidates: string[] = []
   for (const actor of watched) {
     const targets = await loadFastLaneTargets({
       actorApId: actor.apId,
       hours: config.BREAKOUT_FAST_LANE_HOURS,
       limit: config.BREAKOUT_FAST_LANE_MAX_POSTS,
     })
-    apIds.push(...targets)
+    candidates.push(...targets)
   }
+  const apIds = candidates.filter(id => origins.has(statusOrigin(id)))
   if (apIds.length === 0) return
 
   // Refresh the counts. skip_unchanged keeps the snapshot table from bloating when a
