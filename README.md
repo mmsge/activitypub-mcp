@@ -541,6 +541,7 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_recent_activities` | "What has come in recently?" |
 | `get_scrobbles` | "What did I listen to yesterday? Show my Aphex Twin scrobbles." |
 | `get_scrobble_stats` | "Who are my top artists this month? How many tracks have I scrobbled?" |
+| `get_scrobble_timeline` | "Show my listening by month. Which artist owned the summer of 2023?" |
 | `list_scrobble_races` | "Which races are running? Which one is closest?" |
 | `get_scrobble_race` | "How far behind The Good Witch is Florescence? When will it overtake?" |
 | `get_youtube_watches` | "What did I watch on YouTube yesterday? Show every Any Austin video I've opened." |
@@ -900,7 +901,8 @@ listening history into the local database — backfilling the full history on fi
 syncing new scrobbles every 60 seconds thereafter (tune with `LASTFM_SYNC_INTERVAL_SECONDS`).
 The stored scrobbles are queryable by
 timestamp, artist, album, and track via `get_scrobbles`, with aggregate metrics (totals,
-listening span, top artists/albums/tracks) via `get_scrobble_stats`.
+listening span, top artists/albums/tracks) via `get_scrobble_stats` and a per-day,
+per-week or per-month series via `get_scrobble_timeline`.
 
 `get_scrobbles` returns newest-first by default. To answer "earliest/latest/total" questions
 without paginating backward through thousands of rows:
@@ -914,6 +916,44 @@ without paginating backward through thousands of rows:
 - **Deep traversal:** each `get_scrobbles` response includes a `next_cursor` token (a `played_at`-based
   keyset cursor, `null` when exhausted). Pass it back as `cursor` to continue from where the last page
   ended — far cheaper than large offsets. Offset-based `page` remains available for compatibility.
+
+#### The listening over time
+
+`get_scrobble_timeline` (and `/api/v1/scrobble-timeline`) is the series the other two
+cannot produce: play counts per **local** calendar day, week or month, broken down by
+artist, album or track. Day is not a `group_by` value on `get_scrobble_stats` because
+`group_by` there selects the entity being ranked — a bucketing axis is a different thing,
+and this question wants both at once. See ADR 0059.
+
+- **Buckets are cut in local time, not on the UTC date.** `played_at` is stored UTC and
+  Norway runs UTC+2 in summer, so everything from 22:00 local onwards falls on the
+  following UTC day. Bucketing on UTC files a summer evening's listening against tomorrow,
+  for half the year, with no query failing and no total moving. Pass an IANA `timezone`
+  (default `Europe/Oslo`) to cut the series elsewhere; an unknown zone is a validation
+  error rather than a database one.
+- **`plays` on a bucket is its true total** and does not move with `top_n` or `min_plays`,
+  so two calls with different display parameters return comparable series. Overflow past
+  `top_n` is summed into one row whose key the response reports as `other_key` — normally
+  `"Other"`, but it steps aside if a real entity is called that. Entities below `min_plays`
+  are *dropped* rather than folded, which is the one case where `entities` sums to less
+  than `plays`.
+- **`top` is precomputed per bucket**, so "who won that day" needs no scan. It comes from
+  the raw counts, so it is never the overflow row and never changes with `top_n`; ties
+  resolve by range-wide plays then alphabetically, so the answer is stable between calls.
+- **Entity metadata is hoisted** into `entities`, keyed by entity and carrying range-wide
+  plays plus a representative image — repeating a Last.fm image URL across thousands of
+  days is most of the payload for none of the information. Album and track entities are
+  keyed `"<artist> – <name>"` so same-titled records by different artists do not merge,
+  and each entry also carries `artist` and `name` as fields so the key never needs parsing.
+- **Silent buckets are emitted as zero rows** by default: a week of not listening is
+  signal, not missing data. `from`/`to` are local calendar dates, inclusive, and are
+  clamped to the archive's own first day and to today — so a wide-open `from` costs
+  nothing, and the future is never reported as silence while the last three quiet days
+  still are.
+- **The MCP tool defaults to `bucket=month`, `top_n=12`**; REST defaults to `bucket=day`,
+  `top_n=0`. The full archive at daily resolution with every entity is roughly 10,000 rows
+  and 400 KB — fine for a browser, useless in a chat context. Those two defaults are the
+  only difference between the surfaces: pass both explicitly and they answer identically.
 
 #### The scrobble races
 
@@ -1293,6 +1333,7 @@ All paths accept `GET`, `QUERY`, and `POST`.
 | `/reading-events` | `get_reading_events` | `actor_handle`, `event_type`, `limit`, `since`, `sort_order`, `cursor` |
 | `/scrobbles` | `get_scrobbles` | `artist`, `album`, `track`, `from`, `to`, `since`, `sort_order`, `limit`, `page`, `cursor` |
 | `/scrobble-stats` | `get_scrobble_stats` | `artist`, `album`, `track`, `from`, `to`, `since`, `group_by`, `limit` |
+| `/scrobble-timeline` | `get_scrobble_timeline` | `artist`, `album`, `track`, `from`, `to`, `bucket`, `group_by`, `top_n`, `min_plays`, `timezone`, `include_empty_buckets` |
 | `/scrobble-races` | `list_scrobble_races` | `include_archived` |
 | `/scrobble-race` | `get_scrobble_race` | `race_id`, `leader`, `challenger`, `pace_days` |
 | `/youtube-watches` | `get_youtube_watches` | `account`, `channel`, `title`, `video_id`, `from`, `to`, `year`, `shorts`, `include_unresolved`, `sort_order`, `limit`, `page`, `cursor` |

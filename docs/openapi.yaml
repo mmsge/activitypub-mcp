@@ -1077,6 +1077,122 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/scrobble-timeline:
+    get:
+      tags: [REST API]
+      summary: Per-bucket Last.fm scrobble series
+      description: |
+        Play counts bucketed by **local** calendar day, week or month, broken down
+        by artist, album or track, with per-entity metadata hoisted out of the
+        buckets.
+
+        Buckets are cut on `played_at AT TIME ZONE <timezone>`, not on the UTC
+        date: `played_at` is stored UTC and Norway runs UTC+2 in summer, so
+        everything from 22:00 local onwards would otherwise be filed against the
+        following day. See ADR 0059.
+
+        Each bucket carries `plays` (its TRUE total, unaffected by `top_n` and
+        `min_plays`), a precomputed `top` (taken from the raw counts, so it is
+        never the overflow row and never changes with `top_n`; ties resolve by
+        range-wide plays then alphabetically) and `entities`. The top-level
+        `entities` block maps entity key to range-wide plays and a representative
+        image for the whole range.
+
+        REST defaults to `bucket=day` and `top_n=0`; the MCP tool
+        `get_scrobble_timeline` defaults to `month` and `12` so a bare call fits a
+        chat context. Those two defaults are the only difference between the
+        surfaces.
+      operationId: getScrobbleTimelineGet
+      parameters:
+        - name: artist
+          in: query
+          schema: { type: string }
+        - name: album
+          in: query
+          schema: { type: string }
+        - name: track
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          description: "First bucket, inclusive, as a local calendar date in `timezone`. Defaults to the first day with matching scrobbles; an earlier value is pulled forward to it."
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          description: "Last bucket, inclusive, as a local calendar date in `timezone`. Defaults to today; a later value is pushed back to today, so the future is never reported as silence."
+          schema: { type: string, format: date }
+        - name: bucket
+          in: query
+          description: "Bucketing axis. Defaults to `day` on REST; the MCP tool defaults to `month`."
+          schema: { type: string, enum: [day, week, month], default: day }
+        - name: group_by
+          in: query
+          description: 'The entity stacked within each bucket. Album and track entities are keyed "<artist> - <name>", so same-titled records by different artists do not merge.'
+          schema:
+            { type: string, enum: [artist, album, track], default: artist }
+        - name: top_n
+          in: query
+          description: "Per-bucket cap; 0 (the REST default) means every entity. Overflow is summed into one synthetic row whose key the response reports as `other_key`."
+          schema: { type: integer, minimum: 0, maximum: 1000, default: 0 }
+        - name: min_plays
+          in: query
+          description: "Drop entities below this many plays within a bucket. Dropped, not folded: the bucket's `plays` stays the true total, so `entities` then sums to less than it."
+          schema: { type: integer, minimum: 1, maximum: 10000, default: 1 }
+        - name: timezone
+          in: query
+          description: "IANA zone the calendar buckets are cut in. `played_at` is stored UTC; bucketing on UTC dates misfiles evening listening after 22:00 local in summer onto the next day. An unknown zone is a 400."
+          schema: { type: string, default: Europe/Oslo }
+        - name: include_empty_buckets
+          in: query
+          description: "Emit zero rows for silent buckets so a client need not reconstruct the gaps. A week of not listening is signal, not missing data."
+          schema: { type: boolean, default: true }
+      responses:
+        "200":
+          description: The bucketed series.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScrobbleTimelineResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Per-bucket Last.fm scrobble series (JSON body)
+      operationId: getScrobbleTimelinePost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                artist: { type: string }
+                album: { type: string }
+                track: { type: string }
+                from: { type: string, format: date }
+                to: { type: string, format: date }
+                bucket: { type: string, enum: [day, week, month], default: day }
+                group_by:
+                  {
+                    type: string,
+                    enum: [artist, album, track],
+                    default: artist,
+                  }
+                top_n: { type: integer, minimum: 0, maximum: 1000, default: 0 }
+                min_plays:
+                  { type: integer, minimum: 1, maximum: 10000, default: 1 }
+                timezone: { type: string, default: Europe/Oslo }
+                include_empty_buckets: { type: boolean, default: true }
+      responses:
+        "200":
+          description: The bucketed series.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScrobbleTimelineResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/youtube-watches:
     get:
       tags: [REST API]
@@ -5239,6 +5355,72 @@ components:
           properties:
             from: { type: [string, "null"] }
             to: { type: [string, "null"] }
+
+    ScrobbleTimelineResponse:
+      type: object
+      properties:
+        bucket: { type: string, enum: [day, week, month] }
+        group_by: { type: string, enum: [artist, album, track] }
+        timezone:
+          type: string
+          description: The IANA zone the buckets were cut in.
+        range:
+          type: object
+          description: "The resolved range, clamped to the archive's own first day and to today. Both null when nothing matched."
+          properties:
+            from: { type: [string, "null"], format: date }
+            to: { type: [string, "null"], format: date }
+        totals:
+          type: object
+          properties:
+            buckets:
+              type: integer
+              description: "Every bucket in the range, including the silent ones that `include_empty_buckets=false` leaves out of the array."
+            active_buckets: { type: integer }
+            scrobbles: { type: integer }
+            distinct_artists:
+              type: integer
+              description: "Distinct ARTISTS, whatever `group_by` is: two albums by one artist are one artist here and two entities below."
+            distinct_entities: { type: integer }
+        other_key:
+          type: string
+          description: "The key `top_n` overflow was summed into. Normally `Other`, but it steps aside if a real entity is called that, so read it rather than assuming it."
+        entities:
+          type: object
+          description: 'Range-wide figures per entity, hoisted out of the buckets. Keyed by entity name for `group_by=artist` and "<artist> - <name>" otherwise; `artist` and `name` are carried as fields so the key never needs parsing apart.'
+          additionalProperties:
+            type: object
+            properties:
+              plays: { type: integer }
+              image: { type: [string, "null"] }
+              artist: { type: string }
+              name: { type: string }
+        buckets:
+          type: array
+          description: Newest bucket first.
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+                description: "The bucket's first local day: a Monday for `bucket=week`, the 1st for `bucket=month`."
+              plays:
+                type: integer
+                description: "The bucket's TRUE total, unaffected by `top_n` and `min_plays`. `entities` sums to this except where `min_plays` dropped rows."
+              top:
+                type: [string, "null"]
+                description: "The entity with the most plays in this bucket, taken from the raw counts: never `other_key`, and unchanged by `top_n`. Null for a silent bucket."
+              entities:
+                type: object
+                description: Entity key to play count, ordered plays-descending.
+                additionalProperties: { type: integer }
+        filters:
+          type: object
+          properties:
+            artist: { type: [string, "null"] }
+            album: { type: [string, "null"] }
+            track: { type: [string, "null"] }
 
     YoutubeWatch:
       type: object
