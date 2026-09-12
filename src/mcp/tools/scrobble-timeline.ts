@@ -6,7 +6,8 @@ import { buildConditions } from './scrobbles.js'
 import { STREAM_TIMEZONE } from '../../stream/event-date.js'
 import { LOCAL_BOUND_RE, localBoundDate } from '../../lib/local-bound.js'
 import {
-  BUCKETS, assembleTimeline, isValidTimeZone, entityKey, resolveRange,
+  BUCKETS, assembleTimeline, isTimeZoneShaped, entityKey, resolveRange, UnknownTimeZoneError,
+  UNKNOWN_NAME,
   type Bucket, type EntityRow, type FlatRow, type Timeline,
 } from '../../lib/scrobble-timeline.js'
 
@@ -105,10 +106,10 @@ const timelineCoreSchema = z.object({
     .describe('The entity stacked within each bucket. Album and track entities are keyed "<artist> – <name>", so same-titled records by different artists do not merge.'),
   min_plays: z.number().int().min(1).max(10_000).default(1)
     .describe('Drop entities below this many plays within a bucket. Dropped, not folded — the bucket\'s "plays" stays the true total, so "entities" then sums to less than it.'),
-  timezone: z.string().refine(isValidTimeZone, {
+  timezone: z.string().refine(isTimeZoneShaped, {
     message: 'timezone must be an IANA zone name such as "Europe/Oslo" or "UTC"',
   }).default(STREAM_TIMEZONE)
-    .describe('IANA zone the calendar buckets are cut in. played_at is stored UTC; bucketing on UTC dates misfiles evening listening after 22:00 local in summer onto the next day.'),
+    .describe('IANA zone the calendar buckets are cut in, as Postgres spells it. played_at is stored UTC; bucketing on UTC dates misfiles evening listening after 22:00 local in summer onto the next day. Backward-compatibility links such as "US/Pacific" are NOT accepted — use the canonical name ("America/Los_Angeles").'),
   include_empty_buckets: z.boolean().default(true)
     .describe('Emit zero rows for silent buckets so a client need not reconstruct the gaps. A week of not listening is signal, not missing data.'),
 })
@@ -117,8 +118,10 @@ const bucketParam = z.enum(['day', 'week', 'month'] as const)
 
 /**
  * The MCP surface. Defaults to MONTHLY, TOP 12 — a bare call must be readable in a chat
- * context, and the full archive at daily resolution with every entity is roughly 10,000
- * rows and 400 KB. Ask for `bucket: "day"` explicitly when you want the series itself.
+ * context, and the full archive at daily resolution with every entity is 3,894 buckets
+ * and ~1.2 MB (measured, not estimated; the spec's 400 KB guess was three times out).
+ * Those defaults come back at ~41 KB. Ask for `bucket: "day"` explicitly when you want
+ * the series itself, and prefer a from/to window with it.
  *
  * This is the one place MCP and REST diverge, and the divergence is exactly these two
  * defaults; `src/rest/table.ts`'s header comment otherwise holds. Both surfaces run the
@@ -143,11 +146,46 @@ export const getScrobbleTimelineRestSchema = timelineCoreSchema.extend({
 
 export type ScrobbleTimelineInput = z.infer<typeof getScrobbleTimelineSchema>
 
+// ---- the zone set Postgres will accept -------------------------------------
+
+/**
+ * The zones this database recognises, lowercased — Postgres matches a zone name
+ * case-insensitively, so `europe/oslo` is as valid as `Europe/Oslo`.
+ *
+ * Cached for the life of the process, because `pg_timezone_names` reads the whole tz
+ * database on every call — 11 ms measured, against a Set lookup afterwards — and the
+ * set cannot change without replacing the image, which restarts this process.
+ *
+ * Asked at all because nothing in JS agrees with Postgres about which zones exist; see
+ * `isTimeZoneShaped` in src/lib/scrobble-timeline.ts for the two ways that goes wrong.
+ */
+let knownZones: Promise<Set<string>> | null = null
+
+function loadKnownZones(db: ReturnType<typeof getDb>): Promise<Set<string>> {
+  if (!knownZones) {
+    knownZones = db
+      .execute<{ name: string }>(sql`select name from pg_timezone_names`)
+      .then((rows) => new Set((rows as unknown as Array<{ name: string }>).map((r) => r.name.toLowerCase())))
+      .catch((e) => {
+        // Never cache a failure: a connection blip would make every later call refuse
+        // every zone, including the default.
+        knownZones = null
+        throw e
+      })
+  }
+  return knownZones
+}
+
 // ---- handler ---------------------------------------------------------------
 
 export async function getScrobbleTimeline(input: ScrobbleTimelineInput): Promise<Timeline> {
   const db = getDb()
   const tz = input.timezone
+
+  // Before anything is aggregated: a zone Postgres does not know would otherwise fail
+  // the first query with a bare 22023 and reach the caller as a 500 over a value they
+  // could have fixed. The shape was already checked by the schema; this is membership.
+  if (!(await loadKnownZones(db)).has(tz.toLowerCase())) throw new UnknownTimeZoneError(tz)
   const filters = {
     artist: input.artist ?? null,
     album: input.album ?? null,
@@ -196,40 +234,54 @@ export async function getScrobbleTimeline(input: ScrobbleTimelineInput): Promise
   const where = and(...base, ...localWindowConditions(range.from, range.to, tz))
   const key = localBucketExpr(input.bucket, tz)
   const nameExpr = nameExprFor(input.group_by)
-  const groupCols: SQL[] = nameExpr ? [scrobbles.artistName as unknown as SQL, nameExpr] : [scrobbles.artistName as unknown as SQL]
 
+  // GROUP BY the ORDINAL, not a second copy of the bucket expression.
+  //
+  // `bucket` and `timezone` are bound parameters, and re-emitting the fragment gives
+  // them fresh placeholder numbers — $7 and $8 in the GROUP BY against $1 and $2 in the
+  // SELECT. Postgres then sees two DIFFERENT expressions and refuses the query outright
+  // ("played_at must appear in the GROUP BY clause"). `musicLane()` in
+  // src/stream/lanes.ts groups on `1, 3` for the same reason. The entity columns are
+  // safe to repeat: they carry no parameters.
+  const FIRST_COLUMN = sql`1`
+
+  // Range-wide per-entity figures are hoisted out of the buckets: repeating a Last.fm
+  // image URL across thousands of days is most of the payload for none of the
+  // information. The representative-image idiom is getScrobbleStats'.
+  const imageExpr = sql<string | null>`(array_agg(${scrobbles.imageUrl} ORDER BY ${scrobbles.playedAt} DESC))[1]`
+
+  // The flat aggregate is uncapped: top_n and min_plays are display decisions applied in
+  // JS, which is what lets `plays` stay the bucket's true total. When the entity IS the
+  // artist there is no second name column to select — selecting artist_name twice would
+  // work but relies on positional mapping for no gain.
   const [flat, entityRows] = await Promise.all([
-    // The flat bucket×entity aggregate. Every entity, uncapped — top_n and min_plays are
-    // display decisions and are applied in JS, so `plays` can still be the true total.
-    db
-      .select({ bucket: key, artist: scrobbles.artistName, name: nameExpr ?? scrobbles.artistName, plays: count() })
-      .from(scrobbles)
-      .where(where)
-      .groupBy(key, ...groupCols),
-    // Range-wide per-entity figures, hoisted out of the buckets: repeating a Last.fm
-    // image URL across thousands of days is most of the payload for none of the
-    // information. The representative-image idiom is getScrobbleStats'.
-    db
-      .select({
-        artist: scrobbles.artistName,
-        name: nameExpr ?? scrobbles.artistName,
-        plays: count(),
-        image: sql<string | null>`(array_agg(${scrobbles.imageUrl} ORDER BY ${scrobbles.playedAt} DESC))[1]`,
-      })
-      .from(scrobbles)
-      .where(where)
-      .groupBy(...groupCols),
+    nameExpr
+      ? db.select({ bucket: key, artist: scrobbles.artistName, name: nameExpr, plays: count() })
+        .from(scrobbles).where(where).groupBy(FIRST_COLUMN, scrobbles.artistName, nameExpr)
+      : db.select({ bucket: key, artist: scrobbles.artistName, plays: count() })
+        .from(scrobbles).where(where).groupBy(FIRST_COLUMN, scrobbles.artistName),
+    nameExpr
+      ? db.select({ artist: scrobbles.artistName, name: nameExpr, plays: count(), image: imageExpr })
+        .from(scrobbles).where(where).groupBy(scrobbles.artistName, nameExpr)
+      : db.select({ artist: scrobbles.artistName, plays: count(), image: imageExpr })
+        .from(scrobbles).where(where).groupBy(scrobbles.artistName),
   ])
+
+  // A row from the artist branch has no `name` at all; one from the album or track
+  // branch has it and it may be null, which entityKey renders as UNKNOWN_NAME. Those
+  // two cases must not be conflated — coalescing a null album to the artist's name
+  // would file every album-less single under a fictitious album of that name.
+  const nameOf = (r: { artist: string; name?: string | null }) => ('name' in r ? r.name ?? null : r.artist)
 
   const rows: FlatRow[] = flat.map((r) => ({
     bucket: r.bucket,
-    key: entityKey(input.group_by, r.artist, r.name),
+    key: entityKey(input.group_by, r.artist, nameOf(r)),
     plays: Number(r.plays),
   }))
 
   const entities: EntityRow[] = entityRows.map((r) => ({
-    key: entityKey(input.group_by, r.artist, r.name),
-    name: input.group_by === 'artist' ? r.artist : (r.name ?? '(unknown)'),
+    key: entityKey(input.group_by, r.artist, nameOf(r)),
+    name: nameOf(r) ?? UNKNOWN_NAME,
     artist: r.artist,
     plays: Number(r.plays),
     image: r.image,

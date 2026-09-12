@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { and, type SQL } from 'drizzle-orm'
 import { osloDay } from '../../stream/event-date.js'
+import { UnknownTimeZoneError } from '../../lib/scrobble-timeline.js'
 
 // Nothing here may open a connection: this repo has no test database, so a tool test
 // asserts on the SQL it would have sent. Same guard as scrobble-race.test.ts.
@@ -90,7 +91,7 @@ describe('localWindowConditions', () => {
 describe('the two schemas', () => {
   it('defaults MCP to a monthly, top-12 answer', () => {
     // A bare MCP call must be readable in a chat context; the full daily series with
-    // every entity is ~10,000 rows and 400 KB.
+    // every entity is 3,894 buckets and ~1.2 MB; these defaults are ~41 KB.
     expect(getScrobbleTimelineSchema.parse({})).toEqual({
       bucket: 'month',
       top_n: 12,
@@ -121,14 +122,27 @@ describe('the two schemas', () => {
     expect(getScrobbleTimelineSchema.parse(input)).toEqual(getScrobbleTimelineRestSchema.parse(input))
   })
 
-  it('rejects an unknown timezone before a connection is opened', () => {
-    // Through REST this is the 400 from router.ts's safeParse; the alternative is a
-    // Postgres error surfacing as an opaque 500.
-    const bad = getScrobbleTimelineSchema.safeParse({ timezone: 'Mars/Olympus' })
+  it('rejects a malformed timezone before a connection is opened', () => {
+    // Through REST this is the 400 from router.ts's safeParse. The schema checks the
+    // SHAPE only — which zones exist is knowable only by asking Postgres, so a
+    // shaped-but-unknown zone is refused later, by the handler, as an
+    // UnknownTimeZoneError that router.ts also maps to 400.
+    const bad = getScrobbleTimelineSchema.safeParse({ timezone: 'not a zone' })
     expect(bad.success).toBe(false)
     expect(JSON.stringify(bad.error?.issues)).toContain('IANA')
-    expect(getScrobbleTimelineSchema.safeParse({ timezone: 'US/Pacific' }).success).toBe(true)
+    expect(getScrobbleTimelineSchema.safeParse({ timezone: 'Europe/Oslo' }).success).toBe(true)
+    expect(getScrobbleTimelineSchema.safeParse({ timezone: 'America/Argentina/Buenos_Aires' }).success).toBe(true)
     expect(getDb).not.toHaveBeenCalled()
+  })
+
+  it('names the zone, and the links, when Postgres does not know it', () => {
+    // The message has to say more than "invalid": US/Pacific is a real zone name that
+    // ICU accepts and this Postgres does not, so a caller who pasted it needs telling
+    // which spelling to use rather than being told they imagined it.
+    const err = new UnknownTimeZoneError('US/Pacific')
+    expect(err.message).toContain('US/Pacific')
+    expect(err.message).toContain('Europe/Oslo')
+    expect(err.message).toMatch(/backward-compatibility/)
   })
 
   it('reduces a from/to bound to its calendar date and refuses a malformed one', () => {

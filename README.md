@@ -951,9 +951,15 @@ and this question wants both at once. See ADR 0059.
   nothing, and the future is never reported as silence while the last three quiet days
   still are.
 - **The MCP tool defaults to `bucket=month`, `top_n=12`**; REST defaults to `bucket=day`,
-  `top_n=0`. The full archive at daily resolution with every entity is roughly 10,000 rows
-  and 400 KB — fine for a browser, useless in a chat context. Those two defaults are the
-  only difference between the surfaces: pass both explicitly and they answer identically.
+  `top_n=0`. The full archive at daily resolution with every entity measures 3,894 buckets
+  and ~1.2 MB — fine for a browser, useless in a chat context; the MCP defaults come back
+  at ~41 KB. Those two defaults are the only difference between the surfaces: pass both
+  explicitly and they answer identically.
+- **`entities` lists only what some bucket shows.** At `top_n=0` that is every entity,
+  which is the chart's case. A capped call lists at most `top_n` per bucket, and carrying
+  the other ~2,400 range-wide rows anyway was most of the monthly answer's payload — an
+  entity that never makes a single bucket's cut is invisible in the series. `totals` still
+  describes the whole range, so nothing is hidden, only unlisted.
 
 #### The scrobble races
 

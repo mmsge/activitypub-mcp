@@ -136,8 +136,10 @@ export function resolveRange(
  * that. The key is an identity, not data — every entity also reports `artist` and `name`
  * as fields, so nothing downstream has to parse it back apart.
  */
+export const UNKNOWN_NAME = '(unknown)'
+
 export function entityKey(groupBy: GroupBy, artist: string, name: string | null): string {
-  const label = name ?? '(unknown)'
+  const label = name ?? UNKNOWN_NAME
   return groupBy === 'artist' ? artist : `${artist} – ${label}`
 }
 
@@ -301,12 +303,15 @@ export function assembleTimeline(input: {
   const keys = input.range ? bucketKeys(input.range.from, input.range.to, input.bucket) : []
 
   const buckets: TimelineBucket[] = []
+  const referenced = new Set<string>()
   let activeBuckets = 0
   for (const date of keys) {
     const raw = byBucket.get(date) ?? new Map<string, number>()
     let plays = 0
     for (const n of raw.values()) plays += n
     if (plays > 0) activeBuckets++
+    const shown = foldBucket(raw, { topN: input.topN, minPlays: input.minPlays, foldKey, rangePlays })
+    for (const key of Object.keys(shown)) referenced.add(key)
     if (plays === 0 && !input.includeEmptyBuckets) continue
     buckets.push({
       date,
@@ -315,7 +320,7 @@ export function assembleTimeline(input: {
       // min_plays drops a tail, `entities` sums to less than this on purpose.
       plays,
       top: pickTop(raw, rangePlays),
-      entities: foldBucket(raw, { topN: input.topN, minPlays: input.minPlays, foldKey, rangePlays }),
+      entities: shown,
     })
   }
   buckets.reverse() // newest first
@@ -324,8 +329,20 @@ export function assembleTimeline(input: {
   let scrobbles = 0
   for (const e of input.entities) scrobbles += e.plays
 
+  // Only the entities some bucket actually shows.
+  //
+  // At `top_n: 0` that is every one of them, which is the chart's case and unchanged.
+  // But a capped call lists at most `top_n` per bucket, and carrying the other ~2,400
+  // range-wide rows anyway was 262 KB of the monthly top-12 answer's 275 KB — the
+  // default whose entire job is to fit in a chat context. An entity that never makes a
+  // single bucket's cut is invisible in the series, so its all-time total is not what
+  // this call is for; ask with a higher `top_n`, or `get_scrobble_stats`, for that.
+  //
+  // `totals` is computed above from the unfiltered set, so the totals still describe the
+  // whole range rather than the part that fitted.
   const entities: Timeline['entities'] = {}
   for (const e of [...input.entities].sort((a, b) => b.plays - a.plays || (a.key < b.key ? -1 : 1))) {
+    if (!referenced.has(e.key)) continue
     entities[e.key] = { plays: e.plays, image: e.image, artist: e.artist, name: e.name }
   }
 
@@ -353,23 +370,35 @@ export function assembleTimeline(input: {
 // ---- timezone validation ---------------------------------------------------
 
 /**
- * Whether Postgres will be handed a zone it recognises.
+ * Raised when `timezone` is a well-formed zone name Postgres does not know.
  *
- * Checked here so an unknown zone is a zod failure — a 400 naming the parameter through
- * the existing `safeParse` path in `src/rest/router.ts` — rather than a Postgres error
- * surfacing as an opaque 500.
- *
- * `Intl.DateTimeFormat` rather than `Intl.supportedValuesOf('timeZone')`, which
- * enumerates only CANONICAL zone names: the backward-compatibility links both ICU and
- * Postgres still accept — `Asia/Calcutta`, `US/Pacific`, `Europe/Kiev` — are absent from
- * that list, so checking against it would reject zones the query would have answered.
+ * A distinct type because it is a CALLER error: `src/rest/router.ts` maps it to a 400
+ * naming the zone, the way it already does for `InvalidCursorError`. Without that it
+ * would surface as an opaque 500 over a value the caller could fix.
  */
-export function isValidTimeZone(tz: string): boolean {
-  if (!tz || tz.trim() !== tz) return false
-  try {
-    new Intl.DateTimeFormat('en-CA', { timeZone: tz })
-    return true
-  } catch {
-    return false
+export class UnknownTimeZoneError extends Error {
+  constructor(tz: string) {
+    super(`Unknown timezone ${JSON.stringify(tz)}. Use an IANA zone name Postgres recognises, such as "Europe/Oslo" or "UTC" — note that backward-compatibility links like "US/Pacific" and "Asia/Calcutta" are not among them.`)
+    this.name = 'UnknownTimeZoneError'
   }
+}
+
+/**
+ * Whether `tz` is SHAPED like a zone name. A cheap syntactic gate, not an authority.
+ *
+ * Membership is decided by `pg_timezone_names`, because Postgres is the only thing that
+ * knows what Postgres accepts, and nothing in JS agrees with it: `Intl.DateTimeFormat`
+ * accepts 18 backward-compatibility links this Postgres rejects (`US/Pacific`,
+ * `Asia/Calcutta`, `Europe/Kiev` among them — each one a 500 if trusted), while
+ * `Intl.supportedValuesOf('timeZone')` omits 99 zones Postgres does accept (the whole
+ * `America/Argentina/*` tree included), which would refuse valid questions. Neither set
+ * contains the other, so neither can be the gate.
+ *
+ * This check exists only so obvious junk is refused without a connection, and so the
+ * error a caller sees names the parameter rather than the query.
+ */
+const TZ_SHAPE = /^[A-Za-z][A-Za-z0-9+_-]*(\/[A-Za-z0-9+_.-]+){0,2}$/
+
+export function isTimeZoneShaped(tz: string): boolean {
+  return typeof tz === 'string' && tz.length <= 64 && TZ_SHAPE.test(tz)
 }

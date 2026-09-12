@@ -120,9 +120,17 @@ apart.
 
 ### The two surfaces differ in two defaults, and nothing else
 
-The full archive at daily resolution with every entity is roughly 10,000 rows and 400 KB —
-fine for a browser, useless in a chat context. So MCP defaults to `bucket: 'month'` and
+The full archive at daily resolution with every entity measures 3,894 buckets and ~1.2 MB
+— fine for a browser, useless in a chat context. So MCP defaults to `bucket: 'month'` and
 `top_n: 12`, and REST to `bucket: 'day'` and `top_n: 0`.
+
+Those defaults were not enough on their own. A capped call still returned the whole
+range-wide `entities` block, and at 2,405 artists that was 262 KB of a 275 KB monthly
+answer — the default whose entire job is to fit in a chat context, defeated by the part of
+the response that was supposed to make it small. So `entities` lists only the entities
+some bucket actually shows: every one of them at `top_n: 0`, which leaves the chart's case
+untouched, and 25 of them for the monthly top-12, which brings that answer to 41 KB.
+`totals` is computed before the filter, so it still describes the whole range.
 
 `src/rest/table.ts` asserts that REST and MCP return identical data except for visibility
 (ADR 0026). That still holds: ADR 0026 is about what a surface may **see**, and this is
@@ -134,7 +142,14 @@ rather than quietly changing what a bare call returns.
 ## Consequences
 
 - The daily series is answerable in one call instead of ~260, and a bare MCP call returns a
-  monthly top-12 that is readable in chat rather than 400 KB of context.
+  monthly top-12 at ~41 KB rather than the 1.2 MB the full daily series costs.
+- Measured against a 52,962-row fixture matching the real archive's concentration (the
+  top two artists are 41% of all plays, the top twenty 82%): 126 ms for the MCP default,
+  256 ms for the full daily series, 710 ms and ~8.5 MB for the widest thing anyone can
+  ask for (`bucket=day, group_by=track, top_n=0`), and 53-57 ms once a filter or a
+  one-year window narrows it. A flat distribution — every artist played equally — costs
+  roughly three times as much payload, so these figures are the realistic case rather
+  than the best one.
 - Three queries per call over one `WHERE`: archive bounds, the flat bucket×entity
   aggregate, and the range-wide per-entity rollup carrying the representative image. The
   image is hoisted out of the buckets because repeating a Last.fm URL across thousands of

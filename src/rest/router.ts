@@ -2,6 +2,7 @@ import { Hono, type Context } from 'hono'
 import { cors } from 'hono/cors'
 import { logger } from '../lib/logger.js'
 import { InvalidCursorError } from '../mcp/tools/pagination.js'
+import { UnknownTimeZoneError } from '../lib/scrobble-timeline.js'
 import { requireApiKey } from './auth.js'
 import { coerceQuery } from './coerce.js'
 import { endpoints, type RestEndpoint } from './table.js'
@@ -39,6 +40,12 @@ async function run(endpoint: RestEndpoint, input: unknown, c: Context) {
     // A bad cursor token is a caller error — surface the reason so clients can
     // recover (re-fetch page 1) instead of seeing an opaque 500.
     if (e instanceof InvalidCursorError) {
+      return c.json({ error: e.message }, 400)
+    }
+    // Likewise a zone name Postgres does not recognise: the caller can fix the value,
+    // so it must not read as a server fault. Which zones exist is only knowable by
+    // asking Postgres, so this cannot be caught by the schema.
+    if (e instanceof UnknownTimeZoneError) {
       return c.json({ error: e.message }, 400)
     }
     logger.error(e, `REST ${endpoint.path} failed`)

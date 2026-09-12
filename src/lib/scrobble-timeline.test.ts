@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   MAX_BUCKETS, OTHER_KEY,
   assembleTimeline, bucketKeys, bucketStart, entityKey, foldBucket, foldKeyFor,
-  isValidTimeZone, nextBucketKey, pickTop, resolveRange,
+  isTimeZoneShaped, nextBucketKey, pickTop, resolveRange,
   type EntityRow, type FlatRow,
 } from './scrobble-timeline.js'
 
@@ -296,11 +296,20 @@ describe('assembleTimeline', () => {
     expect(out.totals).toMatchObject({ scrobbles: 47, distinct_artists: 3, distinct_entities: 3 })
   })
 
-  it('still lists an entity that every bucket folds away', () => {
-    // The entities block is the range-wide truth and is what anchors a chart's colours;
-    // an entity folded into Other on every single day still has an all-time total.
+  it('lists every entity at top_n 0 — the chart needs them all to anchor colours', () => {
+    const out = assembleTimeline({ ...base, topN: 0 })
+    expect(Object.keys(out.entities)).toHaveLength(3)
+  })
+
+  it('drops an entity that every bucket folds away, but still counts it', () => {
+    // Carrying the whole range-wide set regardless of top_n was 262 KB of the monthly
+    // top-12 answer's 275 KB, against a default whose only job is to fit in a chat
+    // context. An entity no bucket shows is invisible in the series anyway.
     const out = assembleTimeline({ ...base, topN: 1 })
-    expect(out.entities['Sabrina Carpenter'].plays).toBe(5)
+    expect(Object.keys(out.entities)).toEqual(['Maisie Peters'])
+    expect(out.entities['Sabrina Carpenter']).toBeUndefined()
+    // The totals still describe the whole range, not the part that fitted.
+    expect(out.totals).toMatchObject({ scrobbles: 47, distinct_artists: 3, distinct_entities: 3 })
   })
 
   it('reports the fold key it actually used', () => {
@@ -345,18 +354,35 @@ describe('assembleTimeline', () => {
   })
 })
 
-describe('isValidTimeZone', () => {
-  it('accepts canonical zones and the backward-compatibility links', () => {
-    // supportedValuesOf('timeZone') lists only canonical names, so checking against it
-    // would reject these three even though ICU and Postgres both accept them.
-    for (const tz of ['Europe/Oslo', 'UTC', 'America/New_York', 'US/Pacific', 'Asia/Calcutta']) {
-      expect(isValidTimeZone(tz)).toBe(true)
+describe('isTimeZoneShaped', () => {
+  it('accepts the shapes a zone name comes in', () => {
+    // A shape gate, not an authority: which zones EXIST is only knowable by asking
+    // Postgres, and the handler does. This keeps obvious junk from opening a
+    // connection and keeps the error message about the parameter.
+    for (const tz of [
+      'Europe/Oslo', 'UTC', 'America/New_York', 'America/Argentina/Buenos_Aires',
+      'Etc/GMT+5', 'Asia/Ho_Chi_Minh', 'US/Pacific',
+    ]) {
+      expect(isTimeZoneShaped(tz)).toBe(true)
     }
   })
 
-  it('rejects anything Postgres would choke on', () => {
-    for (const tz of ['Mars/Olympus', '', ' Europe/Oslo', 'Europe/Oslo ', 'not a zone']) {
-      expect(isValidTimeZone(tz)).toBe(false)
+  it('refuses junk without asking the database', () => {
+    for (const tz of [
+      '', ' Europe/Oslo', 'Europe/Oslo ', 'not a zone', "Europe/Oslo'; drop table scrobbles; --",
+      '/Oslo', 'Europe//Oslo', 'a/b/c/d', 'Europe/Oslo\n', 'x'.repeat(65),
+    ]) {
+      expect(isTimeZoneShaped(tz)).toBe(false)
     }
+  })
+
+  it('is deliberately NOT Intl-backed', () => {
+    // Neither Intl set matches Postgres. `Intl.DateTimeFormat` accepts 18 backward
+    // links this Postgres rejects, and `supportedValuesOf` omits 99 it accepts — so a
+    // shaped-but-unknown zone like US/Pacific passes HERE and is refused by the
+    // handler against pg_timezone_names, with a 400 either way.
+    expect(isTimeZoneShaped('US/Pacific')).toBe(true)
+    expect(Intl.supportedValuesOf('timeZone')).not.toContain('US/Pacific')
+    expect(Intl.supportedValuesOf('timeZone')).not.toContain('America/Argentina/Buenos_Aires')
   })
 })
