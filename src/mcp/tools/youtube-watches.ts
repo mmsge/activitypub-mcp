@@ -3,6 +3,7 @@ import { and, count, eq, ilike, sql, type SQL } from 'drizzle-orm'
 import { getDb } from '../../db/client.js'
 import { youtubeWatches, youtubeVideos } from '../../db/schema.js'
 import { SHORTS_MAX_SECONDS, WATCH_TIME_CAP_SECONDS } from '../../lib/parse-youtube-takeout.js'
+import { LOCAL_BOUND_RE } from '../../lib/local-bound.js'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
 
 /**
@@ -34,12 +35,12 @@ const secondsToHours = (s: number) => Math.round((s / 3600) * 10) / 10
  * Accepted shape for the from/to bounds: a date, optionally a time, optionally a timezone
  * suffix that is then IGNORED (these bounds are local wall clock — see ADR 0047).
  *
- * Validated here rather than left to Postgres' cast so a malformed bound is a 400 naming
- * the bad value, not a 500 carrying the whole query — the same reason InvalidCursorError
- * exists. `zod` rejects it before a connection is opened.
+ * The shape rule now lives in `src/lib/local-bound.ts` because `get_scrobble_timeline`
+ * needs the same one; what it does with the value differs (that tool reduces a bound to
+ * a calendar date, this one keeps the time of day). Validated in zod rather than left to
+ * Postgres' cast so a malformed bound is a 400 naming the bad value, not a 500 carrying
+ * the whole query — the same reason InvalidCursorError exists.
  */
-const LOCAL_BOUND_RE = /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?(Z|[+-]\d{2}:?\d{2})?$/
-
 const localBound = (label: string) =>
   z.string()
     .refine((v) => LOCAL_BOUND_RE.test(v.trim()), {

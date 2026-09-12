@@ -15,6 +15,7 @@ import {
   getScrobblesSchema, getScrobbles,
   getScrobbleStatsSchema, getScrobbleStats,
 } from '../mcp/tools/scrobbles.js'
+import { getScrobbleTimelineRestSchema, getScrobbleTimeline } from '../mcp/tools/scrobble-timeline.js'
 import {
   getYoutubeWatchesSchema, getYoutubeWatches,
   getYoutubeStatsSchema, getYoutubeStats,
@@ -74,6 +75,12 @@ import { getThreadTreeSchema, getThreadTree } from '../mcp/tools/thread-tree.js'
  *
  * A new endpoint that returns post rows must be wrapped too. The choice is meant to
  * be visible here rather than remembered inside each handler.
+ *
+ * `/scrobble-timeline` is the OTHER divergence, and it is a narrower one: it diverges in
+ * the DEFAULTS applied to an omitted `bucket` and `top_n`, never in what it can see or
+ * how it computes. Pass both explicitly and the two surfaces answer identically. ADR
+ * 0026 is about what a surface may SEE; ADR 0059 is about what it assumes when a
+ * parameter is left out.
  */
 export type RestEndpoint = {
   path: string
@@ -205,6 +212,16 @@ export const endpoints: RestEndpoint[] = [
     handler: getScrobbleStats,
     numbers: ['limit'],
     booleans: [],
+    arrays: [],
+  },
+  {
+    path: '/scrobble-timeline',
+    name: 'get_scrobble_timeline',
+    description: 'A per-bucket scrobble series: play counts by local calendar day, week or month, broken down by artist, album or track, with per-entity metadata hoisted out of the buckets. REST defaults to bucket=day and top_n=0 (the full series, every entity) — the MCP tool defaults to month and 12 so a bare call fits a chat context; see ADR 0059. Buckets are cut in `timezone` (IANA, default Europe/Oslo), NOT on the UTC date: `played_at` is stored UTC, so evening listening after 22:00 local in summer would otherwise be filed a day late. An unknown zone is a 400. `from`/`to` are local calendar dates, inclusive, and are clamped to the archive\'s own bounds and to today. Each bucket carries `plays` (its TRUE total, unaffected by top_n and min_plays), a precomputed `top` (tie-broken by range-wide plays then alphabetically, so it is stable between calls), and `entities`; overflow past top_n is summed into one row whose key the envelope reports as `other_key`. Entities below min_plays are dropped rather than folded, which is when `entities` sums to less than `plays`. artist/album/track are the same substring filters as /scrobbles.',
+    schema: getScrobbleTimelineRestSchema,
+    handler: getScrobbleTimeline,
+    numbers: ['top_n', 'min_plays'],
+    booleans: ['include_empty_buckets'],
     arrays: [],
   },
   {

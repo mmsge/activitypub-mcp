@@ -7,7 +7,14 @@ import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pa
 
 // ---- shared filter handling ------------------------------------------------
 
-function buildConditions(input: {
+/**
+ * Shared by both tools here and by `get_scrobble_timeline`, which reuses the
+ * artist/album/track arms so the substring filters behave identically everywhere. That
+ * tool does NOT pass from/to: here they are ISO datetimes compared against `played_at`
+ * directly, while a timeline's bounds are local calendar dates and need converting to
+ * instants in the requested zone first.
+ */
+export function buildConditions(input: {
   artist?: string; album?: string; track?: string; from?: string; to?: string; since?: string
 }): SQL[] {
   const conditions: SQL[] = []
