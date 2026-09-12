@@ -9,6 +9,7 @@ import { getReadingEventsSchema, getReadingEvents } from './tools/reading-events
 import { getReadingStatsSchema, getReadingStats } from './tools/reading-stats.js'
 import { getReadingPaceSchema, getReadingPace } from './tools/reading-pace.js'
 import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleStats } from './tools/scrobbles.js'
+import { getScrobbleTimelineSchema, getScrobbleTimeline } from './tools/scrobble-timeline.js'
 import { getScrobbleRaceSchema, getScrobbleRace } from './tools/scrobble-race.js'
 import { listScrobbleRacesSchema, listScrobbleRaces } from './tools/scrobble-races.js'
 import { getConvergenceSchema, getConvergence } from './tools/convergence.js'
@@ -159,6 +160,16 @@ export function createMcpServer(): McpServer {
     getScrobbleStatsSchema.shape,
     async (input) => {
       const result = await getScrobbleStats(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_scrobble_timeline',
+    "A per-bucket scrobble series — play counts by LOCAL calendar day, week or month, broken down by artist, album or track. This is the tool for \"what did his listening look like over time\": get_scrobbles returns raw rows (260 pages for the archive) and get_scrobble_stats collapses the whole range into one ranking, so neither can produce a series. Day is not a group_by value on that tool because group_by there selects the entity being ranked — a bucketing axis is a different thing and you want both at once. DEFAULTS HERE ARE MONTHLY AND TOP 12, because the full archive at daily resolution with every entity is roughly 10,000 rows and 400 KB; pass bucket:'day' when you actually want the series, and prefer a from/to window with it. (The REST endpoint /api/v1/scrobble-timeline defaults to day and top_n 0 instead; those two defaults are the only difference between the surfaces.) FIVE THINGS WORTH KNOWING. (1) BUCKETS ARE CUT IN LOCAL TIME, not on the UTC date. played_at is stored UTC and Norway is UTC+2 in summer, so everything after 22:00 local would otherwise be filed a day late — a day here means the day he lived. Pass an IANA `timezone` to cut them elsewhere; an unknown zone is a validation error, not a query error. (2) `plays` ON A BUCKET IS ITS TRUE TOTAL and does not move with top_n or min_plays, so two calls with different display parameters return comparable series. Overflow past top_n is summed into ONE row whose key the response reports as `other_key` (normally \"Other\", but it steps aside if a real entity is called that). Entities below min_plays are DROPPED rather than folded, which is the one case where `entities` sums to less than `plays`. (3) `top` IS PRECOMPUTED per bucket, so \"who won that day\" needs no scan. It is picked from the raw counts, so it is never the fold key and never changes with top_n, and ties resolve by range-wide plays then alphabetically — the answer is stable between calls. (4) ENTITY METADATA IS HOISTED into `entities`, keyed by entity and carrying range-wide plays plus a representative image; the buckets carry only counts. Album and track entities are keyed \"<artist> – <name>\" so same-titled records by different artists do not merge, and each entry also carries `artist` and `name` as fields so the key never needs parsing. (5) SILENT BUCKETS ARE EMITTED as zero rows by default: a week of not listening is signal, not missing data. from/to are local calendar dates, inclusive, clamped to the archive's own first day and to today — so a wide-open `from` costs nothing and the future is never reported as silence.",
+    getScrobbleTimelineSchema.shape,
+    async (input) => {
+      const result = await getScrobbleTimeline(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )
