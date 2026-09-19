@@ -102,7 +102,7 @@ export async function probeYoutubeShort(videoId: string): Promise<ProbeOutcome> 
       redirect: 'manual',
       headers: {
         // Deliberately browser-shaped, and deliberately mentioning text/html — the opposite
-        // of the rule that governs the Gigowl origin (see CLAUDE.md). Here we WANT the page
+        // of the rule that governs the Gigowl origin (see AGENTS.md). Here we WANT the page
         // a browser would get, because it is a browser's redirect behaviour we are reading.
         Accept: 'text/html,application/xhtml+xml',
         'Accept-Language': 'en',
