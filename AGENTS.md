@@ -279,6 +279,37 @@ Rules not to "simplify" back:
 - **Gig attendances map to `tut`** until msge.no grows a gig page — inventing a topic
   nothing listens to would be a wake that always 400s.
 
+## NeoDB marks with an unknown watch date
+
+A backlog film or series Markus has seen but cannot date is dated **2000-01-01 on minreol**.
+That is the whole convention: the picker insists on a date, the mark's comment is never
+parsed (ADR 0008), and the archive holds nothing real within a decade of it. The parser
+decodes the sentinel to `watched_at = NULL` plus `watched_date_unknown = true`; `get_watched`
+/ `get_catalogue_details` / `/api/v1/watched` report the flag and take it as a three-way
+filter, the admin Watched tab shows a badge, and the public stream keeps the mark on the day
+it was marked worded "hadde sett". See ADR 0060.
+
+Rules not to "simplify" back:
+
+- **The FLAG carries "unknown", never the date.** Decoding to null is what makes every
+  existing consumer (sort last, no `watched_dates`, no `watched_year`) right for free. Keeping
+  the sentinel in the column instead would need every date expression to know about it.
+- **The window is ±1 day on the INSTANT, in one constant (`SENTINEL_WINDOW`).** minreol's own
+  picker sends `1999-12-31T22:00:00+00:53`, which is 21:07 UTC on 31 December; a single-day
+  check in any one zone misses the picker's own shape. The backfill SQL and the migration are
+  built from those two strings and a test reads the migration to keep them in step.
+- **It is a year-2000 sentinel, not "any 1 January".** `2014-01-01T12:00Z` is a real importer
+  placeholder on several marks.
+- **The upsert's null-fill arm checks `NOT watched_date_unknown`.** minreol federates a Create
+  dated today and then the sentinel Update; a redelivered Create, or `reprocessStoredMarks`
+  replaying it out of `objects.raw`, would otherwise refill the cleared date as "watched today".
+- **`WATCHED_AT_BACKFILL` skips flagged rows.** The sentinel is still in `raw`, and a forced
+  repair would read it straight back into the column.
+- **The repair decodes AFTER it fills.** `backfillMarkWatchedDates()` then
+  `decodeUnknownDateSentinels()`, never the other order.
+- **"0 rows decoded" on deploy is correct.** Verified empty on 2026-09-25; here the suspicious
+  number would be anything else.
+
 ## Stack
 
 Hono + TypeScript, PostgreSQL. The `db` service (postgres) is internal-only and not exposed to the host. The `app` service exposes port 3000 to the host so central Caddy can reach it.

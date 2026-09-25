@@ -6,7 +6,7 @@ import { countNotes } from './notes-store.js'
 const app = new Hono()
 
 const SOFTWARE_NAME = 'activitypub-mcp'
-const SOFTWARE_VERSION = '1.0.0'
+const SOFTWARE_VERSION = '1.1.0'
 const REPOSITORY = 'https://github.com/mmsge/activitypub-mcp'
 
 /** One account, and it is this one. */

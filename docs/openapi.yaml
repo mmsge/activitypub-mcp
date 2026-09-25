@@ -2,7 +2,7 @@ openapi: 3.1.0
 
 info:
   title: activitypub-mcp API
-  version: 1.0.0
+  version: 1.1.0
   description: |
     HTTP API for **activitypub-mcp** — a personal ActivityPub bot that follows and
     archives public posts, and exposes the archived data over a read-only REST API
@@ -2850,7 +2850,11 @@ paths:
         actually watched/read/played/listened to, NOT the post timestamp) and
         `watched_dates` (every distinct date across the item's live marks, newest
         first) — filterable with `watched_from`/`watched_to` or the `watched_year`
-        sugar, and sortable with `sort_by=watched_at`. Most-recently-enriched first by
+        sugar, and sortable with `sort_by=watched_at`. `watched_date_unknown` is true
+        for a title marked as seen with the date explicitly unknown (dated 2000-01-01 on
+        minreol, the sentinel this server decodes): its `watched_at` is null on purpose
+        and it belongs to no watch year; `watched_date_unknown=true` lists those,
+        `=false` drops them. Most-recently-enriched first by
         default; each response carries `total` and a `next_cursor`. Use
         /catalogue-details for one item's full record + provenance.
       operationId: getWatchedGet
@@ -2921,6 +2925,15 @@ paths:
             e.g. 2016 for "everything I watched in 2016". An explicit bound overrides
             it on that edge.
           schema: { type: integer, minimum: 1000, maximum: 9999 }
+        - name: watched_date_unknown
+          in: query
+          description: >
+            `true` keeps only titles marked as seen with the date explicitly unknown
+            (the 2000-01-01 sentinel on minreol; their `watched_at` is null and they
+            belong to no watch year, so combining `true` with a date window always
+            returns nothing). `false` drops them, keeping titles with no tracked mark at
+            all. Omit for both.
+          schema: { type: boolean }
         - name: include_unenriched
           in: query
           description: Include rows not yet successfully enriched (pending/failed, carrying fetch_error/fetch_attempts).
@@ -2986,6 +2999,7 @@ paths:
                 watched_from: { type: string }
                 watched_to: { type: string }
                 watched_year: { type: integer, minimum: 1000, maximum: 9999 }
+                watched_date_unknown: { type: boolean }
                 include_unenriched: { type: boolean, default: false }
                 include_hidden: { type: boolean, default: false }
                 sort_by:
@@ -3328,7 +3342,8 @@ paths:
         or a partial `title` (most-recently-enriched wins; pass `category` to
         disambiguate). Returns the common fields, `watched_at`/`watched_dates` (the
         shelf date(s) — when it was watched/read/played, not when the mark was
-        posted), film/TV columns, the category-specific `details` object, `bookwyrm_book_url` (book↔BookWyrm dedup link),
+        posted) and `watched_date_unknown` (true when it was marked as seen with the
+        date explicitly unknown, so `watched_at` is null on purpose), film/TV columns, the category-specific `details` object, `bookwyrm_book_url` (book↔BookWyrm dedup link),
         `source_map` (per-field 'neodb'|'bookwyrm' provenance), and enrichment status
         (fetched_at, fetch_error, fetch_attempts, last_attempt_at). The catalogue
         sibling of /book-details.
@@ -4552,7 +4567,8 @@ components:
             to, taken from the mark's `relatedWith` Status. NOT the post timestamp: a 2016
             film backfilled today carries watched_at 2016 while its post's published_at is
             today. For an item marked more than once this is the newest of `watched_dates`.
-            null when the mark carried no date.
+            null when the mark carried no date — or when it carried the "date unknown"
+            sentinel, which `watched_date_unknown` reports.
         watched_dates:
           type: array
           items: { type: string, format: date-time }
@@ -4560,6 +4576,15 @@ components:
             Every distinct shelf date across the item's live marks, newest first, deleted
             marks excluded — plural like `mark_titles`/`mark_comments`, because an item can
             be re-watched or marked by more than one actor. [] when none.
+        watched_date_unknown:
+          type: boolean
+          description: >
+            True when a live mark on the item was dated 2000-01-01 on minreol — the "date
+            unknown" sentinel: seen, date deliberately unknown. The server decodes the
+            sentinel to a null `watched_at`, so this flag is what tells a deliberate
+            unknown apart from a mark that carried no date. Such a title belongs to no
+            watch year and must not be read as unwatched, nor as watched on the day it
+            was marked.
         status:
           type: [string, "null"]
           enum: [wishlist, progress, complete, dropped, null]
@@ -4630,6 +4655,7 @@ components:
             watched_from: { type: [string, "null"] }
             watched_to: { type: [string, "null"] }
             watched_year: { type: [integer, "null"] }
+            watched_date_unknown: { type: [boolean, "null"] }
             watched_window:
               type: [object, "null"]
               description: >
@@ -4929,7 +4955,8 @@ components:
             to, taken from the mark's `relatedWith` Status. NOT the post timestamp: a 2016
             film backfilled today carries watched_at 2016 while its post's published_at is
             today. For an item marked more than once this is the newest of `watched_dates`.
-            null when the mark carried no date.
+            null when the mark carried no date — or when it carried the "date unknown"
+            sentinel, which `watched_date_unknown` reports.
         watched_dates:
           type: array
           items: { type: string, format: date-time }
@@ -4937,6 +4964,15 @@ components:
             Every distinct shelf date across the item's live marks, newest first, deleted
             marks excluded — plural like `mark_titles`/`mark_comments`, because an item can
             be re-watched or marked by more than one actor. [] when none.
+        watched_date_unknown:
+          type: boolean
+          description: >
+            True when a live mark on the item was dated 2000-01-01 on minreol — the "date
+            unknown" sentinel: seen, date deliberately unknown. The server decodes the
+            sentinel to a null `watched_at`, so this flag is what tells a deliberate
+            unknown apart from a mark that carried no date. Such a title belongs to no
+            watch year and must not be read as unwatched, nor as watched on the day it
+            was marked.
         status:
           type: [string, "null"]
           enum: [wishlist, progress, complete, dropped, null]
