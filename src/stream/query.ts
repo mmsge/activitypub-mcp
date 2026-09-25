@@ -437,6 +437,7 @@ async function hydrateMarks(cands: Candidate[]): Promise<Map<string, Entry>> {
       id: neodbMarks.id, itemUrl: neodbMarks.itemUrl, title: neodbMarks.title,
       coverUrl: neodbMarks.coverUrl, category: neodbMarks.category, comment: neodbMarks.comment,
       markUrl: neodbMarks.markUrl, markApId: neodbMarks.markApId, createdAt: neodbMarks.createdAt,
+      dateUnknown: neodbMarks.watchedDateUnknown,
       cmTitle: catalogMetadata.displayTitle, cmCover: catalogMetadata.coverUrl,
       cmYear: catalogMetadata.year, cmRating: catalogMetadata.rating,
       cmDirector: catalogMetadata.director, cmGenre: catalogMetadata.genre,
@@ -466,6 +467,7 @@ async function hydrateMarks(cands: Candidate[]): Promise<Map<string, Entry>> {
       director,
       genre: Array.isArray(row.cmGenre) ? (row.cmGenre as string[]).slice(0, 3) : [],
       itemUrl: row.itemUrl,
+      dateUnknown: Boolean(row.dateUnknown),
     }
     out.set(c.refId, entry)
   }

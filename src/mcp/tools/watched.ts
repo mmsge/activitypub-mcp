@@ -188,6 +188,38 @@ export const latestWatchedAtExpr = sql<Date | null>`(
 )`
 
 /**
+ * True when any live mark on the item carries the "date unknown" sentinel (ADR 0060):
+ * Markus has seen it and does not know when. It is the complement of `watched_dates`
+ * (which lists every dated mark), so "any live mark" is the right level — with one mark
+ * per actor the two readings only differ for an item marked by several actors.
+ *
+ * Correlated table-qualified by hand, like every expression above: an interpolated
+ * column renders bare inside the subquery and binds to neodb_marks' own `item_url`.
+ */
+export const markWatchedDateUnknownExpr = sql<boolean>`EXISTS (
+  SELECT 1 FROM neodb_marks m
+  WHERE m.item_url = catalog_metadata.item_url
+    AND m.deleted_at IS NULL
+    AND m.watched_date_unknown
+)`
+
+/**
+ * The `watched_date_unknown` filter, three-way: `true` keeps only items with a flagged
+ * live mark, `false` drops them. The `false` arm subtracts what is positively known
+ * (ADR 0046) — an item with no tracked mark at all is kept, exactly as `exclude_status`
+ * keeps it, because absence of a mark is not information here.
+ */
+export function watchedDateUnknownMatch(value: boolean): SQL {
+  const exists = sql`EXISTS (
+    SELECT 1 FROM neodb_marks m
+    WHERE m.item_url = ${catalogMetadata.itemUrl}
+      AND m.deleted_at IS NULL
+      AND m.watched_date_unknown
+  )`
+  return value ? exists : sql`NOT ${exists}`
+}
+
+/**
  * A `watched_from` / `watched_to` bound, parsed.
  *
  * A bare `YYYY-MM-DD` means the whole day, so it is anchored to UTC midnight and the upper
@@ -285,6 +317,7 @@ function buildConditions(input: {
   watched_from?: string
   watched_to?: string
   watched_year?: number
+  watched_date_unknown?: boolean
   include_unenriched?: boolean
   include_hidden?: boolean
 }): SQL[] {
@@ -298,6 +331,7 @@ function buildConditions(input: {
   if (input.exclude_status?.length) conditions.push(markStatusExcluded(input.exclude_status))
   const window = resolveWatchedWindow(input)
   if (window.from || window.to) conditions.push(watchedRangeMatch(window.from, window.to))
+  if (input.watched_date_unknown != null) conditions.push(watchedDateUnknownMatch(input.watched_date_unknown))
   if (input.category) conditions.push(eq(catalogMetadata.category, input.category))
   if (input.item_type) conditions.push(eq(catalogMetadata.itemType, input.item_type))
   if (input.imdb) conditions.push(eq(catalogMetadata.imdb, input.imdb))
@@ -360,6 +394,8 @@ export const getWatchedSchema = z.object({
     .describe('Only items with a mark watched/read/played on or before this date. "YYYY-MM-DD" covers that whole day (UTC); a full ISO timestamp is compared inclusively.'),
   watched_year: z.number().int().min(1000).max(9999).optional()
     .describe('Sugar for watched_from/watched_to spanning one calendar year (UTC), e.g. 2016 for "everything I watched in 2016". An explicit watched_from/watched_to overrides it on that edge.'),
+  watched_date_unknown: z.boolean().optional()
+    .describe('true → only titles Markus marked as seen with the date explicitly unknown (dated 2000-01-01 on minreol, the "date unknown" sentinel; watched_at is then null and the title has no watch year, so combining true with a date window always returns nothing); false → drop those, keeping titles with no tracked mark at all. Omit for both.'),
   include_unenriched: z.boolean().default(false)
     .describe('Include rows that have not been successfully enriched yet (pending or failed fetches, carrying fetch_error/fetch_attempts). Off by default.'),
   include_hidden: z.boolean().default(false)
@@ -428,6 +464,7 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       markStatusRaw: latestMarkStatusRawExpr,
       markStatuses: markStatusesExpr,
       latestWatchedAt: latestWatchedAtExpr,
+      watchedDateUnknown: markWatchedDateUnknownExpr,
       bookwyrmBookUrl: catalogMetadata.bookwyrmBookUrl,
       enrichedAt: catalogMetadata.enrichedAt,
       fetchError: catalogMetadata.fetchError,
@@ -473,6 +510,7 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       watched_from: input.watched_from ?? null,
       watched_to: input.watched_to ?? null,
       watched_year: input.watched_year ?? null,
+      watched_date_unknown: input.watched_date_unknown ?? null,
       // The window the two/three inputs above actually resolved to, so a caller can see
       // that a bare `watched_to` date was taken as the whole day.
       watched_window: (window.from || window.to)
@@ -497,9 +535,11 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
       // — NOT the post timestamp (see get_actor_posts for that). Scalar `watched_at` is
       // the newest of `watched_dates`, which lists every distinct date across the item's
       // live marks, newest first, following mark_titles/mark_comments. null / [] when the
-      // mark carried no date.
+      // mark carried no date — or carried the "date unknown" sentinel, which is what
+      // `watched_date_unknown` reports: seen, date deliberately unknown (ADR 0060).
       watched_at: toDate(r.latestWatchedAt)?.toISOString() ?? null,
       watched_dates: asArray(r.watchedDates) ?? [],
+      watched_date_unknown: Boolean(r.watchedDateUnknown),
       status: r.markStatus ?? null,
       status_raw: r.markStatusRaw ?? null,
       statuses: asArray(r.markStatuses) ?? [],
@@ -567,6 +607,7 @@ export async function getCatalogueDetails(input: CatalogueDetailsInput) {
       markStatusRaw: latestMarkStatusRawExpr,
       markStatuses: markStatusesExpr,
       latestWatchedAt: latestWatchedAtExpr,
+      watchedDateUnknown: markWatchedDateUnknownExpr,
     })
     .from(catalogMetadata)
     .where(and(...conditions))
@@ -586,9 +627,11 @@ export async function getCatalogueDetails(input: CatalogueDetailsInput) {
     mark_titles: asArray(r.markTitles) ?? [],
     mark_comments: asArray(r.markComments) ?? [],
     // The shelf date(s) the mark(s) carried — when this was watched/read/played, not when
-    // the mark was posted. `watched_at` is the newest of `watched_dates`.
+    // the mark was posted. `watched_at` is the newest of `watched_dates`; null with
+    // `watched_date_unknown: true` means seen, date deliberately unknown (ADR 0060).
     watched_at: toDate(r.latestWatchedAt)?.toISOString() ?? null,
     watched_dates: asArray(r.watchedDates) ?? [],
+    watched_date_unknown: Boolean(r.watchedDateUnknown),
     status: r.markStatus ?? null,
     status_raw: r.markStatusRaw ?? null,
     statuses: asArray(r.markStatuses) ?? [],

@@ -95,6 +95,7 @@ app.get('/', async (c) => {
       health: q('health'),
       hidden: q('hidden'),
       showDeleted: c.req.query('showDeleted') === '1',
+      undated: c.req.query('undated') === '1',
       sort: q('sort') === 'enriched' ? 'enriched' : 'watched',
     }
     const data = await queryWatched(filters, page)

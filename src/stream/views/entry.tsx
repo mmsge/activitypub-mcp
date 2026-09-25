@@ -378,9 +378,14 @@ const MARK_VERB: Record<MarkEntry['kind'], string> = {
   mark: 'merka',
 }
 
+// An undated mark (ADR 0060) keeps its place on the day it was marked, but "såg <that
+// day>" would assert a watch date he explicitly does not know. Pluperfect is what is
+// true on that day: he had seen it.
+const UNDATED_MARK_VERB = 'hadde sett'
+
 const Mark: FC<{ entry: MarkEntry }> = ({ entry }) => (
   <article class="entry" id={`e-${entry.refId}`}>
-    <Meta entry={entry} verb={MARK_VERB[entry.kind]} />
+    <Meta entry={entry} verb={entry.dateUnknown ? UNDATED_MARK_VERB : MARK_VERB[entry.kind]} />
     <div class="card">
       {entry.coverUrl ? (
         <img class="cover" src={imageSrc(entry.coverUrl)} alt="" loading="lazy" referrerpolicy="no-referrer" />

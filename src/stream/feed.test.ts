@@ -20,7 +20,7 @@ const backdated = {
   refId: 'mark:9', eventAt: at('2016-04-02T00:00:00Z'), archivedAt: at('2026-08-04T09:00:00Z'),
   source: 'neodb' as const, originUrl: 'https://minreol.dk/m/9', kind: 'screen' as const,
   title: 'Ein gammal film', coverUrl: null, category: 'movie', year: 2016,
-  comment: 'Sett på kino.', rating: 5, director: null, genre: [], itemUrl: null,
+  comment: 'Sett på kino.', rating: 5, director: null, genre: [], itemUrl: null, dateUnknown: false,
 }
 
 const opts = {

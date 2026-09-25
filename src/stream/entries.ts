@@ -142,6 +142,12 @@ export interface MarkEntry extends Base {
   director: string | null
   genre: string[]
   itemUrl: string | null
+  /**
+   * The mark carried the "date unknown" sentinel (ADR 0060): seen, date deliberately
+   * unknown. The entry still sits at the day it was marked — `eventAt` is real — but the
+   * card must not present that day as the day he saw it.
+   */
+  dateUnknown: boolean
 }
 
 export interface GigEntry extends Base {
