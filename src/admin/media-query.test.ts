@@ -48,6 +48,15 @@ describe('watched tab SQL', () => {
     expect(sql).toContain('coalesce("neodb_marks"."watched_at", "neodb_marks"."published_at") desc nulls last')
   })
 
+  it('carries the "date unknown" flag on every row, and can narrow to just those', () => {
+    const all = (watchedQuery({}, 0) as never as { toSQL(): { sql: string } }).toSQL().sql
+    expect(all).toContain('"neodb_marks"."watched_date_unknown"')
+    const only = (watchedQuery({ undated: true }, 0) as never as { toSQL(): { sql: string } }).toSQL().sql
+    // The flag, never `watched_at is null`: a legacy row with no date is not an unknown.
+    expect(only).toContain('"neodb_marks"."watched_date_unknown" = $')
+    expect(all).not.toContain('"neodb_marks"."watched_date_unknown" = $')
+  })
+
   it('compares the watched range against the mark row directly, without an EXISTS', () => {
     const { sql } = (watchedQuery({ from: '2016-01-01', to: '2016-12-31' }, 0) as never as {
       toSQL(): { sql: string }

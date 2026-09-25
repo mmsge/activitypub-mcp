@@ -1,7 +1,7 @@
 import { getDb } from '../db/client.js'
 import { neodbMarks, objects } from '../db/schema.js'
 import { and, asc, eq, gt, isNull, sql } from 'drizzle-orm'
-import { isNeodbMark, parseNeodbMark, type ParsedNeodbMark } from '../lib/neodb-mark.js'
+import { isNeodbMark, parseNeodbMark, SENTINEL_WINDOW, type ParsedNeodbMark } from '../lib/neodb-mark.js'
 import { queueNeodbEnrichment } from './sync-neodb-metadata.js'
 import { logger } from '../lib/logger.js'
 
@@ -22,7 +22,19 @@ type AnyObject = Record<string, unknown>
  * stamp — a qualifying overwrite. One extra clause covers the degenerate case where the
  * stamps tie: a row still missing a date takes one that is offered. That arm is monotone
  * (it only ever fills a null), so it can never revert a good date to an older delivery's.
+ *
+ * The "date unknown" sentinel (ADR 0060) is decoded to a null date too, and that is where
+ * the null-fill arm turns dangerous: the Create that precedes a sentinel Update carries
+ * "today" as its date, and a redelivery of it — or `reprocessStoredMarks` replaying it out
+ * of `objects.raw`, which is last-write-wins — would fill the deliberately-cleared date
+ * back in as "watched today". So the null-fill arm requires the row NOT be flagged.
  */
+export const MARK_UPSERT_GUARD = sql`${neodbMarks.updatedAtAp} is null
+  or excluded.updated_at_ap is null
+  or excluded.updated_at_ap > ${neodbMarks.updatedAtAp}
+  or (${neodbMarks.watchedAt} is null and not ${neodbMarks.watchedDateUnknown} and excluded.watched_at is not null)
+  or (excluded.updated_at_ap = ${neodbMarks.updatedAtAp} and excluded.watched_date_unknown and not ${neodbMarks.watchedDateUnknown})`
+
 export async function upsertNeodbMark(mark: ParsedNeodbMark): Promise<void> {
   const db = getDb()
   const now = new Date()
@@ -46,6 +58,7 @@ export async function upsertNeodbMark(mark: ParsedNeodbMark): Promise<void> {
     publishedAt: mark.publishedAt,
     updatedAtAp: mark.updatedAtAp,
     watchedAt: mark.watchedAt,
+    watchedDateUnknown: mark.watchedDateUnknown,
     deletedAt: null,
     raw: mark.raw as unknown as Record<string, unknown>,
     updatedAt: now,
@@ -59,13 +72,12 @@ export async function upsertNeodbMark(mark: ParsedNeodbMark): Promise<void> {
       set: values,
       // Overwrite only when this delivery is strictly newer (or an `updated` stamp is
       // missing on either side); an older/equal redelivery leaves the row — and its
-      // tombstone, if any — untouched. The last arm is the null-fill exception described
+      // tombstone, if any — untouched. The fourth arm is the null-fill exception described
       // above: a stored row with no shelf date accepts one even from an equal-stamped
-      // redelivery, so a date can never be stranded by a tie.
-      setWhere: sql`${neodbMarks.updatedAtAp} is null
-        or excluded.updated_at_ap is null
-        or excluded.updated_at_ap > ${neodbMarks.updatedAtAp}
-        or (${neodbMarks.watchedAt} is null and excluded.watched_at is not null)`,
+      // redelivery, so a date can never be stranded by a tie — unless the null IS the
+      // answer (the row is flagged "date unknown"). The fifth arm is the same tie rule in
+      // the sentinel's direction; a Create never carries the sentinel, so it is safe.
+      setWhere: MARK_UPSERT_GUARD,
     })
 
   queueNeodbEnrichment(mark.itemUrl)
@@ -166,6 +178,9 @@ export const WATCHED_AT_BACKFILL = sql`
   SET watched_at = (raw->'relatedWith'->>'published')::timestamptz,
       updated_at = now()
   WHERE watched_at IS NULL
+    -- A flagged row's null IS its date: the sentinel is still in raw, and refilling it
+    -- would undo the decode on every forced repair.
+    AND NOT watched_date_unknown
     AND jsonb_typeof(raw->'relatedWith') = 'object'
     AND raw->'relatedWith'->>'type' = 'Status'
     -- Shape guard, not validation: an unparseable string would abort the whole
@@ -185,6 +200,35 @@ export async function backfillMarkWatchedDates(): Promise<number> {
   const filled = [...res].length
   if (filled) logger.info({ filled }, 'Backfilled NeoDB mark watch dates from stored raw')
   return filled
+}
+
+/**
+ * Decode the "date unknown" sentinel (ADR 0060) on rows that still hold it as a date:
+ * `watched_at` in the ±1 day window around 2000-01-01 becomes NULL with the flag set.
+ *
+ * The migration that added the column did this once; this pass exists so a forced repair
+ * stays consistent after `WATCHED_AT_BACKFILL` (which runs first and fills from raw) and
+ * for any row that reaches the table by a path the parser did not see. Bounds are the
+ * parser's own `SENTINEL_WINDOW` strings, interpolated as explicit ISO literals — no regex,
+ * so there is no backslash to lose. Idempotent: a flagged row is never touched again.
+ */
+export const UNKNOWN_DATE_BACKFILL = sql`
+  UPDATE neodb_marks
+  SET watched_at = NULL,
+      watched_date_unknown = true,
+      updated_at = now()
+  WHERE NOT watched_date_unknown
+    AND watched_at >= ${SENTINEL_WINDOW.from}::timestamptz
+    AND watched_at < ${SENTINEL_WINDOW.to}::timestamptz
+  RETURNING id
+`
+
+export async function decodeUnknownDateSentinels(): Promise<number> {
+  const db = getDb()
+  const res = await db.execute<{ id: string }>(UNKNOWN_DATE_BACKFILL)
+  const decoded = [...res].length
+  if (decoded) logger.info({ decoded }, 'Decoded the "date unknown" sentinel on stored NeoDB marks')
+  return decoded
 }
 
 /**

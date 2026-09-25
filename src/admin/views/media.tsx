@@ -211,6 +211,9 @@ export const WatchedTab: FC<{
       <label class="muted" style="align-self:center">
         <input type="checkbox" name="showDeleted" value="1" checked={Boolean(filters.showDeleted)} /> show deleted
       </label>
+      <label class="muted" style="align-self:center">
+        <input type="checkbox" name="undated" value="1" checked={Boolean(filters.undated)} /> date unknown only
+      </label>
       <button type="submit">Filter</button>
       <a href="/admin/media?tab=watched" class="btn btn-ghost">Clear</a>
     </form>
@@ -244,7 +247,15 @@ export const WatchedTab: FC<{
               {r.deletedAt && <span class="badge badge-red" style="margin-left:6px">Deleted</span>}
             </td>
             <td>{r.itemType ?? r.category ?? '—'}</td>
-            <td class="mono">{fmtDate(r.watchedAt ?? r.publishedAt)}</td>
+            {/* A flagged mark's null is its date: seen, date deliberately unknown (ADR 0060).
+                The day it was marked is only a tooltip, never the cell — that is what the
+                fallback would have printed, and it is exactly the misreading the flag exists
+                to prevent. */}
+            <td class="mono">
+              {r.watchedDateUnknown
+                ? <span class="badge" title={`marked ${fmtDate(r.publishedAt)}`}>Date unknown</span>
+                : fmtDate(r.watchedAt ?? r.publishedAt)}
+            </td>
             <td>{r.status ? <span class="badge badge-blue">{r.status}</span> : '—'}</td>
             <td class="truncate">{r.comment ?? '—'}</td>
             <td class="mono">{r.year ?? '—'}</td>

@@ -94,6 +94,36 @@ function parseDate(v: unknown): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
+// The "date unknown" convention (ADR 0060). A mark whose shelf date Markus does not know
+// is dated to this day on minreol — the picker insists on a date, so a sentinel is the
+// only signal that never touches the comment (which is never parsed, ADR 0008). It is a
+// year-2000 sentinel and nothing else: `2014-01-01T12:00Z` is a real importer placeholder
+// on several marks, so "any 1 January" would be a lie.
+export const UNKNOWN_DATE_SENTINEL = '2000-01-01'
+
+// The sentinel is matched on a ±1 day WINDOW around that date, on the instant, never on
+// a single calendar day in any one zone. Shelf dates arrive in two shapes — our importer's
+// `2000-01-01T12:00:00+00:00` and minreol's own picker's local-midnight form, e.g.
+// `1999-12-31T22:00:00+00:53` (a mean-solar-time offset), which is 21:07 UTC on 31 Dec —
+// so a UTC-day check and an Oslo-day check both miss the picker's own shape. Every real
+// offset (−12 … +14) for "2000-01-01, any time of day" lands inside this window, and the
+// archive holds nothing real anywhere near it (the oldest shelf date is 2014). The
+// backfill SQL and the migration are built from these same two strings.
+export const SENTINEL_WINDOW = {
+  from: '1999-12-31T00:00:00.000Z',
+  to: '2000-01-03T00:00:00.000Z',
+} as const
+
+const SENTINEL_FROM_MS = Date.parse(SENTINEL_WINDOW.from)
+const SENTINEL_TO_MS = Date.parse(SENTINEL_WINDOW.to)
+
+// True when a shelf date is the "unknown" sentinel: `from <= instant < to`.
+export function isUnknownDateSentinel(d: Date | null): boolean {
+  if (!d) return false
+  const t = d.getTime()
+  return t >= SENTINEL_FROM_MS && t < SENTINEL_TO_MS
+}
+
 // The origin-local post id from a mark URL, e.g. `.../posts/600189802906904872/` →
 // "600189802906904872"; falls back to the last path segment.
 function extractPostId(url: string | null): string | null {
@@ -174,8 +204,13 @@ export interface ParsedNeodbMark {
   publishedAt: Date | null
   updatedAtAp: Date | null
   // The shelf date: when the thing was actually watched / read / played / listened to,
-  // read strictly off the `relatedWith` Status entry. Null when the mark carries none.
+  // read strictly off the `relatedWith` Status entry. Null when the mark carries none —
+  // and null when it carries the "unknown" sentinel, which is decoded here so no date
+  // maths downstream ever sees the year 2000.
   watchedAt: Date | null
+  // True when the Status carried the sentinel (ADR 0060): Markus has seen it and does not
+  // know when. Distinct from a mark that simply carried no date at all.
+  watchedDateUnknown: boolean
   // The user's comment on the mark, when NeoDB federated one (plain text, as NeoDB
   // sends it). Null for a bare mark.
   comment: string | null
@@ -202,6 +237,10 @@ export function parseNeodbMark(obj: unknown, actorApId: string): ParsedNeodbMark
   const markApId = strOrNull(o.id) ?? strOrNull(rw.id)
   const markUrl = strOrNull(o.url) ?? markApId
 
+  // The shelf date as delivered, and whether it is the "date unknown" sentinel.
+  const shelfDate = parseDate(rw.published)
+  const dateUnknown = isUnknownDateSentinel(shelfDate)
+
   return {
     itemUrl,
     actorApId,
@@ -218,8 +257,10 @@ export function parseNeodbMark(obj: unknown, actorApId: string): ParsedNeodbMark
     // The Note's own `published` — the post timestamp, i.e. when the mark was created.
     // For a mark federated at creation it happens to equal the shelf date, but for the
     // backfill pattern (mark now, correct the date in a follow-up `Update`) it does not,
-    // so it is NOT the watch date. Read that off `watchedAt` below.
-    publishedAt: parseDate(o.published) ?? parseDate(rw.published),
+    // so it is NOT the watch date. Read that off `watchedAt` below. The Status fallback
+    // never hands over the sentinel: a Note without its own `published` must not be
+    // filed in January 2000 as the day it was marked.
+    publishedAt: parseDate(o.published) ?? (dateUnknown ? null : shelfDate),
     // `relatedWith.updated` is the change-tracking stamp (bumped when the mark is re-saved,
     // e.g. a delete+recreate backfill); the Note's own `updated` is the fallback.
     updatedAtAp: parseDate(rw.updated) ?? parseDate(o.updated),
@@ -227,8 +268,10 @@ export function parseNeodbMark(obj: unknown, actorApId: string): ParsedNeodbMark
     // finished, the album heard. Deliberately no fallback: the Note's `published` tracks
     // mark creation and the Comment entry's `published` tracks the comment, so falling
     // back to either would silently report "today" as the watch date for every backdated
-    // mark. Unknown stays null.
-    watchedAt: parseDate(rw.published),
+    // mark. Unknown stays null — and the sentinel becomes null too, with the flag set,
+    // so every consumer that already handles "no date" handles "unknown" for free.
+    watchedAt: dateUnknown ? null : shelfDate,
+    watchedDateUnknown: dateUnknown,
     comment: strOrNull(commentEntry?.content),
     raw: { relatedWith: rw, comment: commentEntry ?? null, tag: tag ?? null },
   }

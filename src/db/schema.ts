@@ -388,6 +388,12 @@ export const neodbMarks = pgTable('neodb_marks', {
   // above: a backdated mark is created today (`published_at`), last edited today
   // (`updated_at_ap`) and watched in 2016 (`watched_at`). Null when the mark carries none.
   watchedAt: timestamp('watched_at', { withTimezone: true }),
+  // True when the Status carried the "date unknown" sentinel (2000-01-01 on minreol, see
+  // ADR 0060): Markus has seen it and does not know when. The sentinel is decoded at
+  // parse time to `watched_at = NULL` plus this flag, so the FLAG carries "unknown", never
+  // the date. It also tells a deliberate unknown apart from a legacy row that simply
+  // carried no date, which is what the upsert's null-fill arm has to respect.
+  watchedDateUnknown: boolean('watched_date_unknown').notNull().default(false),
   deletedAt: timestamp('deleted_at', { withTimezone: true }), // set when the mark's Note is deleted
   raw: jsonb('raw'), // the relatedWith + tag we parsed, for provenance
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

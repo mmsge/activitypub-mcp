@@ -1146,6 +1146,14 @@ stored, and they answer different questions.
   The default `sort_by="fetched_at"` is enrichment time, which after a bulk import is just
   the order the import ran in.
 - The same field serves every category: books, music, games and podcasts all carry it.
+- **Seen it, no idea when?** Date the mark **2000-01-01** on minreol. The server decodes
+  that sentinel: `watched_at` becomes `null`, `watched_dates` leaves it out, and the row
+  carries `watched_date_unknown: true`. Such a title answers no `watched_year`, sorts last
+  under `sort_by="watched_at"`, and is listed with `watched_date_unknown=true` (or dropped
+  with `false`). The comment is never parsed, so a note like "Sett på kino." works as
+  before. On the public stream it keeps its place on the day it was marked, worded
+  "hadde sett" rather than "såg". See decision record
+  [0060](docs/decision-records/0060-a-date-he-does-not-know-is-not-a-date.md).
 
 ### Reading stats
 
@@ -1419,6 +1427,7 @@ Database migrations run automatically on startup.
 - The mark has to have arrived first: check the Activities page for a `Create`, `Announce` or `Update` carrying the mark's `Note`. Marks made in the NeoDB UI arrive as pushed `Create`/`Update` activities; marks crossposted to Mastodon also arrive as an `Announce` of the same note (the boost is unwrapped and does not create a second post).
 - Rebuild the derived data from what is already stored: **Admin → Import → Repair NeoDB Marks**, or on the server `docker compose exec app npm run repair-neodb-ingest`. It re-derives missing post text, rebuilds the mark store, and enriches every catalogue item the stored marks tag. Nothing is re-marked on NeoDB and no post is re-federated, so it is safe to run repeatedly.
 - Marks are routinely backdated (NeoDB keeps the date you watched something, which can be years ago). Nothing filters on recency — look for the item by title rather than at the top of a date-sorted list.
+- A viewing dated 2000-01-01 on minreol is a deliberate **date unknown** (decision record 0060): the Watched column shows a "Date unknown" badge with the marking day as its tooltip, and the "date unknown only" checkbox narrows to those.
 
 **A mark shows up but `watched_at` is today, not the real date**
 - minreol does not federate a backdated mark on creation: the `Create` carries today's date and a follow-up `Update` (usually seconds later) carries the real one. Check the Activities page for the `Update`; if it never arrived, re-save the mark on NeoDB.

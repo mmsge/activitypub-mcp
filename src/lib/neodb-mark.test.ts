@@ -5,6 +5,9 @@ import {
   normalizeItemUrl,
   mapMarkStatus,
   mapItemTypeToCategory,
+  isUnknownDateSentinel,
+  SENTINEL_WINDOW,
+  UNKNOWN_DATE_SENTINEL,
 } from './neodb-mark.js'
 
 // The exact payload verified against minreol's live outbox (trimmed to relevant fields).
@@ -289,6 +292,93 @@ describe('parseNeodbMark — the shelf date (watchedAt)', () => {
     )!
     expect(m.category).toBe('book')
     expect(m.watchedAt?.toISOString()).toBe('2015-11-03T12:00:00.000Z')
+  })
+})
+
+// The "date unknown" convention (ADR 0060): a backlog title Markus has seen but cannot
+// date is dated 2000-01-01 on minreol, because the picker insists on a date and the
+// comment is never parsed. The parser decodes the sentinel to `watchedAt: null` plus a
+// flag, so nothing downstream ever does date maths on the year 2000.
+describe('isUnknownDateSentinel', () => {
+  it('matches 2000-01-01 in every shape the two senders produce', () => {
+    for (const iso of [
+      '2000-01-01T12:00:00+00:00', // our importer's mid-day form
+      '2000-01-01T00:00:00+01:00', // a local midnight in Oslo
+      '1999-12-31T22:00:00+00:53', // minreol's own picker (mean-solar-time offset)
+      '2000-01-01T00:00:00+14:00', // the widest real offsets either way
+      '2000-01-01T23:59:59-12:00',
+    ]) {
+      expect(isUnknownDateSentinel(new Date(iso)), iso).toBe(true)
+    }
+  })
+
+  it('is a year-2000 sentinel and nothing else', () => {
+    for (const iso of [
+      '1999-12-30T23:59:59Z',
+      '2000-01-03T00:00:00Z',
+      '2014-01-01T12:00:00+00:00', // a real importer placeholder, NOT the sentinel
+      '2001-01-01T12:00:00Z',
+      '2026-07-30T19:04:58.824Z',
+    ]) {
+      expect(isUnknownDateSentinel(new Date(iso)), iso).toBe(false)
+    }
+    expect(isUnknownDateSentinel(null)).toBe(false)
+  })
+
+  it('pins the window the backfill SQL and the migration are built from', () => {
+    expect(UNKNOWN_DATE_SENTINEL).toBe('2000-01-01')
+    expect(SENTINEL_WINDOW.from).toBe('1999-12-31T00:00:00.000Z')
+    expect(SENTINEL_WINDOW.to).toBe('2000-01-03T00:00:00.000Z')
+    expect(isUnknownDateSentinel(new Date(SENTINEL_WINDOW.from))).toBe(true)
+    expect(isUnknownDateSentinel(new Date(SENTINEL_WINDOW.to))).toBe(false)
+  })
+})
+
+describe('parseNeodbMark — the "date unknown" sentinel (watchedDateUnknown)', () => {
+  const SENTINEL_UPDATE = {
+    ...MARK,
+    relatedWith: { ...MARK.relatedWith, published: '2000-01-01T12:00:00+00:00', updated: '2026-09-25T10:00:00+00:00' },
+  }
+
+  it('decodes the sentinel to a null date with the flag set, keeping the Note\'s own published', () => {
+    const m = parseNeodbMark(SENTINEL_UPDATE, ACTOR)!
+    expect(m.watchedAt).toBeNull()
+    expect(m.watchedDateUnknown).toBe(true)
+    // The post timestamp is a different fact and stays what the Note says.
+    expect(m.publishedAt?.toISOString()).toBe('2026-07-15T12:00:00.000Z')
+  })
+
+  it('keeps the sentinel instant in raw as provenance', () => {
+    const m = parseNeodbMark(SENTINEL_UPDATE, ACTOR)!
+    expect((m.raw.relatedWith as Record<string, unknown>).published).toBe('2000-01-01T12:00:00+00:00')
+  })
+
+  it('decodes the picker\'s local-midnight shape too', () => {
+    const m = parseNeodbMark(
+      { ...MARK, relatedWith: { ...MARK.relatedWith, published: '1999-12-31T22:00:00+00:53' } },
+      ACTOR,
+    )!
+    expect(m.watchedAt).toBeNull()
+    expect(m.watchedDateUnknown).toBe(true)
+  })
+
+  it('a real date, or no date at all, is not flagged', () => {
+    expect(parseNeodbMark(MARK, ACTOR)!.watchedDateUnknown).toBe(false)
+    const { published: _dropped, ...noPublished } = MARK.relatedWith
+    const m = parseNeodbMark({ ...MARK, relatedWith: noPublished }, ACTOR)!
+    expect(m.watchedAt).toBeNull()
+    expect(m.watchedDateUnknown).toBe(false)
+  })
+
+  it('never lets the sentinel leak into publishedAt through the Status fallback', () => {
+    // A Note with no `published` of its own falls back to the Status entry for the post
+    // timestamp. With the sentinel there, that would file the mark in January 2000 on
+    // the stream. Null is the honest answer.
+    const { published: _dropped, ...noteWithoutPublished } = SENTINEL_UPDATE
+    const m = parseNeodbMark(noteWithoutPublished, ACTOR)!
+    expect(m.publishedAt).toBeNull()
+    expect(m.watchedAt).toBeNull()
+    expect(m.watchedDateUnknown).toBe(true)
   })
 })
 

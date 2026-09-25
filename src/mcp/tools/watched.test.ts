@@ -10,6 +10,8 @@ import {
   latestMarkStatusRawExpr,
   markWatchedDatesExpr,
   latestWatchedAtExpr,
+  markWatchedDateUnknownExpr,
+  watchedDateUnknownMatch,
   parseWatchedBound,
   resolveWatchedWindow,
   watchedRangeMatch,
@@ -61,6 +63,36 @@ describe('watch-date correlation', () => {
     const { sql } = getDb().select({ latest: latestWatchedAtExpr }).from(catalogMetadata).toSQL()
     expect(sql).toContain('max(m.watched_at)')
     expect(sql).toContain('m.deleted_at IS NULL')
+  })
+})
+
+// The "date unknown" sentinel (ADR 0060) is decoded to a null watched_at, so the flag is
+// the only thing that tells a deliberate unknown apart from a mark that carried no date.
+describe('watched_date_unknown', () => {
+  it('correlates on catalog_metadata.item_url, table-qualified, over live marks only', () => {
+    const { sql } = getDb().select({ unknown: markWatchedDateUnknownExpr }).from(catalogMetadata).toSQL()
+    expect(sql).toContain('m.item_url = catalog_metadata.item_url')
+    expect(sql).not.toMatch(/m\.item_url = "?item_url"?/)
+    expect(sql).toContain('m.deleted_at IS NULL')
+    expect(sql).toContain('m.watched_date_unknown')
+  })
+
+  it('filters three ways: true selects, false subtracts, so untracked items survive false', () => {
+    const dialect = new PgDialect()
+    const yes = dialect.sqlToQuery(watchedDateUnknownMatch(true)).sql
+    const no = dialect.sqlToQuery(watchedDateUnknownMatch(false)).sql
+    expect(yes).toMatch(/^EXISTS \(/)
+    expect(no).toMatch(/^NOT EXISTS \(/)
+    for (const s of [yes, no]) {
+      expect(s).toContain('"catalog_metadata"."item_url"')
+      expect(s).toContain('m.watched_date_unknown')
+    }
+  })
+
+  it('is optional on the schema with no default, so omitting it keeps both', () => {
+    expect(getWatchedSchema.parse({}).watched_date_unknown).toBeUndefined()
+    expect(getWatchedSchema.parse({ watched_date_unknown: true }).watched_date_unknown).toBe(true)
+    expect(getWatchedSchema.parse({ watched_date_unknown: false }).watched_date_unknown).toBe(false)
   })
 })
 

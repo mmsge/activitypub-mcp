@@ -6,7 +6,7 @@ import { extractContent } from '../lib/object-content.js'
 import { fetchApObject } from '../lib/fetch-ap-object.js'
 import { objectApId, resolveRef } from '../lib/ap-object.js'
 import { ingestObject } from '../activitypub/handlers/create.js'
-import { backfillMarkComments, backfillMarkWatchedDates, reprocessStoredMarks } from './sync-neodb-marks.js'
+import { backfillMarkComments, backfillMarkWatchedDates, decodeUnknownDateSentinels, reprocessStoredMarks } from './sync-neodb-marks.js'
 import {
   NEODB_MEDIA_TAG_TYPES,
   enrichCatalogueItem,
@@ -40,6 +40,8 @@ export interface RepairResult {
   commentsFilled: number
   /** Mark rows whose `watched_at` (the shelf date) was filled in from the stored raw. */
   watchDatesFilled: number
+  /** Mark rows still holding the "date unknown" sentinel as a date, decoded to null + flag. */
+  unknownDatesDecoded: number
   /** Catalogue items enriched, failed, and skipped as already-enriched. */
   itemsEnriched: number
   itemsFailed: number
@@ -185,6 +187,10 @@ export async function repairNeodbIngest(
   // and the upsert above will not revisit an unchanged mark, so it needs its own pass.
   const watchDatesFilled = await backfillMarkWatchedDates()
 
+  // Then decode the "date unknown" sentinel (ADR 0060). Order matters: the fill above
+  // reads the sentinel out of raw into `watched_at`, and this turns it into the flag.
+  const unknownDatesDecoded = await decodeUnknownDateSentinels()
+
   // Tagged items → catalog_metadata. A row that already enriched cleanly is left alone
   // (staleness is the periodic sync's job) unless this run is forced.
   const referenced = await collectTaggedItemUrls()
@@ -226,6 +232,7 @@ export async function repairNeodbIngest(
     marksUpserted,
     commentsFilled,
     watchDatesFilled,
+    unknownDatesDecoded,
     itemsEnriched,
     itemsFailed,
     itemsSkipped,

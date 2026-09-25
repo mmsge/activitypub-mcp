@@ -37,7 +37,26 @@ const mark = {
   source: 'neodb' as const, originUrl: 'https://minreol.dk/m/3', kind: 'screen' as const,
   title: 'Ein gammal film', coverUrl: null, category: 'movie', year: 2016,
   comment: 'Sett på kino.', rating: 5, director: 'Ein Regissør', genre: ['drama'], itemUrl: null,
+  dateUnknown: false,
 }
+
+// An undated mark (ADR 0060) keeps its place on the day it was marked, but the card must
+// not present that day as the day he saw it: "såg 25. september" would assert a watch
+// date he explicitly does not know. Pluperfect is what is true on that day.
+describe('a mark with the date unknown', () => {
+  it('says "hadde sett", not "såg", and still dates the card to the marking day', () => {
+    const html = render(<EntryView entry={{ ...mark, dateUnknown: true } as never} />)
+    expect(html).toContain('hadde sett')
+    expect(html).not.toContain('såg')
+    expect(html).toContain('datetime="2016-04-02T00:00:00.000Z"')
+  })
+
+  it('leaves a dated mark alone', () => {
+    const html = render(<EntryView entry={mark as never} />)
+    expect(html).toContain('såg')
+    expect(html).not.toContain('hadde sett')
+  })
+})
 
 describe('every entry shows where it came from and links back there', () => {
   for (const [name, entry] of [['post', post], ['book', book], ['mark', mark]] as const) {
