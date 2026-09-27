@@ -20,8 +20,14 @@ import { postWebhook } from './webhook-post.js'
  * its own POLLERS registry, so a page can be added there without touching this.
  */
 
-/** The vocabulary msge.no publishes. `alle` exists but is for a human with curl. */
-export type MsgeTopic = 'tog' | 'tuben' | 'bok' | 'film' | 'tut' | 'bilete' | 'tankehav' | 'lyttar' | 'poppis'
+/**
+ * The vocabulary msge.no publishes. `alle` exists but is for a human with curl.
+ *
+ * `teater` is the one topic sent AHEAD of its receiver (ADR 0061): msge.no must add it to
+ * its POLLERS registry. Until then each theatre mark costs one logged 4xx and nothing
+ * else — no retry, and the page it would feed does not exist yet either.
+ */
+export type MsgeTopic = 'tog' | 'tuben' | 'bok' | 'film' | 'teater' | 'tut' | 'bilete' | 'tankehav' | 'lyttar' | 'poppis'
 
 export interface MsgeWebhookTarget {
   url: string

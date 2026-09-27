@@ -34,6 +34,18 @@ export function isNeodbBookUrl(href: string): boolean {
   }
 }
 
+// A NeoDB theatre item: a play (…/performance/<id>) or one staging of it
+// (…/performance/production/<id>). Routed by path because the tag type is not always
+// to hand, and both shapes are theatre.
+export function isNeodbPerformanceUrl(href: unknown): boolean {
+  if (typeof href !== 'string') return false
+  try {
+    return /^\/(~neodb~\/)?performance\//.test(new URL(href).pathname)
+  } catch {
+    return false
+  }
+}
+
 // Collect the NeoDB catalog hrefs a mark's tags reference: every media-type tag, plus
 // `Edition` tags that are NeoDB book URLs. Used at ingest time.
 export function collectNeodbTagHrefs(tags: unknown): string[] {
