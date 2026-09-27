@@ -42,7 +42,7 @@ import { getThreadTreeSchema, getThreadTree } from './tools/thread-tree.js'
 export function createMcpServer(): McpServer {
   const server = new McpServer({
     name: 'activitypub-mcp',
-    version: '1.1.0',
+    version: '1.2.0',
   })
 
   server.tool(
