@@ -61,6 +61,11 @@ export function entryTitle(entry: Entry): string {
     case 'listen': return `Høyrde på ${entry.title ?? 'noko'}`
     case 'play': return `Spelte ${entry.title ?? 'noko'}`
     case 'read_neodb': return `Las ${entry.title ?? 'noko'}`
+    // «Ubesvart anrop» (Riksteatret): the company is how a touring play is known.
+    case 'theatre': {
+      const what = entry.title ? `«${entry.title}»` : 'noko'
+      return entry.troupe.length > 0 ? `Såg ${what} (${entry.troupe.join(', ')})` : `Såg ${what} på teater`
+    }
     case 'mark': return entry.title ?? 'Merka noko'
     // The gig, not the paperwork: the artists and where, which is what a subscriber
     // scanning a feed reader's title column actually wants to read.
@@ -109,7 +114,7 @@ function entryContent(entry: Entry): string {
       ].join('')
     case 'garden':
       return entry.excerpt ? `<p>${esc(entry.excerpt)}</p>` : ''
-    case 'screen': case 'listen': case 'play': case 'read_neodb': case 'mark':
+    case 'screen': case 'listen': case 'play': case 'read_neodb': case 'theatre': case 'mark':
       return entry.comment ? `<p>${esc(entry.comment)}</p>` : ''
     case 'gig':
       return entry.review ? `<p>${esc(entry.review)}</p>` : ''

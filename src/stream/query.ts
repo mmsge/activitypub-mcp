@@ -441,6 +441,7 @@ async function hydrateMarks(cands: Candidate[]): Promise<Map<string, Entry>> {
       cmTitle: catalogMetadata.displayTitle, cmCover: catalogMetadata.coverUrl,
       cmYear: catalogMetadata.year, cmRating: catalogMetadata.rating,
       cmDirector: catalogMetadata.director, cmGenre: catalogMetadata.genre,
+      cmDetails: catalogMetadata.details,
     })
     .from(neodbMarks)
     .leftJoin(catalogMetadata, eq(catalogMetadata.itemUrl, neodbMarks.itemUrl))
@@ -450,7 +451,11 @@ async function hydrateMarks(cands: Candidate[]): Promise<Map<string, Entry>> {
     const { id } = refParts(c.refId)
     const row = rows.find((r) => r.id === id)
     if (!row) continue
-    const director = Array.isArray(row.cmDirector) ? (row.cmDirector as string[])[0] ?? null : null
+    // A film's director is a column; a play's lives in `details`, beside the troupe.
+    const details = (row.cmDetails && typeof row.cmDetails === 'object' ? row.cmDetails : {}) as Record<string, unknown>
+    const firstOf = (v: unknown) => (Array.isArray(v) && typeof v[0] === 'string' ? v[0] : null)
+    const isTheatre = c.kind === 'theatre'
+    const director = isTheatre ? firstOf(details.director) : firstOf(row.cmDirector)
     const entry: MarkEntry = {
       refId: c.refId,
       eventAt: c.eventAt,
@@ -466,6 +471,10 @@ async function hydrateMarks(cands: Candidate[]): Promise<Map<string, Entry>> {
       rating: ratingOf(row.cmRating),
       director,
       genre: Array.isArray(row.cmGenre) ? (row.cmGenre as string[]).slice(0, 3) : [],
+      troupe: isTheatre && Array.isArray(details.troupe)
+        ? (details.troupe as unknown[]).filter((t): t is string => typeof t === 'string')
+        : [],
+      venue: isTheatre ? firstOf(details.venue) : null,
       itemUrl: row.itemUrl,
       dateUnknown: Boolean(row.dateUnknown),
     }

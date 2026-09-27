@@ -273,6 +273,7 @@ export function marksLane(ctx: LaneContext): SQL | null {
     WHEN m.category = 'music' THEN 'listen'
     WHEN m.category = 'game' THEN 'play'
     WHEN m.category = 'book' THEN 'read_neodb'
+    WHEN m.category = 'performance' THEN 'theatre'
     ELSE 'mark' END`
 
   return sql`
