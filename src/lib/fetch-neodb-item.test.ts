@@ -221,3 +221,106 @@ describe('mapNeodbItem — non-film categories map to details', () => {
     expect(m.sourceMap.title).toBe('neodb')
   })
 })
+
+// The first theatre visit on minreol, trimmed from the live catalogue record: Riksteatret's
+// touring production of Nora Dåsnes' "Ubesvart anrop". The troupe exists only as a credit.
+const THEATRE_URL = 'https://minreol.dk/performance/1z2DQbq0PQZTICNDSTBI0q'
+const UBESVART_ANROP = {
+  type: 'Performance',
+  title: 'Ubesvart anrop',
+  localized_title: [{ lang: 'nn', text: 'Ubesvart anrop' }],
+  cover_image_url: 'https://minreol.dk/m/item/performance/2026/09/27/43320614-c12e-4086-8b32-30530d474c18.webp',
+  id: THEATRE_URL,
+  uuid: '1z2DQbq0PQZTICNDSTBI0q',
+  category: 'performance',
+  parent_uuid: null,
+  display_title: 'Ubesvart anrop',
+  external_resources: [],
+  credits: [
+    { role: 'actor', name: 'Christina Sleipnes', character_name: '', person_url: null },
+    { role: 'actor', name: 'Amina Mohamud', character_name: '', person_url: null },
+    { role: 'choreographer', name: 'Huw Willam Reynolds', character_name: '', person_url: null },
+    { role: 'composer', name: 'Ida Flåten Kampenhaug', character_name: '', person_url: null },
+    { role: 'director', name: 'Toril Solvang-Kayiambakis', character_name: '', person_url: null },
+    { role: 'original_creator', name: 'Nora Dåsnes', character_name: '', person_url: null },
+    { role: 'troupe', name: 'Riksteatret', character_name: '', person_url: null },
+  ],
+  orig_title: 'Ubesvart anrop (Riksteatret)',
+  genre: [],
+  language: ['no'],
+  opening_date: null,
+  closing_date: null,
+  director: ['Toril Solvang-Kayiambakis'],
+  playwright: [],
+  orig_creator: ['Nora Dåsnes'],
+  composer: ['Ida Flåten Kampenhaug'],
+  choreographer: ['Huw Willam Reynolds'],
+  performer: [],
+  actor: [{ name: 'Christina Sleipnes', role: '' }, { name: 'Amina Mohamud', role: '' }],
+  crew: [],
+  official_site: 'https://www.riksteatret.no/repertoar/ubesvart-anrop/',
+}
+
+describe('mapNeodbItem — theatre', () => {
+  it('reads the troupe out of credits, where NeoDB keeps it', () => {
+    const m = mapNeodbItem(THEATRE_URL, UBESVART_ANROP)
+    expect(m.category).toBe('performance')
+    expect(m.title).toBe('Ubesvart anrop')
+    expect(m.titlePlaceholder).toBe(false)
+    expect(m.details).toMatchObject({
+      troupe: ['Riksteatret'],
+      director: ['Toril Solvang-Kayiambakis'],
+      orig_creator: ['Nora Dåsnes'],
+      actor: ['Christina Sleipnes', 'Amina Mohamud'],
+      official_site: 'https://www.riksteatret.no/repertoar/ubesvart-anrop/',
+    })
+    // Credits and the flat arrays name the same people once.
+    expect((m.details.director as string[]).length).toBe(1)
+    // No part is known, so no cast list.
+    expect(m.details.cast).toBeUndefined()
+    expect(m.details.play_url).toBeUndefined()
+    expect(m.year).toBeNull()
+  })
+
+  it('never stores a URL as the title: the item as first enriched, three seconds old', () => {
+    const drafted = {
+      ...UBESVART_ANROP,
+      title: 'https://www.riksteatret.no/repertoar/ubesvart-anrop/',
+      display_title: 'https://www.riksteatret.no/repertoar/ubesvart-anrop/',
+      localized_title: [{ lang: 'nn', text: 'https://www.riksteatret.no/repertoar/ubesvart-anrop/' }],
+    }
+    const m = mapNeodbItem(THEATRE_URL, drafted)
+    expect(m.title).toBe('Ubesvart anrop (Riksteatret)')
+    expect(m.displayTitle).toBe('Ubesvart anrop (Riksteatret)')
+    expect(m.titlePlaceholder).toBe(true)
+  })
+
+  it('prefers a localized title over orig_title when the title is a URL', () => {
+    const m = mapNeodbItem(THEATRE_URL, { ...UBESVART_ANROP, title: 'http://x.test/', display_title: 'http://x.test/' })
+    expect(m.title).toBe('Ubesvart anrop')
+    expect(m.titlePlaceholder).toBe(true)
+  })
+
+  it('links a production to the play it stages, and keeps the parts actors played', () => {
+    const url = 'https://minreol.dk/performance/production/4AbcDefGhiJklMnoPqrStu'
+    const m = mapNeodbItem(url, {
+      id: url, type: 'PerformanceProduction', category: 'performance',
+      title: 'Peer Gynt', parent_uuid: '0XyZplay000000000000Ab', opening_date: '2024-11-02',
+      location: ['Det Norske Teatret'],
+      actor: [{ name: 'A. Skodespelar', role: 'Peer' }],
+      credits: [
+        { role: 'actor', name: 'B. Skodespelar', character_name: 'Solveig' },
+        { role: 'troupe', name: 'Det Norske Teatret' },
+      ],
+    })
+    expect(m.parentUuid).toBe('0XyZplay000000000000Ab')
+    expect(m.details).toMatchObject({
+      play_url: 'https://minreol.dk/performance/0XyZplay000000000000Ab',
+      troupe: ['Det Norske Teatret'],
+      venue: ['Det Norske Teatret'],
+      actor: ['A. Skodespelar', 'B. Skodespelar'],
+      cast: [{ name: 'A. Skodespelar', role: 'Peer' }, { name: 'B. Skodespelar', role: 'Solveig' }],
+    })
+    expect(m.year).toBe(2024)
+  })
+})

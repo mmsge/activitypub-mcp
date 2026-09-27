@@ -88,6 +88,11 @@ function strOrNull(v: unknown): string | null {
   return typeof v === 'string' && v.trim() ? v : null
 }
 
+function markTitleOf(v: unknown): string | null {
+  const s = strOrNull(v)?.trim()
+  return s && !/^https?:\/\//i.test(s) ? s : null
+}
+
 function parseDate(v: unknown): Date | null {
   if (typeof v !== 'string' || !v.trim()) return null
   const d = new Date(v)
@@ -249,7 +254,9 @@ export function parseNeodbMark(obj: unknown, actorApId: string): ParsedNeodbMark
     status,
     statusRaw,
     statusKnown,
-    title: strOrNull(tag?.name)?.trim() ?? null,
+    // A URL is not a title: NeoDB names a freshly drafted item by its source page until
+    // someone names it, and a mark made in that window federates the address.
+    title: markTitleOf(tag?.name),
     coverUrl: strOrNull(tag?.image),
     markApId,
     markUrl,

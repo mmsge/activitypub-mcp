@@ -434,3 +434,51 @@ describe('mapItemTypeToCategory', () => {
     expect(mapItemTypeToCategory(null)).toBeNull()
   })
 })
+
+// The first theatre mark, as minreol federated it: commented, so `relatedWith` is an array,
+// and made while NeoDB still titled the item with the Riksteatret page it was drafted from.
+describe('parseNeodbMark — theatre', () => {
+  const ITEM = 'https://minreol.dk/performance/1z2DQbq0PQZTICNDSTBI0q'
+  const NOTE = {
+    id: 'https://minreol.dk/@markus@minreol.dk/posts/627116884067411928/',
+    type: 'Note',
+    relatedWith: [
+      {
+        id: 'https://minreol.dk/p/6pQ2c4R4p36uKMDHM8aYwX', type: 'Status', status: 'complete',
+        withRegardTo: ITEM, attributedTo: 'https://minreol.dk/@markus@minreol.dk/',
+        published: '2026-09-27T19:18:36.124068+00:00', updated: '2026-09-27T19:18:36.143459+00:00',
+      },
+      {
+        id: 'https://minreol.dk/p/5f8xg5I5Cn0cXxZwgpmApD', type: 'Comment', withRegardTo: ITEM,
+        content: 'Eg las Nora Dåsnes si grafiske roman for nokre år sida.',
+        published: '2026-09-27T19:18:36.124068+00:00',
+      },
+    ],
+    attributedTo: 'https://minreol.dk/@markus@minreol.dk/',
+    published: '2026-09-27T19:18:36.124Z',
+    tag: {
+      type: 'Performance', href: ITEM,
+      image: 'https://minreol.dk/m/item/performance/2026/09/27/43320614-c12e-4086-8b32-30530d474c18.webp',
+      name: 'https://www.riksteatret.no/repertoar/ubesvart-anrop/',
+    },
+    url: 'https://minreol.dk/@markus/posts/627116884067411928/',
+  }
+
+  it('is a finished performance, with its comment and shelf date', () => {
+    const m = parseNeodbMark(NOTE, 'https://minreol.dk/@markus@minreol.dk/')!
+    expect(m.itemUrl).toBe(ITEM)
+    expect(m.itemType).toBe('Performance')
+    expect(m.category).toBe('performance')
+    expect(m.status).toBe('complete')
+    expect(m.comment).toContain('Nora Dåsnes')
+    expect(m.watchedAt?.toISOString()).toBe('2026-09-27T19:18:36.124Z')
+  })
+
+  it('does not take the source URL the tag carries for a title', () => {
+    expect(parseNeodbMark(NOTE, 'https://minreol.dk/@markus@minreol.dk/')!.title).toBeNull()
+  })
+
+  it('maps a PerformanceProduction to performance too', () => {
+    expect(mapItemTypeToCategory('PerformanceProduction')).toBe('performance')
+  })
+})
