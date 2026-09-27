@@ -1,6 +1,6 @@
 import { getDb } from '../db/client.js'
 import { catalogMetadata, bookMetadata } from '../db/schema.js'
-import { fetchNeodbItem, type NeodbItemMetadata } from '../lib/fetch-neodb-item.js'
+import { fetchNeodbItem, isUrlTitle, type NeodbItemMetadata } from '../lib/fetch-neodb-item.js'
 import { normalizeIsbn, isbn10to13 } from '../lib/isbn.js'
 import { logger } from '../lib/logger.js'
 import { config } from '../config.js'
@@ -29,6 +29,18 @@ export function isNeodbBookUrl(href: string): boolean {
     const m = /^\/book\/([^/]+)/.exec(path)
     if (!m) return false
     return /[a-zA-Z]/.test(m[1]) // base62 NeoDB id has letters; BookWyrm ids are digits
+  } catch {
+    return false
+  }
+}
+
+// A NeoDB theatre item: a play (…/performance/<id>) or one staging of it
+// (…/performance/production/<id>). Routed by path because the tag type is not always
+// to hand, and both shapes are theatre.
+export function isNeodbPerformanceUrl(href: unknown): boolean {
+  if (typeof href !== 'string') return false
+  try {
+    return /^\/(~neodb~\/)?performance\//.test(new URL(href).pathname)
   } catch {
     return false
   }
@@ -63,7 +75,9 @@ export function extractMarkTitles(tags: unknown, itemUrl: string): string[] {
     const type = typeof tag.type === 'string' ? tag.type : ''
     if (!NEODB_MEDIA_TAG_TYPES.includes(type) && type !== 'Edition') continue
     const name = typeof tag.name === 'string' ? tag.name.trim() : ''
-    if (name) names.add(name)
+    // A mark made while NeoDB still titled the item with its source URL federates that
+    // URL as the name. It is not an alias, and kept here it outlives the real title.
+    if (name && !isUrlTitle(name)) names.add(name)
   }
   return [...names]
 }
@@ -165,6 +179,12 @@ async function upsertCatalogMetadata(meta: NeodbItemMetadata): Promise<void> {
     .onConflictDoUpdate({ target: catalogMetadata.itemUrl, set: values })
 }
 
+// Written as fetch_error when NeoDB still titled the item with a URL. The row itself is
+// stored (with the best real title found), but a non-null error is what makes both the
+// periodic sync and on-ingest enrichment treat it as not yet done, so it is re-read on
+// the next pass without a scheduler of its own. It clears itself once NeoDB has a title.
+export const TITLE_PLACEHOLDER_ERROR = 'NeoDB still titles this item with a URL; re-fetching until it has a name'
+
 /**
  * The column set an enrichment pass writes, built explicitly.
  *
@@ -209,8 +229,8 @@ export function catalogUpsertValues(
     raw: meta.raw as Record<string, unknown>,
     fetchedAt: now,
     enrichedAt: now,
-    fetchError: null,
-    fetchAttempts: 0,
+    fetchError: meta.titlePlaceholder ? TITLE_PLACEHOLDER_ERROR : null,
+    fetchAttempts: meta.titlePlaceholder ? 1 : 0,
     lastAttemptAt: now,
   }
 }
@@ -356,11 +376,20 @@ export async function syncNeodbMetadata(force = config.NEODB_BACKFILL): Promise<
   const freshRows = force
     ? []
     : await db
-        .select({ itemUrl: catalogMetadata.itemUrl, enrichedAt: catalogMetadata.enrichedAt, fetchError: catalogMetadata.fetchError })
+        .select({
+          itemUrl: catalogMetadata.itemUrl,
+          enrichedAt: catalogMetadata.enrichedAt,
+          fetchError: catalogMetadata.fetchError,
+          title: catalogMetadata.title,
+          displayTitle: catalogMetadata.displayTitle,
+        })
         .from(catalogMetadata)
+  // A row whose stored title is a URL is never fresh, however recent: it was enriched
+  // before the placeholder guard existed, and re-reading it is the whole repair.
   const fresh = new Set(
     freshRows
       .filter((r) => r.enrichedAt && !r.fetchError && r.enrichedAt >= cutoff)
+      .filter((r) => !isUrlTitle(r.title) && !isUrlTitle(r.displayTitle))
       .map((r) => r.itemUrl),
   )
 

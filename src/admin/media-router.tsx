@@ -26,8 +26,10 @@ import {
   type GigFilters,
   type ScrobbleFilters,
   type YoutubeFilters,
+  PAGE_SIZE,
 } from './media-query.js'
-import { BooksTab, WatchedTab, OtherTab, GigsTab, ScrobblesTab, YoutubeTab } from './views/media.js'
+import { BooksTab, WatchedTab, OtherTab, GigsTab, TheatreTab, ScrobblesTab, YoutubeTab } from './views/media.js'
+import { getTheatre, getTheatreSchema } from '../mcp/tools/theatre.js'
 import { enrichCatalogueItem, syncNeodbMetadata } from '../jobs/sync-neodb-metadata.js'
 import { enrichGig, syncGigMetadata } from '../jobs/sync-gig-metadata.js'
 import { backfillGigs } from '../jobs/backfill-gigs.js'
@@ -37,7 +39,7 @@ import { syncScrobbles } from '../jobs/sync-scrobbles.js'
 
 const app = new Hono()
 
-const TABS = ['books', 'watched', 'other', 'gigs', 'scrobbles', 'youtube'] as const
+const TABS = ['books', 'watched', 'other', 'gigs', 'theatre', 'scrobbles', 'youtube'] as const
 type Tab = (typeof TABS)[number]
 
 function tabOf(c: Context): Tab {
@@ -142,6 +144,31 @@ app.get('/', async (c) => {
       <GigsTab
         data={data}
         cities={cities}
+        filters={c.req.query() as Record<string, string | undefined>}
+        notice={notice}
+        returnTo={returnTo}
+      />
+    )
+  }
+
+  if (tab === 'theatre') {
+    // The same query get_theatre answers with, so the tab can never disagree with the
+    // tool about what counts as a visit. Hidden items are listed, badged, so they can be
+    // unhidden from here.
+    const status = q('status')
+    const input = getTheatreSchema.parse({
+      q: q('q'),
+      troupe: q('troupe'),
+      person: q('person'),
+      status: ['wishlist', 'progress', 'complete', 'dropped'].includes(status ?? '') ? status : undefined,
+      include_hidden: true,
+      limit: PAGE_SIZE,
+      page: page + 1,
+    })
+    const result = await getTheatre(input)
+    return c.html(
+      <TheatreTab
+        data={{ rows: result.visits, total: result.total, page, hasMore: (page + 1) * PAGE_SIZE < result.total }}
         filters={c.req.query() as Record<string, string | undefined>}
         notice={notice}
         returnTo={returnTo}

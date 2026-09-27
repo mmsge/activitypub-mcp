@@ -84,7 +84,8 @@ describe('other media tab SQL', () => {
   it('keeps never-enriched stubs whose category is still null', () => {
     const { sql } = (otherQuery({}, 0) as never as { toSQL(): { sql: string } }).toSQL()
     expect(sql).toContain('"catalog_metadata"."category" is null')
-    expect(sql).toContain("not in ('movie','tv')")
+    // Theatre has its own tab.
+    expect(sql).toContain("not in ('movie','tv','performance')")
   })
 
   // One hash aggregate over neodb_marks, not two correlated subqueries per row — and it

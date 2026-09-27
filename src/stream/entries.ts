@@ -131,7 +131,7 @@ export interface BookEntry extends Base {
 }
 
 export interface MarkEntry extends Base {
-  kind: 'screen' | 'listen' | 'play' | 'read_neodb' | 'mark'
+  kind: 'screen' | 'listen' | 'play' | 'read_neodb' | 'theatre' | 'mark'
   title: string | null
   coverUrl: string | null
   category: string | null
@@ -141,6 +141,10 @@ export interface MarkEntry extends Base {
   rating: number | null
   director: string | null
   genre: string[]
+  /** Theatre only: the company, which is how a touring play is known. [] elsewhere. */
+  troupe: string[]
+  /** Theatre only, and only when NeoDB records one. null elsewhere. */
+  venue: string | null
   itemUrl: string | null
   /**
    * The mark carried the "date unknown" sentinel (ADR 0060): seen, date deliberately

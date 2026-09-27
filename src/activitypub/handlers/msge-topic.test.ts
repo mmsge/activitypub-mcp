@@ -41,6 +41,20 @@ describe('msgeTopicFor', () => {
     expect(msgeTopicFor('Note', mark(url), neodbTag(url))).toBe('film')
   })
 
+  it('sends a NeoDB theatre mark to teater, not the poster wall (ADR 0061)', () => {
+    const play = 'https://minreol.dk/performance/1z2DQbq0PQZTICNDSTBI0q'
+    expect(msgeTopicFor('Note', mark(play), [{ type: 'Performance', href: play }])).toBe('teater')
+    const staging = 'https://minreol.dk/performance/production/4AbcDefGhiJklMnoPqrStu'
+    expect(msgeTopicFor('Note', mark(staging), [{ type: 'PerformanceProduction', href: staging }])).toBe('teater')
+  })
+
+  it('routes a theatre mark on withRegardTo alone, the one reference every mark carries', () => {
+    // A commented mark federates relatedWith as an array; the tag may be missing.
+    const play = 'https://minreol.dk/performance/1z2DQbq0PQZTICNDSTBI0q'
+    const obj = { type: 'Note', relatedWith: [{ type: 'Status', status: 'complete', withRegardTo: play }, { type: 'Comment', withRegardTo: play }] }
+    expect(msgeTopicFor('Note', obj, [])).toBe('teater')
+  })
+
   it('sends an ordinary post to the post surfaces', () => {
     // `tut` covers the togselfie gallery, the engagement board AND the photo
     // gallery on msge.no's side, so a Pixelfed upload needs no special case here.

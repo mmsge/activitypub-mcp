@@ -4,7 +4,7 @@ import { stripHtml } from '../../lib/strip-html.js'
 import { extractContent } from '../../lib/object-content.js'
 import { extractAttachments, extractTags, extractLanguage } from '../../lib/object-fields.js'
 import { queueBookMetadataEnrichment } from '../../jobs/sync-book-metadata.js'
-import { queueNeodbEnrichment, syncMarkTitles, collectNeodbTagHrefs, isNeodbBookUrl } from '../../jobs/sync-neodb-metadata.js'
+import { queueNeodbEnrichment, syncMarkTitles, collectNeodbTagHrefs, isNeodbBookUrl, isNeodbPerformanceUrl } from '../../jobs/sync-neodb-metadata.js'
 import { isNeodbMark, parseNeodbMark } from '../../lib/neodb-mark.js'
 import { upsertNeodbMark } from '../../jobs/sync-neodb-marks.js'
 import { collectConcertUrls, isGigAttendance, parseGigAttendance } from '../../lib/gig-attendance.js'
@@ -192,7 +192,14 @@ export function msgeTopicFor(type: string, obj: AnyObject, tags: unknown[] = [])
     // belongs to /bokhylla instead — isNeodbBookUrl is already imported here to
     // route enrichment, so this costs nothing and is the difference between waking
     // the right poller and waking a wrong one on every book he marks.
-    return collectNeodbTagHrefs(tags).some((u) => isNeodbBookUrl(u)) ? 'bok' : 'film'
+    const hrefs = collectNeodbTagHrefs(tags)
+    // Theatre first: /film is film and TV, and a play routed there wakes a poller that
+    // will never show it (ADR 0061). withRegardTo is checked too, since it is the one
+    // item reference every mark is guaranteed to carry.
+    const rw = (obj as { relatedWith?: unknown }).relatedWith
+    const regard = (Array.isArray(rw) ? rw : [rw]).map((e) => (e as { withRegardTo?: unknown } | null)?.withRegardTo)
+    if ([...hrefs, ...regard].some(isNeodbPerformanceUrl)) return 'teater'
+    return hrefs.some((u) => isNeodbBookUrl(u)) ? 'bok' : 'film'
   }
   // Everything else: ordinary tuts, togselfies, Pixelfed photos, and gig
   // attendances — msge.no has no gig page yet, so they land here rather than

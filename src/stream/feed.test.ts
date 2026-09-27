@@ -21,6 +21,7 @@ const backdated = {
   source: 'neodb' as const, originUrl: 'https://minreol.dk/m/9', kind: 'screen' as const,
   title: 'Ein gammal film', coverUrl: null, category: 'movie', year: 2016,
   comment: 'Sett på kino.', rating: 5, director: null, genre: [], itemUrl: null, dateUnknown: false,
+  troupe: [], venue: null,
 }
 
 const opts = {
@@ -178,5 +179,17 @@ describe('entryTitle', () => {
     const long = { ...post, html: `<p>${'ord '.repeat(80)}</p>` }
     expect(entryTitle(long).length).toBeLessThanOrEqual(90)
     expect(entryTitle(long).endsWith('…')).toBe(true)
+  })
+})
+
+describe('entryTitle — theatre', () => {
+  const visit = { ...backdated, kind: 'theatre' as const, title: 'Ubesvart anrop', troupe: ['Riksteatret'] }
+
+  it('names the play and the company', () => {
+    expect(entryTitle(visit)).toBe('Såg «Ubesvart anrop» (Riksteatret)')
+  })
+
+  it('falls back to "på teater" when no troupe is known', () => {
+    expect(entryTitle({ ...visit, troupe: [] })).toBe('Såg «Ubesvart anrop» på teater')
   })
 })

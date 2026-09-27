@@ -310,6 +310,30 @@ Rules not to "simplify" back:
 - **"0 rows decoded" on deploy is correct.** Verified empty on 2026-09-25; here the suspicious
   number would be anything else.
 
+## Theatre
+
+Markus logs theatre on minreol as NeoDB `Performance` (a play) and `PerformanceProduction`
+(one staging of it) marks, category `performance`. `get_theatre` / `get_theatre_details` /
+`get_theatre_stats`, `/api/v1/theatre*`, **Admin → Media → Theatre**, the stream kind
+`theatre` ("såg på teater") and the msge.no topic `teater`. See ADR 0061.
+
+Rules not to "simplify" back:
+
+- **A URL is never a title.** NeoDB titles an item drafted from a web page with that page's
+  address until someone names it, and a mark made in that window federates it as the tag
+  name. The mapper skips URL-shaped titles and writes the row with `fetch_error` set, so
+  the next periodic pass re-reads it. Dropping that error makes the URL title fresh for
+  `NEODB_STALE_DAYS`. Applies to every category, not only theatre.
+- **The troupe lives in `credits`.** NeoDB has no flat troupe field on a performance;
+  `credits[].role = "troupe"` is the only place the company appears. Reading the flat
+  arrays alone drops it.
+- **A visit is a mark.** The theatre tools start from `neodb_marks` and LEFT JOIN the
+  catalogue: an unenriched item is still an evening out, and an unmarked one is not.
+  Wishlist is out unless asked for. The SQL hand-qualifies `m.`/`c.` because the two
+  tables share column names.
+- **`teater` is sent ahead of its receiver.** msge.no must register it; until then each
+  theatre mark costs one logged 4xx and nothing else.
+
 ## Stack
 
 Hono + TypeScript, PostgreSQL. The `db` service (postgres) is internal-only and not exposed to the host. The `app` service exposes port 3000 to the host so central Caddy can reach it.

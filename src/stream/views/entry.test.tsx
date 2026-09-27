@@ -36,7 +36,7 @@ const mark = {
   refId: 'mark:3', eventAt: at('2016-04-02T00:00:00Z'), archivedAt: at('2026-08-01T00:00:00Z'),
   source: 'neodb' as const, originUrl: 'https://minreol.dk/m/3', kind: 'screen' as const,
   title: 'Ein gammal film', coverUrl: null, category: 'movie', year: 2016,
-  comment: 'Sett på kino.', rating: 5, director: 'Ein Regissør', genre: ['drama'], itemUrl: null,
+  comment: 'Sett på kino.', rating: 5, director: 'Ein Regissør', genre: ['drama'], itemUrl: null, troupe: [], venue: null,
   dateUnknown: false,
 }
 
@@ -548,5 +548,28 @@ describe('custom emoji', () => {
   it('leaves the shortcode as text when the post declared no emoji', () => {
     const entry = { ...post, html: '<p>Vy :vy: her</p>', emojis: [] }
     expect(render(<EntryView entry={entry as never} />)).toContain(':vy:')
+  })
+})
+
+// Theatre (ADR 0061): a kind of its own, known by its company, worded "såg på teater".
+describe('a theatre visit', () => {
+  const visit = {
+    ...mark, kind: 'theatre' as const, category: 'performance', title: 'Ubesvart anrop',
+    year: null, rating: null, director: 'Toril Solvang-Kayiambakis',
+    troupe: ['Riksteatret'], venue: null, comment: 'Sterkare enn eg forventa.',
+  }
+
+  it('says "såg på teater" and leads the facts with the troupe', () => {
+    const html = render(<EntryView entry={visit as never} />)
+    expect(html).toContain('såg på teater')
+    expect(html).toContain('Ubesvart anrop')
+    expect(html).toMatch(/Riksteatret.*Toril Solvang-Kayiambakis/)
+    expect(html).toContain('Sterkare enn eg forventa.')
+  })
+
+  it('an undated visit is "hadde sett på teater"', () => {
+    const html = render(<EntryView entry={{ ...visit, dateUnknown: true } as never} />)
+    expect(html).toContain('hadde sett på teater')
+    expect(html).not.toContain('>såg på teater<')
   })
 })

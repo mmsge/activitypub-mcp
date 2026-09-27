@@ -375,6 +375,7 @@ const MARK_VERB: Record<MarkEntry['kind'], string> = {
   listen: 'høyrde på',
   play: 'spelte',
   read_neodb: 'las',
+  theatre: 'såg på teater',
   mark: 'merka',
 }
 
@@ -382,10 +383,16 @@ const MARK_VERB: Record<MarkEntry['kind'], string> = {
 // day>" would assert a watch date he explicitly does not know. Pluperfect is what is
 // true on that day: he had seen it.
 const UNDATED_MARK_VERB = 'hadde sett'
+const UNDATED_THEATRE_VERB = 'hadde sett på teater'
+
+function markVerb(entry: MarkEntry): string {
+  if (!entry.dateUnknown) return MARK_VERB[entry.kind]
+  return entry.kind === 'theatre' ? UNDATED_THEATRE_VERB : UNDATED_MARK_VERB
+}
 
 const Mark: FC<{ entry: MarkEntry }> = ({ entry }) => (
   <article class="entry" id={`e-${entry.refId}`}>
-    <Meta entry={entry} verb={entry.dateUnknown ? UNDATED_MARK_VERB : MARK_VERB[entry.kind]} />
+    <Meta entry={entry} verb={markVerb(entry)} />
     <div class="card">
       {entry.coverUrl ? (
         <img class="cover" src={imageSrc(entry.coverUrl)} alt="" loading="lazy" referrerpolicy="no-referrer" />
@@ -395,6 +402,9 @@ const Mark: FC<{ entry: MarkEntry }> = ({ entry }) => (
         <p class="facts">
           <Stars rating={entry.rating} />
           {[
+            // A play is known by its company and its house before its year.
+            entry.troupe.join(', ') || null,
+            entry.venue,
             entry.year ? String(entry.year) : null,
             entry.director,
             entry.genre.join(', ') || null,
@@ -567,6 +577,7 @@ export const EntryView: FC<{ entry: Entry; briefTrip?: boolean }> = ({ entry, br
     case 'listen':
     case 'play':
     case 'read_neodb':
+    case 'theatre':
     case 'mark':
       return <Mark entry={entry} />
     case 'gig':

@@ -35,7 +35,7 @@ export type Lane = 'posts' | 'reading' | 'marks' | 'gigs' | 'music' | 'trips' | 
 export const KINDS = [
   'post', 'photo', 'video',
   'book_started', 'book_finished', 'book_comment', 'book_review', 'book_quote',
-  'screen', 'listen', 'play', 'read_neodb', 'mark',
+  'screen', 'listen', 'play', 'read_neodb', 'theatre', 'mark',
   'gig',
   'scrobble_day', 'trip', 'garden',
 ] as const

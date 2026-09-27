@@ -225,6 +225,13 @@ describe('marksLane', () => {
   it('prefers the shelf date over the post date (ADR 0012)', () => {
     expect(render(marksLane(ctx()))).toContain('coalesce(m.watched_at, m.published_at)')
   })
+
+  it('gives theatre a kind of its own, not the generic mark (ADR 0061)', () => {
+    const sql = render(marksLane(ctx()))
+    expect(sql).toContain("WHEN m.category = 'performance' THEN 'theatre'")
+    // Before the ELSE, or it is unreachable.
+    expect(sql.indexOf("THEN 'theatre'")).toBeLessThan(sql.indexOf("ELSE 'mark'"))
+  })
 })
 
 describe('gigsLane', () => {

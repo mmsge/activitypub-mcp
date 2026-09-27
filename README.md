@@ -557,6 +557,9 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_gigs` | "Which gigs did I go to in 2023? How many times have I seen Motorpsycho? Every concert in Bergen, or at a festival. Which gigs did I write up? Which ones have a setlist with Vortex Surfer on it?" |
 | `get_gig_details` | "Give me that concert in full — the line-up with roles, the setlist including encores and covers, the venue's capacity, and what I wrote about it." |
 | `get_gig_stats` | "How many gigs have I been to, in how many cities? Which artist have I seen most? What's my busiest year? Which songs do I keep hearing live?" |
+| `get_theatre` | "Which plays have I seen this year? Everything by Riksteatret. Every play Henrik Ibsen wrote that I've seen. What did I say about Ubesvart anrop?" |
+| `get_theatre_details` | "Give me that play in full — the troupe, the director, the cast and their parts, every time I've seen it, and which stagings of it I've marked." |
+| `get_theatre_stats` | "How many plays have I seen, per year? Which theatre company have I seen most? Which playwright, director or actor keeps turning up?" |
 | `get_trip_posts` | "What did I post on Sjælland rundt? Show every togselfie with the train it was taken on. Which train was I on when I posted this?" |
 | `get_trip_weather` | "What was the weather on the Bergensbanen that day? How many trips have I taken in snow? Which was the coldest journey?" |
 | `get_linkedin_posts` | "What have I posted on LinkedIn this year, and how did each one do?" |
