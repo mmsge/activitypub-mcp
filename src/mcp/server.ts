@@ -30,6 +30,7 @@ import { getBookDetailsSchema, getBookDetails } from './tools/book-details.js'
 import { getBooksSchema, getBooks } from './tools/books.js'
 import { getWatchedSchema, getWatched, getCatalogueDetailsSchema, getCatalogueDetails } from './tools/watched.js'
 import { getGigsSchema, getGigs, getGigDetailsSchema, getGigDetails, getGigStatsSchema, getGigStats } from './tools/gigs.js'
+import { getTheatreSchema, getTheatre, getTheatreDetailsSchema, getTheatreDetails, getTheatreStatsSchema, getTheatreStats } from './tools/theatre.js'
 import { getHashtagStatsSchema, getHashtagStats, getHashtagTrendsSchema, getHashtagTrends } from './tools/hashtag-stats.js'
 import { getEngagementSchema, getEngagement, getEngagementTrendsSchema, getEngagementTrends } from './tools/engagement.js'
 import { getActorEngagementTrendsSchema, getActorEngagementTrends } from './tools/actor-engagement-trends.js'
@@ -400,6 +401,36 @@ export function createMcpServer(): McpServer {
     getGigStatsSchema.shape,
     async (input) => {
       const result = await getGigStats(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_theatre',
+    "Markus' theatre log: every NeoDB (minreol) mark on a play (Performance) or on one staging of it (PerformanceProduction), one row per VISIT, newest night first. Each visit: mark_id, item_url, item_type, title, orig_title, seen_at (the NIGHT, the shelf date), seen_date_unknown, status, comment (his own words, verbatim), troupe, venue, playwright, orig_creator (whose work it adapts), director, actor, cast ([{name, role}] where the part is known), composer, choreographer, performer, opening_date, closing_date, official_site, play_url (a production's play), year, language, description, cover_url, mark_url, marked_by, marked_at (when the mark was posted, not the night) and enriched. Wishlist marks are left out unless status='wishlist' is asked for: wanting to see a play is not a visit. seen_date_unknown:true means he saw it and does not know when (dated 2000-01-01 on minreol), so seen_at is null and the visit belongs to no year; never read it as unseen. Filter by title, troupe, venue, person (anyone credited, including the troupe), q (title, description and his comment), status, item_type, a from/to window or year (on the night), seen_date_unknown, has_comment. TROUPE comes from NeoDB's credits, and VENUE only when NeoDB records one; a touring production often has none, so a venue filter narrows to what is known. Carries total and next_cursor. For one play in full, with every visit and its productions, use get_theatre_details; for aggregates get_theatre_stats. The theatre sibling of get_gigs.",
+    getTheatreSchema.shape,
+    async (input) => {
+      const result = await getTheatre(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_theatre_details',
+    "One play or production in full, resolved by item_url (exact) or a partial title (the most recently seen match wins; wishlist marks resolve too). Returns the newest visit's fields (as get_theatre), every visit to it (visits, visit_count excluding wishlist), and the link between a play and its stagings: play (for a PerformanceProduction, the play it stages) and productions (for a Performance, the stagings of it he has marked). Plus external_resources, source_map and enrichment status. Returns an error field rather than throwing when nothing matches. The theatre sibling of get_gig_details.",
+    getTheatreDetailsSchema.shape,
+    async (input) => {
+      const result = await getTheatreDetails(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_theatre_stats',
+    "Aggregate the theatre log: totals (visits, distinct plays, how many were marked against a specific production, visits with a comment, date_unknown for visits seen on an unknown date, undated, first_seen, last_seen) plus by_year (by the night, UTC), by_status, top_troupes, top_venues, top_playwrights, top_original_creators, top_directors and top_actors (actors and performers). Wishlist marks are left out unless status='wishlist'. Bound with from/to or year; size the breakdowns with top (default 10). Names are keyed on the name, so two people sharing a name count once. A visit with an unknown date is in every total and in no year. The theatre sibling of get_gig_stats.",
+    getTheatreStatsSchema.shape,
+    async (input) => {
+      const result = await getTheatreStats(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

@@ -3333,6 +3333,188 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/theatre:
+    get:
+      tags: [REST API]
+      summary: Browse the theatre log
+      description: |
+        Every NeoDB (minreol) mark on a play (`Performance`) or on one staging of it
+        (`PerformanceProduction`), one row per **visit**, newest night first.
+
+        `seen_at` is the night, the shelf date. `marked_at` is when the mark was posted.
+        `seen_date_unknown: true` means it was seen on a date nobody knows (minreol's
+        2000-01-01 sentinel): `seen_at` is then null and the visit belongs to no year.
+
+        Wishlist marks are left out unless `status=wishlist` is asked for. `troupe`
+        comes from NeoDB's credits; `venue` only when NeoDB records one, which a touring
+        production often does not. Use /theatre-details for one play in full and
+        /theatre-stats for aggregates.
+      operationId: getTheatreGet
+      parameters:
+        - {
+            name: title,
+            in: query,
+            description: Case-insensitive partial title match.,
+            schema: { type: string },
+          }
+        - {
+            name: troupe,
+            in: query,
+            description: Case-insensitive partial troupe match.,
+            schema: { type: string },
+          }
+        - {
+            name: venue,
+            in: query,
+            description: Case-insensitive partial venue match.,
+            schema: { type: string },
+          }
+        - {
+            name: person,
+            in: query,
+            description: "Anyone credited, the troupe included.",
+            schema: { type: string },
+          }
+        - {
+            name: q,
+            in: query,
+            description: "Free text over title, description and the comment.",
+            schema: { type: string },
+          }
+        - {
+            name: status,
+            in: query,
+            schema:
+              { type: string, enum: [wishlist, progress, complete, dropped] },
+          }
+        - {
+            name: item_type,
+            in: query,
+            schema:
+              { type: string, enum: [Performance, PerformanceProduction] },
+          }
+        - {
+            name: year,
+            in: query,
+            schema: { type: integer, minimum: 1000, maximum: 9999 },
+          }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: seen_date_unknown, in: query, schema: { type: boolean } }
+        - {
+            name: has_comment,
+            in: query,
+            schema: { type: boolean, default: false },
+          }
+        - {
+            name: include_hidden,
+            in: query,
+            schema: { type: boolean, default: false },
+          }
+        - {
+            name: sort_by,
+            in: query,
+            schema:
+              { type: string, enum: [seen_at, marked_at], default: seen_at },
+          }
+        - {
+            name: sort_order,
+            in: query,
+            schema: { type: string, enum: [asc, desc], default: desc },
+          }
+        - {
+            name: limit,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 200, default: 50 },
+          }
+        - {
+            name: page,
+            in: query,
+            schema: { type: integer, minimum: 1, default: 1 },
+          }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: A page of theatre visits.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TheatreResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/theatre-details:
+    get:
+      tags: [REST API]
+      summary: Get one play or production in full
+      description: |
+        Resolved by `item_url` (exact) or a partial `title` (the most recently seen match
+        wins). Returns the newest visit's fields, every visit to it, and the link between
+        a play and its stagings: `play` for a production, `productions` for a play.
+      operationId: getTheatreDetailsGet
+      parameters:
+        - { name: item_url, in: query, schema: { type: string } }
+        - { name: title, in: query, schema: { type: string } }
+        - {
+            name: include_hidden,
+            in: query,
+            schema: { type: boolean, default: false },
+          }
+      responses:
+        "200":
+          description: The play's full record, or an `error` field when nothing matched.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TheatreDetails" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/theatre-stats:
+    get:
+      tags: [REST API]
+      summary: Aggregate the theatre log
+      description: |
+        Totals (visits, distinct plays, productions, visits with a comment, visits on an
+        unknown date, undated, first and last night) plus `by_year` (by the night),
+        `by_status`, `top_troupes`, `top_venues`, `top_playwrights`,
+        `top_original_creators`, `top_directors` and `top_actors`. Names are keyed on
+        the name, so two people sharing a name count once.
+      operationId: getTheatreStatsGet
+      parameters:
+        - {
+            name: status,
+            in: query,
+            schema:
+              { type: string, enum: [wishlist, progress, complete, dropped] },
+          }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - {
+            name: year,
+            in: query,
+            schema: { type: integer, minimum: 1000, maximum: 9999 },
+          }
+        - {
+            name: top,
+            in: query,
+            schema: { type: integer, minimum: 1, maximum: 50, default: 10 },
+          }
+        - {
+            name: include_hidden,
+            in: query,
+            schema: { type: boolean, default: false },
+          }
+      responses:
+        "200":
+          description: Aggregate view of the theatre log.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TheatreStats" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/catalogue-details:
     get:
       tags: [REST API]
@@ -4852,6 +5034,152 @@ components:
             fetch_attempts: { type: integer }
         hidden: { type: boolean }
 
+    TheatreVisit:
+      type: object
+      description: One mark on a play or production, joined to its enriched catalogue record.
+      properties:
+        mark_id: { type: string, format: uuid }
+        item_url: { type: string }
+        item_type:
+          { type: [string, "null"], enum: [Performance, PerformanceProduction] }
+        title: { type: [string, "null"] }
+        orig_title: { type: [string, "null"] }
+        seen_at:
+          { type: [string, "null"], format: date-time, description: The night. }
+        seen_date_unknown: { type: boolean }
+        status: { type: [string, "null"] }
+        comment: { type: [string, "null"] }
+        troupe: { type: array, items: { type: string } }
+        venue: { type: array, items: { type: string } }
+        playwright: { type: array, items: { type: string } }
+        orig_creator: { type: array, items: { type: string } }
+        director: { type: array, items: { type: string } }
+        actor: { type: array, items: { type: string } }
+        cast:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              role: { type: string }
+        composer: { type: array, items: { type: string } }
+        choreographer: { type: array, items: { type: string } }
+        performer: { type: array, items: { type: string } }
+        opening_date: { type: [string, "null"] }
+        closing_date: { type: [string, "null"] }
+        official_site: { type: [string, "null"] }
+        play_url: { type: [string, "null"] }
+        year: { type: [integer, "null"] }
+        language: { type: array, items: { type: string } }
+        description: { type: [string, "null"] }
+        cover_url: { type: [string, "null"] }
+        mark_url: { type: [string, "null"] }
+        marked_by: { type: string }
+        marked_at: { type: [string, "null"], format: date-time }
+        enriched: { type: boolean }
+    TheatreResponse:
+      type: object
+      properties:
+        count: { type: integer }
+        total: { type: integer }
+        page: { type: [integer, "null"] }
+        next_cursor: { type: [string, "null"] }
+        sort_by: { type: string }
+        sort_order: { type: string }
+        filters: { type: object, additionalProperties: true }
+        visits:
+          type: array
+          items: { $ref: "#/components/schemas/TheatreVisit" }
+    TheatreDetails:
+      allOf:
+        - $ref: "#/components/schemas/TheatreVisit"
+        - type: object
+          properties:
+            visits:
+              type: array
+              items: { $ref: "#/components/schemas/TheatreVisit" }
+            visit_count: { type: integer }
+            play:
+              type: [object, "null"]
+              properties:
+                item_url: { type: string }
+                title: { type: [string, "null"] }
+            productions:
+              type: array
+              items:
+                type: object
+                properties:
+                  item_url: { type: string }
+                  title: { type: [string, "null"] }
+                  troupe: { type: array, items: { type: string } }
+            external_resources: {}
+            source_map: { type: object, additionalProperties: true }
+            enrichment: { type: [object, "null"], additionalProperties: true }
+            error: { type: string }
+    TheatreNameCount:
+      type: object
+      properties:
+        name: { type: string }
+        visits: { type: integer }
+    TheatreStats:
+      type: object
+      properties:
+        filters: { type: object, additionalProperties: true }
+        totals:
+          type: object
+          properties:
+            visits: { type: integer }
+            plays: { type: integer }
+            productions: { type: integer }
+            with_comment: { type: integer }
+            date_unknown: { type: integer }
+            undated: { type: integer }
+            first_seen: { type: [string, "null"], format: date-time }
+            last_seen: { type: [string, "null"], format: date-time }
+        by_year:
+          type: array
+          items:
+            type: object
+            properties:
+              year: { type: string }
+              visits: { type: integer }
+        by_status:
+          type: array
+          items:
+            type: object
+            properties:
+              status: { type: [string, "null"] }
+              visits: { type: integer }
+        top_troupes:
+          {
+            type: array,
+            items: { $ref: "#/components/schemas/TheatreNameCount" },
+          }
+        top_venues:
+          {
+            type: array,
+            items: { $ref: "#/components/schemas/TheatreNameCount" },
+          }
+        top_playwrights:
+          {
+            type: array,
+            items: { $ref: "#/components/schemas/TheatreNameCount" },
+          }
+        top_original_creators:
+          {
+            type: array,
+            items: { $ref: "#/components/schemas/TheatreNameCount" },
+          }
+        top_directors:
+          {
+            type: array,
+            items: { $ref: "#/components/schemas/TheatreNameCount" },
+          }
+        top_actors:
+          {
+            type: array,
+            items: { $ref: "#/components/schemas/TheatreNameCount" },
+          }
     GigStats:
       type: object
       properties:
