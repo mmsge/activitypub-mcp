@@ -161,6 +161,8 @@ function names(v: unknown): string[] {
   return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
 }
 
+export type TheatreVisit = ReturnType<typeof shapeVisit>
+
 /** One visit, shaped for output. Pure, so it is tested without a database. */
 export function shapeVisit(r: VisitRow) {
   const d = obj(r.details)

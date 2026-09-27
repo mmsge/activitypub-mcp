@@ -3,6 +3,7 @@ import type { FC, PropsWithChildren } from 'hono/jsx'
 import { Layout } from './layout.js'
 import { Pager, EmptyRow, Cover, Tabs, EnrichBadge, BookBadge, fmtDate, type MediaTab, type QueryParams } from './ui.js'
 import type { BookRow, WatchedRow, OtherRow, GigRow, ScrobbleRow, YoutubeRow, Page } from '../media-query.js'
+import type { TheatreVisit } from '../../mcp/tools/theatre.js'
 
 // --- shell -------------------------------------------------------------------
 
@@ -466,6 +467,93 @@ export const GigsTab: FC<{
       </tbody>
     </table>
     <Pager base="/admin/media" page={data.page} hasMore={data.hasMore} params={{ ...filters, tab: 'gigs' } as QueryParams} />
+  </Shell>
+)
+
+// --- theatre -----------------------------------------------------------------
+
+/** "Ubesvart anrop · Riksteatret" — the troupe is how a touring play is known. */
+const joinNames = (names: string[]) => (names.length ? names.join(', ') : '—')
+
+export const TheatreTab: FC<{
+  data: Page<TheatreVisit>
+  filters: Record<string, string | undefined>
+  notice?: string
+  returnTo: string
+}> = ({ data, filters, notice, returnTo }) => (
+  <Shell tab="theatre" total={data.total} notice={notice} returnTo={returnTo}>
+    <form class="filters" method="get" action="/admin/media">
+      <input type="hidden" name="tab" value="theatre" />
+      <input name="q" placeholder="Title, description or comment" value={filters.q ?? ''} style="width:220px" />
+      <input name="troupe" placeholder="Troupe" value={filters.troupe ?? ''} style="width:160px" />
+      <input name="person" placeholder="Anyone credited" value={filters.person ?? ''} style="width:160px" />
+      <select name="status">
+        <option value="" selected={!filters.status}>Seen (no wishlist)</option>
+        {['complete', 'progress', 'dropped', 'wishlist'].map((s) => (
+          <option value={s} selected={filters.status === s}>{s}</option>
+        ))}
+      </select>
+      <button type="submit">Filter</button>
+      <a href="/admin/media?tab=theatre" class="btn btn-ghost">Clear</a>
+    </form>
+
+    <table>
+      <thead>
+        <tr>
+          <th />
+          <th>Play</th>
+          <th>Night</th>
+          <th>Troupe</th>
+          <th>Venue</th>
+          <th>By</th>
+          <th>Status</th>
+          <th>Enrichment</th>
+          <th />
+        </tr>
+      </thead>
+      <tbody>
+        {data.rows.map((r) => (
+          <tr key={r.mark_id} class={r.hidden ? 'hidden-row' : ''}>
+            <td><Cover url={r.cover_url} /></td>
+            <td>
+              <a href={r.item_url} target="_blank" rel="noreferrer noopener">{r.title ?? r.item_url}</a>
+              {r.item_type === 'PerformanceProduction' && (
+                <span class="badge badge-blue" style="margin-left:6px" title="Marked against one staging, not the play">production</span>
+              )}
+              {r.comment && <div class="muted" style="max-width:360px">{r.comment.slice(0, 140)}{r.comment.length > 140 ? '…' : ''}</div>}
+            </td>
+            <td class="mono">
+              {r.seen_date_unknown
+                ? <span class="badge badge-blue" title="Marked as seen with the date unknown (2000-01-01 on minreol)">date unknown</span>
+                : r.seen_at ? fmtDate(new Date(r.seen_at)) : '—'}
+            </td>
+            <td>{joinNames(r.troupe)}</td>
+            <td>{joinNames(r.venue)}</td>
+            <td>{joinNames(r.playwright.length ? r.playwright : r.orig_creator)}</td>
+            <td>{r.status ?? '—'}</td>
+            <td>
+              {r.enriched
+                ? r.fetch_error
+                  ? <span class="badge badge-yellow" title={r.fetch_error}>title pending</span>
+                  : <span class="badge badge-green">Enriched</span>
+                : <span class="badge badge-red">Not enriched</span>}
+              {r.hidden && <span class="badge badge-red" style="margin-left:4px">Hidden</span>}
+            </td>
+            <td class="row-actions">
+              <form method="post" action="/admin/media/reenrich" style="display:inline">
+                <input type="hidden" name="kind" value="catalogUrl" />
+                <input type="hidden" name="id" value={r.item_url} />
+                <input type="hidden" name="return" value={returnTo} />
+                <button type="submit" class="btn-ghost">Re-enrich</button>
+              </form>
+              <HideButton kind="catalogUrl" id={r.item_url} hidden={Boolean(r.hidden)} returnTo={returnTo} />
+            </td>
+          </tr>
+        ))}
+        {data.rows.length === 0 && <EmptyRow colspan={9} text="No theatre visits found" />}
+      </tbody>
+    </table>
+    <Pager base="/admin/media" page={data.page} hasMore={data.hasMore} params={{ ...filters, tab: 'theatre' } as QueryParams} />
   </Shell>
 )
 
