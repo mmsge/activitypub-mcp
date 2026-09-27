@@ -231,6 +231,26 @@ export async function decodeUnknownDateSentinels(): Promise<number> {
   return decoded
 }
 
+// A mark made while NeoDB still titled its item with the source page federated that URL
+// as the tag name, and it was stored as the mark's title before the parser learned to
+// refuse it. Cleared rather than re-derived: the catalogue row carries the real title.
+// Idempotent and cheap, so it runs on every startup; "0 cleared" is the normal answer.
+export const URL_MARK_TITLE_REPAIR = sql`
+  UPDATE neodb_marks
+  SET title = NULL,
+      updated_at = now()
+  WHERE title ~* '^[[:space:]]*https?://'
+  RETURNING id
+`
+
+export async function clearUrlMarkTitles(): Promise<number> {
+  const db = getDb()
+  const res = await db.execute<{ id: string }>(URL_MARK_TITLE_REPAIR)
+  const cleared = [...res].length
+  if (cleared) logger.info({ cleared }, 'Cleared URL-shaped titles on stored NeoDB marks')
+  return cleared
+}
+
 /**
  * Reprocess already-stored `objects` whose raw carries `relatedWith`, upserting each into
  * neodb_marks (criterion 7, the local no-network path). Idempotent — safe to re-run. Marks

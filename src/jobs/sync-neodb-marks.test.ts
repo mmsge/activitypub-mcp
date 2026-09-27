@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { MARK_UPSERT_GUARD, UNKNOWN_DATE_BACKFILL, WATCHED_AT_BACKFILL } from './sync-neodb-marks.js'
+import { MARK_UPSERT_GUARD, UNKNOWN_DATE_BACKFILL, URL_MARK_TITLE_REPAIR, WATCHED_AT_BACKFILL } from './sync-neodb-marks.js'
 import { SENTINEL_WINDOW } from '../lib/neodb-mark.js'
 
 const dialect = new PgDialect()
@@ -94,5 +94,22 @@ describe('UNKNOWN_DATE_BACKFILL', () => {
     expect(migration).toContain(`'${SENTINEL_WINDOW.from}'::timestamptz`)
     expect(migration).toContain(`'${SENTINEL_WINDOW.to}'::timestamptz`)
     expect(migration).toContain('"watched_date_unknown" = true')
+  })
+})
+
+describe('URL_MARK_TITLE_REPAIR', () => {
+  const { sql } = dialect.sqlToQuery(URL_MARK_TITLE_REPAIR)
+
+  it('clears only URL-shaped titles, case-insensitively', () => {
+    expect(sql).toContain("title ~* '^[[:space:]]*https?://'")
+    expect(sql).toContain('SET title = NULL')
+  })
+
+  it('matches what the parser now refuses, and nothing a real title looks like', () => {
+    const re = /^[\s]*https?:\/\//i
+    expect(re.test('https://www.riksteatret.no/repertoar/ubesvart-anrop/')).toBe(true)
+    expect(re.test('HTTP://x.test/')).toBe(true)
+    expect(re.test('Ubesvart anrop')).toBe(false)
+    expect(re.test('Httpster: a documentary')).toBe(false)
   })
 })

@@ -364,11 +364,20 @@ export async function syncNeodbMetadata(force = config.NEODB_BACKFILL): Promise<
   const freshRows = force
     ? []
     : await db
-        .select({ itemUrl: catalogMetadata.itemUrl, enrichedAt: catalogMetadata.enrichedAt, fetchError: catalogMetadata.fetchError })
+        .select({
+          itemUrl: catalogMetadata.itemUrl,
+          enrichedAt: catalogMetadata.enrichedAt,
+          fetchError: catalogMetadata.fetchError,
+          title: catalogMetadata.title,
+          displayTitle: catalogMetadata.displayTitle,
+        })
         .from(catalogMetadata)
+  // A row whose stored title is a URL is never fresh, however recent: it was enriched
+  // before the placeholder guard existed, and re-reading it is the whole repair.
   const fresh = new Set(
     freshRows
       .filter((r) => r.enrichedAt && !r.fetchError && r.enrichedAt >= cutoff)
+      .filter((r) => !isUrlTitle(r.title) && !isUrlTitle(r.displayTitle))
       .map((r) => r.itemUrl),
   )
 

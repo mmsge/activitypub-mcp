@@ -20,6 +20,7 @@ import { runConvergenceWatch } from './jobs/convergence.js'
 import { getRaces } from './lib/races-config.js'
 import { syncBookMetadata } from './jobs/sync-book-metadata.js'
 import { syncNeodbMetadata } from './jobs/sync-neodb-metadata.js'
+import { clearUrlMarkTitles } from './jobs/sync-neodb-marks.js'
 import { syncGigMetadata } from './jobs/sync-gig-metadata.js'
 import { backfillGigs } from './jobs/backfill-gigs.js'
 import { classifyYoutubeShorts } from './jobs/classify-youtube-shorts.js'
@@ -149,6 +150,7 @@ async function main() {
   // when NEODB_BACKFILL is set).
   void (async () => {
     try {
+      await clearUrlMarkTitles()
       await syncNeodbMetadata()
     } catch (e) {
       logger.error(e, 'NeoDB metadata sync failed on startup')
