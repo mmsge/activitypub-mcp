@@ -189,7 +189,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_journal_entries',
-    "The raw StoryGraph reading-journal entries behind get_pages_timeline, newest day first (undated entries last), from sidetal. Each entry: id, book_id, book_title, date (the local day StoryGraph shows; null when undated), kind (progress | started | finished | percent), pages_read (StoryGraph's own per-update delta — sum it, never difference pages_total), pages_total, book_pages, percent, updated_at, deleted_at, first_seen_at, last_seen_at. Filter by from/to (inclusive local days; excludes undated entries), book (exact book_id or case-insensitive title substring) and kind. Deleted entries are left out unless include_deleted:true. Carries total and next_cursor; follow next_cursor to page.",
+    "The raw StoryGraph reading-journal entries behind get_pages_timeline, newest day first (undated entries last), from sidetal. Each entry: id, book_id, book_title, date (the local day StoryGraph shows; null when undated), kind (progress | started | finished | percent | dnf — \"Did not finish\"), pages_read (StoryGraph's own per-update delta — sum it, never difference pages_total), pages_total, book_pages, percent, updated_at, deleted_at, first_seen_at, last_seen_at. Filter by from/to (inclusive local days; excludes undated entries), book (exact book_id or case-insensitive title substring) and kind. Deleted entries are left out unless include_deleted:true. Carries total and next_cursor; follow next_cursor to page.",
     getJournalEntriesSchema.shape,
     async (input) => {
       const result = await getJournalEntries(input as any)

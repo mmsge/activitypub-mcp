@@ -24,7 +24,7 @@ describe('getJournalEntriesSchema', () => {
   })
 
   it('accepts only the four kinds sidetal emits', () => {
-    for (const kind of ['progress', 'started', 'finished', 'percent']) {
+    for (const kind of ['progress', 'started', 'finished', 'percent', 'dnf']) {
       expect(getJournalEntriesSchema.safeParse({ kind }).success).toBe(true)
     }
     expect(getJournalEntriesSchema.safeParse({ kind: 'reading' }).success).toBe(false)

@@ -8,7 +8,7 @@ import { bookCondition, calendarDate, dateWindowConditions } from './pages-timel
 /**
  * `get_journal_entries`: the StoryGraph journal rows themselves, newest day first. The
  * raw companion to `get_pages_timeline` — including what the timeline leaves out:
- * undated entries, started/finished markers and percent-only updates. See ADR 0062.
+ * undated entries, started/finished/dnf markers and percent-only updates. See ADR 0062.
  *
  * Ordered by (entry_date DESC NULLS LAST, id DESC) and paged by keyset. The shared
  * cursor helper in `pagination.ts` keys on a timestamptz, and casting this DATE to one
@@ -17,7 +17,7 @@ import { bookCondition, calendarDate, dateWindowConditions } from './pages-timel
  * mapping applies), and compares on the date column directly.
  */
 
-export const JOURNAL_KINDS = ['progress', 'started', 'finished', 'percent'] as const
+export const JOURNAL_KINDS = ['progress', 'started', 'finished', 'percent', 'dnf'] as const
 
 export const getJournalEntriesSchema = z.object({
   from: calendarDate('from').optional().describe('Only entries on or after this local day (YYYY-MM-DD). Excludes undated entries.'),
@@ -25,7 +25,7 @@ export const getJournalEntriesSchema = z.object({
   book: z.string().trim().min(1).optional()
     .describe('Only this book: the exact sidetal book_id, or a case-insensitive substring of the title.'),
   kind: z.enum(JOURNAL_KINDS).optional()
-    .describe('progress = a pages update; started / finished = shelf markers; percent = a percent-only update with no page count.'),
+    .describe('progress = a pages update; started / finished = shelf markers; percent = a percent-only update with no page count; dnf = the StoryGraph "Did not finish" marker, no pages.'),
   include_deleted: z.boolean().default(false)
     .describe('Include entries deleted on StoryGraph (they carry deleted_at). Off by default; they never count towards page totals.'),
   limit: z.number().int().min(1).max(500).default(50),

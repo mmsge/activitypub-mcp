@@ -241,7 +241,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/journal-entries',
     name: 'get_journal_entries',
-    description: "The raw StoryGraph reading-journal entries (via sidetal), newest day first, undated last: id, book_id, book_title, date (local day, null when undated), kind (progress|started|finished|percent), pages_read (per-update delta), pages_total, book_pages, percent, updated_at, deleted_at, first_seen_at, last_seen_at. Filter by from/to (inclusive local days), book (exact book_id or title substring) and kind; deleted entries only with include_deleted=true. Carries total and next_cursor.",
+    description: "The raw StoryGraph reading-journal entries (via sidetal), newest day first, undated last: id, book_id, book_title, date (local day, null when undated), kind (progress|started|finished|percent|dnf), pages_read (per-update delta), pages_total, book_pages, percent, updated_at, deleted_at, first_seen_at, last_seen_at. Filter by from/to (inclusive local days), book (exact book_id or title substring) and kind; deleted entries only with include_deleted=true. Carries total and next_cursor.",
     schema: getJournalEntriesSchema,
     handler: getJournalEntries,
     numbers: ['limit'],
