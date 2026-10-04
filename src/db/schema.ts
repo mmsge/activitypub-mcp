@@ -1,6 +1,6 @@
 import {
   pgTable, text, uuid, timestamp, boolean, jsonb,
-  bigserial, bigint, numeric, date, integer, index, uniqueIndex, check,
+  bigserial, bigint, numeric, date, integer, doublePrecision, index, uniqueIndex, check,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
 
@@ -1495,3 +1495,62 @@ export const threadNodes = pgTable('thread_nodes', {
   check('thread_nodes_handle_shape', sql`${t.handle} ~ '^@[^@[:space:]]{1,64}@[a-z0-9.-]{1,253}$'`),
   check('thread_nodes_depth_range', sql`${t.depth} >= 0 AND ${t.depth} <= 1000`),
 ])
+
+// ---------------------------------------------------------------------------
+// StoryGraph reading journal, pulled from sidetal (mmsge/storygraph-leser). See ADR 0062.
+// ---------------------------------------------------------------------------
+
+// One row per StoryGraph journal entry, keyed on sidetal's own entry id.
+//
+// Three things about these columns are load-bearing and must not be "tidied":
+//
+//  - `entryDate` is a Postgres DATE in string mode, and it is ALREADY Markus' local
+//    calendar day — sidetal records the day StoryGraph shows, not an instant. Nothing on
+//    the way in or out may pass it through a timezone; turning it into a JS Date or a
+//    timestamptz is exactly how a late-evening entry slides onto the wrong day.
+//  - `pagesRead` is StoryGraph's own per-update delta. A day's pages are the SUM of it
+//    over that day's live entries; it is never recomputed from `pagesTotal`, which is
+//    the cumulative position and goes backwards when an edition changes.
+//  - `deletedAt` is a soft delete propagated from sidetal (its `since_updated` feed
+//    returns deleted rows so the deletion reaches us). Rows are never hard-deleted here.
+export const storygraphJournalEntries = pgTable('storygraph_journal_entries', {
+  id: text('id').primaryKey(),
+  bookId: text('book_id').notNull(),
+  bookTitle: text('book_title'),
+  /** Local calendar day, as StoryGraph shows it. Null for an undated entry. */
+  entryDate: date('entry_date', { mode: 'string' }),
+  /** progress | started | finished | percent — kept as text so a new kind is stored, not refused. */
+  kind: text('kind').notNull(),
+  /** StoryGraph's per-update delta. Null for started / percent-only entries. */
+  pagesRead: integer('pages_read'),
+  pagesTotal: integer('pages_total'),
+  bookPages: integer('book_pages'),
+  percent: doublePrecision('percent'),
+  /** sidetal's `updated_at`: the sync cursor, NOT when we ingested it. */
+  sourceUpdatedAt: timestamp('source_updated_at', { withTimezone: true }).notNull(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  /** sidetal's own first/last sighting. Written on insert from sidetal, never by a re-poll. */
+  firstSeenAt: timestamp('first_seen_at', { withTimezone: true }).notNull(),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull(),
+  ingestedAt: timestamp('ingested_at', { withTimezone: true }).notNull().defaultNow(),
+  /** The entry exactly as sidetal served it, so a new field is a re-parse, not a re-fetch. */
+  raw: jsonb('raw').notNull(),
+}, (t) => [
+  index('storygraph_journal_entries_date_idx').on(t.entryDate),
+  index('storygraph_journal_entries_book_idx').on(t.bookId),
+  index('storygraph_journal_entries_source_updated_idx').on(t.sourceUpdatedAt),
+])
+
+// One row per book sidetal knows about. Small (fetched whole on every sync), and here
+// only so the timeline can name authors and edition length without a second service.
+export const storygraphBooks = pgTable('storygraph_books', {
+  id: text('id').primaryKey(),
+  title: text('title'),
+  authors: jsonb('authors').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  pages: integer('pages'),
+  coverUrl: text('cover_url'),
+  raw: jsonb('raw').notNull(),
+  /** sidetal's `updated_at` for the book. */
+  updatedAt: timestamp('updated_at', { withTimezone: true }),
+  ingestedAt: timestamp('ingested_at', { withTimezone: true }).notNull().defaultNow(),
+})

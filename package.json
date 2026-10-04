@@ -18,6 +18,7 @@
     "resolve-lines": "tsx scripts/resolve-trip-lines.ts",
     "sync-bookwyrm-shelves": "tsx scripts/sync-bookwyrm-shelves.ts",
     "sync-linkedin": "tsx scripts/sync-linkedin.ts",
+    "sync-storygraph": "tsx scripts/sync-storygraph.ts",
     "probe-linkedin": "tsx scripts/probe-linkedin-snapshot.ts",
     "visibility-audit": "tsx scripts/visibility-audit.ts",
     "scrobble-audit": "tsx scripts/scrobble-audit.ts",

@@ -21,6 +21,7 @@ import { syncStations } from './sync-stations.js'
 import { syncStationWeather } from './sync-station-weather.js'
 import { resolveTripLines } from './resolve-trip-lines.js'
 import { syncLinkedinPosts } from './sync-linkedin-posts.js'
+import { syncStorygraph } from './sync-storygraph.js'
 import { classifyYoutubeShorts } from './classify-youtube-shorts.js'
 import { walkThreads } from './walk-threads.js'
 import { config } from '../config.js'
@@ -192,6 +193,19 @@ export function startScheduler(): void {
     setInterval(async () => {
       try { await syncLinkedinPosts() } catch (e) { logger.error(e, 'LinkedIn sync error') }
     }, config.LINKEDIN_SYNC_INTERVAL_HOURS * 60 * 60_000)
+  }
+
+  // StoryGraph reading journal from sidetal — hourly by default. Gated on BOTH the URL
+  // and the token, the LinkedIn idiom: this ships before sidetal is deployed, and an
+  // unarmed deployment should not tick a job that only logs its own absence. The job
+  // repeats the check, so `npm run sync-storygraph` on an unarmed box says so too.
+  //
+  // index.ts also runs it once at startup, so arming it (fill /srv/bot/.env, redeploy)
+  // shows a result immediately rather than an interval later. See ADR 0062.
+  if (config.STORYGRAPH_API_URL && config.STORYGRAPH_API_TOKEN) {
+    setInterval(async () => {
+      try { await syncStorygraph() } catch (e) { logger.error(e, 'StoryGraph sync error') }
+    }, config.STORYGRAPH_SYNC_INTERVAL_MINUTES * 60_000)
   }
 
   // Thread shape — the daily incremental pass. Gated at registration, so a deployment
