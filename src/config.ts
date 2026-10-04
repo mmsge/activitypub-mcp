@@ -186,6 +186,24 @@ const schema = z.object({
   // to LinkedIn, not a rate limit we have been given.
   LINKEDIN_SYNC_INTERVAL_HOURS: z.coerce.number().int().min(1).default(168),
 
+  // ── StoryGraph reading journal (via sidetal) ─────────────────────────────────
+  // sidetal (mmsge/storygraph-leser) scrapes Markus' StoryGraph reading journal into
+  // SQLite every night and serves it as bearer-token JSON. This service PULLS from it on
+  // a timer, like every other source here. See ADR 0062.
+  //
+  // Base URL of sidetal's API, as reached from inside this container — on the box that
+  // is the docker bridge gateway, `http://172.18.0.1:4008`, never the public hostname.
+  // BLANK DISABLES THE JOB, and so does a blank token: the deploy-then-arm shape of
+  // LINKEDIN_DMA_TOKEN, so this can ship before sidetal is running.
+  STORYGRAPH_API_URL: z.string().default(''),
+  // The bearer token sidetal was configured with. A 401 latches one ntfy push through
+  // source_sync_state; a 503 means sidetal itself has no token configured.
+  STORYGRAPH_API_TOKEN: z.string().default(''),
+  // Minutes between pulls. sidetal only scrapes nightly, so the default hourly pull is
+  // already generous; it is cheap anyway, because the cursor is `since_updated` and an
+  // idle night costs one empty page. The floor of 5 is a courtesy to a box-local service.
+  STORYGRAPH_SYNC_INTERVAL_MINUTES: z.coerce.number().int().min(5).default(60),
+
   // ── YouTube Shorts classification ────────────────────────────────────────────
   // The watch archive carries no Shorts flag, so one is derived. See ADR 0049.
   //

@@ -334,6 +334,36 @@ Rules not to "simplify" back:
 - **`teater` is sent ahead of its receiver.** msge.no must register it; until then each
   theatre mark costs one logged 4xx and nothing else.
 
+## StoryGraph pages (sidetal)
+
+Markus' StoryGraph reading journal is scraped nightly by **sidetal**
+(`mmsge/storygraph-leser`) on the same box and served as bearer-token JSON at
+`http://172.18.0.1:4008`. `sync-storygraph` pulls it into `storygraph_journal_entries` and
+`storygraph_books`; `get_pages_timeline` / `get_journal_entries`, `/api/v1/pages-timeline`
+and `/api/v1/journal-entries` serve it. See ADR 0062.
+
+Rules not to "simplify" back:
+
+- **No timezone conversion, anywhere.** `entry_date` is already Markus' local day — sidetal
+  stores the day StoryGraph shows. It is a Postgres `date` in string mode and never becomes
+  a JS `Date`, a `timestamptz` or an `AT TIME ZONE` expression. The SQL goes through
+  `::timestamp` (WITHOUT time zone) before `date_trunc`/`to_char`, because a bare date picks
+  their `timestamptz` overloads and reads the session zone. Only "today" (the range clamp)
+  is a zone question, and it is `osloDay(now)` in JS. The scrobble timeline's rule (ADR 0059)
+  is the opposite case; do not copy its `AT TIME ZONE` here.
+- **Never recompute `pages_read`.** It is StoryGraph's own per-update delta and a day's pages
+  are `SUM(pages_read)` over live, dated entries. `pages_total` is a position that goes
+  backwards on an edition change or a correction; differencing it invents spikes.
+- **`since_updated` includes deletions.** The cursor is `max(source_updated_at)` minus a
+  one-second overlap, and sidetal returns soft-deleted rows for it so a deletion propagates
+  as `deleted_at`. Rows are filtered, never hard-deleted. The upsert only moves a row
+  forwards in sidetal time and never rewrites `first_seen_at`.
+- **A failed fetch is never an empty page.** 401/503/timeout/off-contract 200 is
+  `recordFailure` (401/403 latches one ntfy), not a clean zero-row run.
+- **Deploy-then-arm.** Blank `STORYGRAPH_API_URL` or `STORYGRAPH_API_TOKEN` disables the
+  job. Arm by filling both in `/srv/bot/.env`, `make deploy`, then `npm run sync-storygraph`
+  inside the container.
+
 ## Stack
 
 Hono + TypeScript, PostgreSQL. The `db` service (postgres) is internal-only and not exposed to the host. The `app` service exposes port 3000 to the host so central Caddy can reach it.

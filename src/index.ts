@@ -28,6 +28,7 @@ import { syncReadingHistory } from './jobs/sync-reading-history.js'
 import { syncBookwyrmShelves } from './jobs/sync-bookwyrm-shelves.js'
 import { syncGardenContent } from './jobs/sync-garden-content.js'
 import { syncLinkedinPosts } from './jobs/sync-linkedin-posts.js'
+import { syncStorygraph } from './jobs/sync-storygraph.js'
 import { backfillContentText } from './jobs/backfill-content-text.js'
 import { backfillTags } from './jobs/backfill-tags.js'
 import { backfillMarkTitles } from './jobs/backfill-mark-titles.js'
@@ -211,6 +212,17 @@ async function main() {
       await syncLinkedinPosts()
     } catch (e) {
       logger.error(e, 'LinkedIn sync failed on startup')
+    }
+  })()
+
+  // Pull the StoryGraph journal from sidetal in the background. On startup as well as on
+  // its timer so arming it (STORYGRAPH_API_URL + STORYGRAPH_API_TOKEN, then a redeploy)
+  // is visible at once. A no-op that logs "not set, skipping" until both are filled in.
+  void (async () => {
+    try {
+      await syncStorygraph()
+    } catch (e) {
+      logger.error(e, 'StoryGraph sync failed on startup')
     }
   })()
 

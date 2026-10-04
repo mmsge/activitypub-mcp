@@ -1193,6 +1193,166 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/pages-timeline:
+    get:
+      tags: [REST API]
+      summary: Pages read per day, week or month (StoryGraph)
+      description: |
+        Pages read per **local** calendar day, week (Monday-start) or month from
+        Markus' StoryGraph reading journal, pulled from sidetal, broken down by
+        book. See ADR 0062.
+
+        A day's pages are the SUM of StoryGraph's own per-update `pages_read`
+        deltas, never a difference of page positions. Journal dates are already
+        the local day StoryGraph shows, so there is no `timezone` parameter and no
+        conversion is applied. Deleted entries, undated entries and entries with
+        no `pages_read` (started markers, percent-only updates) contribute
+        nothing; `/api/v1/journal-entries` serves them.
+
+        REST defaults to `bucket=day` and `top_n=0`; the MCP tool
+        `get_pages_timeline` defaults to `week` and `5`. Those two defaults are
+        the only difference between the surfaces.
+      operationId: getPagesTimelineGet
+      parameters:
+        - name: from
+          in: query
+          description: "First day, inclusive (a local calendar day). Defaults to the first day with pages; an earlier value is pulled forward to it."
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          description: "Last day, inclusive. Defaults to today (Europe/Oslo); a later value is pushed back to today."
+          schema: { type: string, format: date }
+        - name: bucket
+          in: query
+          description: "Bucketing axis; weeks start on Monday. Defaults to `day` on REST; the MCP tool defaults to `week`."
+          schema: { type: string, enum: [day, week, month], default: day }
+        - name: book
+          in: query
+          description: "Only this book: the exact sidetal `book_id`, or a case-insensitive substring of the title."
+          schema: { type: string }
+        - name: top_n
+          in: query
+          description: "Per-bucket cap on the book breakdown; 0 (the REST default) means every book. Overflow is summed into one row whose key the response reports as `other_key`."
+          schema: { type: integer, minimum: 0, maximum: 1000, default: 0 }
+        - name: include_empty_buckets
+          in: query
+          description: "Emit zero rows for buckets with no reading. A day without reading is signal, not missing data."
+          schema: { type: boolean, default: true }
+      responses:
+        "200":
+          description: The bucketed series.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PagesTimelineResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Pages read per day, week or month (StoryGraph, JSON body)
+      operationId: getPagesTimelinePost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from: { type: string, format: date }
+                to: { type: string, format: date }
+                bucket: { type: string, enum: [day, week, month], default: day }
+                book: { type: string }
+                top_n: { type: integer, minimum: 0, maximum: 1000, default: 0 }
+                include_empty_buckets: { type: boolean, default: true }
+      responses:
+        "200":
+          description: The bucketed series.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PagesTimelineResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
+  /api/v1/journal-entries:
+    get:
+      tags: [REST API]
+      summary: Raw StoryGraph reading-journal entries
+      description: |
+        The StoryGraph journal entries behind `/api/v1/pages-timeline`, newest
+        day first with undated entries last, including what the timeline leaves
+        out: undated entries, started/finished markers and percent-only updates.
+        Deleted entries are left out unless `include_deleted=true`. Follow
+        `next_cursor` to page. See ADR 0062.
+      operationId: getJournalEntriesGet
+      parameters:
+        - name: from
+          in: query
+          description: "Only entries on or after this local day. Excludes undated entries."
+          schema: { type: string, format: date }
+        - name: to
+          in: query
+          description: "Only entries on or before this local day. Excludes undated entries."
+          schema: { type: string, format: date }
+        - name: book
+          in: query
+          description: "Only this book: the exact sidetal `book_id`, or a case-insensitive substring of the title."
+          schema: { type: string }
+        - name: kind
+          in: query
+          schema:
+            { type: string, enum: [progress, started, finished, percent, dnf] }
+        - name: include_deleted
+          in: query
+          schema: { type: boolean, default: false }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 50 }
+        - name: cursor
+          in: query
+          description: "Opaque cursor from a previous response's `next_cursor`. A malformed one is a 400."
+          schema: { type: string }
+      responses:
+        "200":
+          description: One page of entries.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JournalEntriesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Raw StoryGraph reading-journal entries (JSON body)
+      operationId: getJournalEntriesPost
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from: { type: string, format: date }
+                to: { type: string, format: date }
+                book: { type: string }
+                kind:
+                  {
+                    type: string,
+                    enum: [progress, started, finished, percent, dnf],
+                  }
+                include_deleted: { type: boolean, default: false }
+                limit: { type: integer, minimum: 1, maximum: 500, default: 50 }
+                cursor: { type: string }
+      responses:
+        "200":
+          description: One page of entries.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JournalEntriesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/youtube-watches:
     get:
       tags: [REST API]
@@ -5785,6 +5945,120 @@ components:
             artist: { type: [string, "null"] }
             album: { type: [string, "null"] }
             track: { type: [string, "null"] }
+
+    PagesTimelineResponse:
+      type: object
+      properties:
+        bucket: { type: string, enum: [day, week, month] }
+        range:
+          type: object
+          description: "The resolved range, clamped to the first day with pages and to today. Both null when nothing matched."
+          properties:
+            from: { type: [string, "null"], format: date }
+            to: { type: [string, "null"], format: date }
+        totals:
+          type: object
+          properties:
+            buckets:
+              type: integer
+              description: "Every bucket in the range, including the silent ones that `include_empty_buckets=false` leaves out of the array."
+            active_buckets: { type: integer }
+            active_days:
+              type: integer
+              description: Days whose summed pages are above zero.
+            pages: { type: integer }
+            entries:
+              type: integer
+              description: Entries that contributed (live, dated, with `pages_read`).
+            distinct_books: { type: integer }
+            avg_pages_per_active_day: { type: [number, "null"] }
+        other_key:
+          type: string
+          description: "The key `top_n` overflow was summed into. Normally `Other`; read it rather than assuming it."
+        books:
+          type: object
+          description: "Range-wide figures per book, keyed by title. Two different books sharing a title get an id suffix rather than merging; `book_id` is carried so the key never needs parsing."
+          additionalProperties:
+            type: object
+            properties:
+              book_id: { type: string }
+              title: { type: [string, "null"] }
+              authors: { type: array, items: { type: string } }
+              book_pages: { type: [integer, "null"] }
+              pages: { type: integer }
+              entries: { type: integer }
+        buckets:
+          type: array
+          description: Newest bucket first.
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+                description: "The bucket's first day: a Monday for `bucket=week`, the 1st for `bucket=month`."
+              pages:
+                type: integer
+                description: "The bucket's TRUE total, unaffected by `top_n`."
+              entries: { type: integer }
+              active_days: { type: integer }
+              active_books: { type: integer }
+              top:
+                type: [string, "null"]
+                description: "The book with the most pages in this bucket, from the raw sums: never `other_key`, unchanged by `top_n`. Null when nothing was read."
+              books:
+                type: object
+                description: Book key to pages, ordered pages-descending.
+                additionalProperties: { type: integer }
+        filters:
+          type: object
+          properties:
+            book: { type: [string, "null"] }
+
+    JournalEntry:
+      type: object
+      properties:
+        id: { type: string }
+        book_id: { type: string }
+        book_title: { type: [string, "null"] }
+        date:
+          type: [string, "null"]
+          format: date
+          description: "The local day StoryGraph shows, stored as a date. Null when undated."
+        kind:
+          type: string
+          description: "progress, started, finished or percent."
+        pages_read:
+          type: [integer, "null"]
+          description: "StoryGraph's own per-update delta. Sum it; never difference `pages_total`."
+        pages_total: { type: [integer, "null"] }
+        book_pages: { type: [integer, "null"] }
+        percent: { type: [number, "null"] }
+        updated_at:
+          type: string
+          format: date-time
+          description: sidetal's `updated_at`.
+        deleted_at: { type: [string, "null"], format: date-time }
+        first_seen_at: { type: string, format: date-time }
+        last_seen_at: { type: string, format: date-time }
+
+    JournalEntriesResponse:
+      type: object
+      properties:
+        count: { type: integer }
+        total: { type: integer }
+        next_cursor: { type: [string, "null"] }
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/JournalEntry" }
+        filters:
+          type: object
+          properties:
+            from: { type: [string, "null"], format: date }
+            to: { type: [string, "null"], format: date }
+            book: { type: [string, "null"] }
+            kind: { type: [string, "null"] }
+            include_deleted: { type: boolean }
 
     YoutubeWatch:
       type: object

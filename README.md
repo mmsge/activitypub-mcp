@@ -105,6 +105,9 @@ Here is what each variable means:
 | `LASTFM_SYNC_INTERVAL_SECONDS` | No | How often to poll Last.fm for new scrobbles, in seconds. Default `60`, minimum `15`. |
 | `LINKEDIN_DMA_TOKEN` | No | Access token for LinkedIn's Member Data Portability (Member) API ([how to mint one](#linkedin-posts-and-performance)). Enables the LinkedIn post poller; blank disables it. The `.xlsx` metrics import works without it. |
 | `LINKEDIN_SYNC_INTERVAL_HOURS` | No | How often to re-crawl the LinkedIn snapshot, in hours. Default `168` (weekly), minimum `1`. |
+| `STORYGRAPH_API_URL` | No | sidetal's API as reached from inside the container (on the box: `http://172.18.0.1:4008`). Enables the StoryGraph journal pull behind `get_pages_timeline` / `get_journal_entries`; blank disables it. See ADR 0062. |
+| `STORYGRAPH_API_TOKEN` | No | The bearer token sidetal was started with. Required alongside `STORYGRAPH_API_URL`. Confirm with `npm run sync-storygraph`. |
+| `STORYGRAPH_SYNC_INTERVAL_MINUTES` | No | Minutes between pulls. Default `60`, minimum `5`. |
 | `BREAKOUT_ENABLED` | No | Push an ntfy alert when a post beats your own baseline. **Off by default** — deploy, check `/admin/breakouts`, then arm. See [When a post does well](#when-a-post-does-well). |
 | `NTFY_TOPIC_BREAKOUT` | No | ntfy topic for those alerts. Default `tut-treff` — its own topic so it can be muted separately from the scrobble race. |
 | `BREAKOUT_WEIGHT_FAVOURITES` / `_REBLOGS` / `_REPLIES` | No | Score weights. Default `1` / `3` / `2`. Changing one re-scores the whole archive (handled as a silent re-seed). |
@@ -542,6 +545,8 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_scrobbles` | "What did I listen to yesterday? Show my Aphex Twin scrobbles." |
 | `get_scrobble_stats` | "Who are my top artists this month? How many tracks have I scrobbled?" |
 | `get_scrobble_timeline` | "Show my listening by month. Which artist owned the summer of 2023?" |
+| `get_pages_timeline` | "How many pages did I read each week this autumn? Which book did I read most of in September?" |
+| `get_journal_entries` | "Show my StoryGraph journal for last week. When did I start Nora?" |
 | `list_scrobble_races` | "Which races are running? Which one is closest?" |
 | `get_scrobble_race` | "How far behind The Good Witch is Florescence? When will it overtake?" |
 | `get_youtube_watches` | "What did I watch on YouTube yesterday? Show every Any Austin video I've opened." |
@@ -1351,6 +1356,8 @@ All paths accept `GET`, `QUERY`, and `POST`.
 | `/scrobbles` | `get_scrobbles` | `artist`, `album`, `track`, `from`, `to`, `since`, `sort_order`, `limit`, `page`, `cursor` |
 | `/scrobble-stats` | `get_scrobble_stats` | `artist`, `album`, `track`, `from`, `to`, `since`, `group_by`, `limit` |
 | `/scrobble-timeline` | `get_scrobble_timeline` | `artist`, `album`, `track`, `from`, `to`, `bucket`, `group_by`, `top_n`, `min_plays`, `timezone`, `include_empty_buckets` |
+| `/pages-timeline` | `get_pages_timeline` | `from`, `to`, `bucket`, `book`, `top_n`, `include_empty_buckets` |
+| `/journal-entries` | `get_journal_entries` | `from`, `to`, `book`, `kind`, `include_deleted`, `limit`, `cursor` |
 | `/scrobble-races` | `list_scrobble_races` | `include_archived` |
 | `/scrobble-race` | `get_scrobble_race` | `race_id`, `leader`, `challenger`, `pace_days` |
 | `/youtube-watches` | `get_youtube_watches` | `account`, `channel`, `title`, `video_id`, `from`, `to`, `year`, `shorts`, `include_unresolved`, `sort_order`, `limit`, `page`, `cursor` |

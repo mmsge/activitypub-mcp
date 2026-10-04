@@ -22,6 +22,13 @@ import { publishNtfy } from './ntfy.js'
 
 export const LINKEDIN_SOURCE = 'linkedin'
 
+/**
+ * The StoryGraph journal, pulled from sidetal (ADR 0062). Same reasoning as LinkedIn:
+ * a reading journal is quiet for days at a time, so "no new rows" cannot tell a dead
+ * token from a week without reading — the attempt/success/failure record can.
+ */
+export const STORYGRAPH_SOURCE = 'storygraph'
+
 export type TokenStatus = 'ok' | 'stale' | 'unauthorized' | 'never_run' | 'awaiting_data'
 
 export interface SourceHealth {

@@ -10,6 +10,8 @@ import { getReadingStatsSchema, getReadingStats } from './tools/reading-stats.js
 import { getReadingPaceSchema, getReadingPace } from './tools/reading-pace.js'
 import { getScrobblesSchema, getScrobbles, getScrobbleStatsSchema, getScrobbleStats } from './tools/scrobbles.js'
 import { getScrobbleTimelineSchema, getScrobbleTimeline } from './tools/scrobble-timeline.js'
+import { getPagesTimelineSchema, getPagesTimeline } from './tools/pages-timeline.js'
+import { getJournalEntriesSchema, getJournalEntries } from './tools/journal-entries.js'
 import { getScrobbleRaceSchema, getScrobbleRace } from './tools/scrobble-race.js'
 import { listScrobbleRacesSchema, listScrobbleRaces } from './tools/scrobble-races.js'
 import { getConvergenceSchema, getConvergence } from './tools/convergence.js'
@@ -171,6 +173,26 @@ export function createMcpServer(): McpServer {
     getScrobbleTimelineSchema.shape,
     async (input) => {
       const result = await getScrobbleTimeline(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_pages_timeline',
+    "Pages read per LOCAL calendar day, week (Monday-start) or month, from Markus' StoryGraph reading journal (pulled nightly from sidetal), broken down by book. The reading sibling of get_scrobble_timeline. DEFAULTS HERE ARE WEEKLY AND TOP 5 so a bare call fits a chat context; pass bucket:'day' for the daily series. (The REST endpoint /api/v1/pages-timeline defaults to day and top_n 0; those two defaults are the only difference between the surfaces.) WHAT THE NUMBERS MEAN. (1) A day's pages are the SUM of StoryGraph's own per-update pages_read deltas for that day — never a difference of page positions. (2) Dates are the day StoryGraph shows: already local, no timezone conversion anywhere, so there is no timezone parameter. (3) Deleted entries, undated entries and entries with no pages_read (a 'started' marker, a percent-only update) contribute nothing; get_journal_entries serves them. Each bucket: date (its first day), pages (TRUE total, unaffected by top_n), entries, active_days (days with pages above zero), active_books, top (the book with most pages, from raw sums, never the overflow row; ties by range-wide pages then title) and books (title → pages, overflow past top_n summed into the row named by other_key). Book metadata (book_id, title, authors, book_pages, range-wide pages and entries) is hoisted into `books`; two different books with one title get an id suffix rather than merging. totals: pages, active_days, avg_pages_per_active_day, distinct_books, entries, buckets, active_buckets. Empty buckets are emitted by default — a day without reading is signal. from/to are inclusive local days, clamped to the first day with pages and to today. Filter to one book with `book` (exact book_id or case-insensitive title substring).",
+    getPagesTimelineSchema.shape,
+    async (input) => {
+      const result = await getPagesTimeline(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_journal_entries',
+    "The raw StoryGraph reading-journal entries behind get_pages_timeline, newest day first (undated entries last), from sidetal. Each entry: id, book_id, book_title, date (the local day StoryGraph shows; null when undated), kind (progress | started | finished | percent | dnf — \"Did not finish\"), pages_read (StoryGraph's own per-update delta — sum it, never difference pages_total), pages_total, book_pages, percent, updated_at, deleted_at, first_seen_at, last_seen_at. Filter by from/to (inclusive local days; excludes undated entries), book (exact book_id or case-insensitive title substring) and kind. Deleted entries are left out unless include_deleted:true. Carries total and next_cursor; follow next_cursor to page.",
+    getJournalEntriesSchema.shape,
+    async (input) => {
+      const result = await getJournalEntries(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

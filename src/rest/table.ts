@@ -16,6 +16,8 @@ import {
   getScrobbleStatsSchema, getScrobbleStats,
 } from '../mcp/tools/scrobbles.js'
 import { getScrobbleTimelineRestSchema, getScrobbleTimeline } from '../mcp/tools/scrobble-timeline.js'
+import { getPagesTimelineRestSchema, getPagesTimeline } from '../mcp/tools/pages-timeline.js'
+import { getJournalEntriesSchema, getJournalEntries } from '../mcp/tools/journal-entries.js'
 import {
   getYoutubeWatchesSchema, getYoutubeWatches,
   getYoutubeStatsSchema, getYoutubeStats,
@@ -81,7 +83,8 @@ import { getThreadTreeSchema, getThreadTree } from '../mcp/tools/thread-tree.js'
  * the DEFAULTS applied to an omitted `bucket` and `top_n`, never in what it can see or
  * how it computes. Pass both explicitly and the two surfaces answer identically. ADR
  * 0026 is about what a surface may SEE; ADR 0059 is about what it assumes when a
- * parameter is left out.
+ * parameter is left out. `/pages-timeline` follows the same convention for the same two
+ * parameters (ADR 0062).
  */
 export type RestEndpoint = {
   path: string
@@ -223,6 +226,26 @@ export const endpoints: RestEndpoint[] = [
     handler: getScrobbleTimeline,
     numbers: ['top_n', 'min_plays'],
     booleans: ['include_empty_buckets'],
+    arrays: [],
+  },
+  {
+    path: '/pages-timeline',
+    name: 'get_pages_timeline',
+    description: "Pages read per local calendar day, week (Monday-start) or month from the StoryGraph reading journal (via sidetal), broken down by book. REST defaults to bucket=day and top_n=0 (the full daily series, every book); the MCP tool defaults to week and 5 — the only difference between the surfaces (the ADR 0059 convention; see ADR 0062). A day's pages are the SUM of StoryGraph's own per-update pages_read deltas; dates are already local days, so there is no timezone parameter and none is applied. Deleted, undated and pages-less entries (started markers, percent-only updates) count for nothing here; /journal-entries serves them. Each bucket carries pages (true total), entries, active_days, active_books, a precomputed top book and the per-book breakdown folded to top_n under other_key. Book metadata is hoisted into books. from/to are inclusive local days clamped to the data and to today; book matches the exact book_id or a title substring.",
+    schema: getPagesTimelineRestSchema,
+    handler: getPagesTimeline,
+    numbers: ['top_n'],
+    booleans: ['include_empty_buckets'],
+    arrays: [],
+  },
+  {
+    path: '/journal-entries',
+    name: 'get_journal_entries',
+    description: "The raw StoryGraph reading-journal entries (via sidetal), newest day first, undated last: id, book_id, book_title, date (local day, null when undated), kind (progress|started|finished|percent|dnf), pages_read (per-update delta), pages_total, book_pages, percent, updated_at, deleted_at, first_seen_at, last_seen_at. Filter by from/to (inclusive local days), book (exact book_id or title substring) and kind; deleted entries only with include_deleted=true. Carries total and next_cursor.",
+    schema: getJournalEntriesSchema,
+    handler: getJournalEntries,
+    numbers: ['limit'],
+    booleans: ['include_deleted'],
     arrays: [],
   },
   {
