@@ -359,10 +359,11 @@ export function deriveReadingCycles(events: DerivedReadingEvent[]): ReadingCycle
 export function collapseReadingEvents(events: DerivedReadingEvent[]): CollapsedBook[] {
   type Acc = CollapsedBook & { shelfAt: Date | null; events: DerivedReadingEvent[] }
   const byBook = new Map<string, Acc>()
+  const keyOf = bookKeyResolver(events)
 
   for (const item of events) {
     const { event: ev, publishedAt: at, rating } = item
-    const key = normalizeTitle(ev.book_title) || ev.bookwyrm_book_url
+    const key = keyOf(ev)
     if (!key) continue // no title and no url — goal notes etc.
 
     let acc = byBook.get(key)
@@ -419,6 +420,56 @@ export function collapseReadingEvents(events: DerivedReadingEvent[]): CollapsedB
     const abandoned = [...cycles].reverse().find((c) => c.abandoned)?.abandoned ?? null
     return { ...book, started, finished, abandoned, cycles }
   })
+}
+
+/**
+ * One key per book, across statuses that name it differently. A generatednote carries
+ * the title and the Edition URL; a comment or review often carries only the URL
+ * (`inReplyToBook`). Keying each status on whichever it has split one book in two — a
+ * title-keyed half holding the start and a URL-keyed half holding the finish — so the
+ * book read as unstarted and the StoryGraph import saw two candidates for one title.
+ * Every status naming both links them; the key is the group's title when any status
+ * gave one, else its URL, which is what `normalizeTitle(title) || url` yields on the
+ * collapsed book.
+ */
+function bookKeyResolver(events: DerivedReadingEvent[]): (ev: ReadingEvent) => string | null {
+  const parent = new Map<string, string>()
+  const find = (x: string): string => {
+    let root = x
+    while (parent.get(root) !== root) root = parent.get(root)!
+    parent.set(x, root)
+    return root
+  }
+  const add = (x: string) => {
+    if (!parent.has(x)) parent.set(x, x)
+  }
+  const nodes = (ev: ReadingEvent): string[] => {
+    const out: string[] = []
+    const t = normalizeTitle(ev.book_title)
+    if (t) out.push(`t:${t}`)
+    if (ev.bookwyrm_book_url) out.push(`u:${ev.bookwyrm_book_url}`)
+    return out
+  }
+  for (const { event } of events) {
+    const ns = nodes(event)
+    ns.forEach(add)
+    if (ns.length === 2) parent.set(find(ns[1]), find(ns[0]))
+  }
+  // The first title any status gave each group, in event order, matching the
+  // collapse's own `acc.title ??= ev.book_title`.
+  const titleOf = new Map<string, string>()
+  for (const { event } of events) {
+    const t = normalizeTitle(event.book_title)
+    if (!t) continue
+    const root = find(`t:${t}`)
+    if (!titleOf.has(root)) titleOf.set(root, t)
+  }
+  return (ev) => {
+    const ns = nodes(ev)
+    if (ns.length === 0) return null
+    const root = find(ns[0])
+    return titleOf.get(root) ?? ev.bookwyrm_book_url ?? null
+  }
 }
 
 /**

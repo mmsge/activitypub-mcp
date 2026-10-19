@@ -388,6 +388,9 @@ Rules not to "simplify" back:
 - **Only dates.** Ratings, reviews, moods and the rest of the export are not read, and no
   column can hold them.
 - **The dates are local days**, stored as DATEs verbatim — ADR 0062's rule.
+- **A book is one collapse key across all its statuses** (ADR 0064). A comment often names
+  only the Edition URL; keying it apart from the titled generatednote split one book into an
+  unstarted half and an unfinished one, and made every title match ambiguous.
 
 ## Stack
 
