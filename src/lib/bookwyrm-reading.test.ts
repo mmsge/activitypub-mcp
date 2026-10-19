@@ -536,3 +536,38 @@ describe('indexCollapsedBooks', () => {
     expect(index.get('paper girls')?.title).toBe('Paper Girls')
   })
 })
+
+describe('collapseReadingEvents — one book across title-only and URL-only statuses', () => {
+  // Hysj, as federated: the generatednote names title and Edition, the "read" comment
+  // only the Edition (inReplyToBook). Keyed separately, the book split into an
+  // unstarted half and an unfinished one.
+  const URL = 'https://bookwyrm.social/book/2326988'
+
+  it('links them through any status that carries both', () => {
+    const books = collapseReadingEvents([
+      derived({ event_type: 'started_reading', book_title: 'Hysj', bookwyrm_book_url: URL }, { at: '2026-06-11T12:16:55Z' }),
+      derived({ event_type: 'comment', reading_status: 'read', bookwyrm_book_url: URL }, { at: '2026-06-11T12:30:16Z' }),
+    ])
+    expect(books).toHaveLength(1)
+    expect(books[0].title).toBe('Hysj')
+    expect(books[0].started?.toISOString().slice(0, 10)).toBe('2026-06-11')
+    expect(books[0].finished?.toISOString().slice(0, 10)).toBe('2026-06-11')
+  })
+
+  it('links them whichever arrives first', () => {
+    const books = collapseReadingEvents([
+      derived({ event_type: 'comment', reading_status: 'read', bookwyrm_book_url: URL }, { at: '2026-06-11T12:30:16Z' }),
+      derived({ event_type: 'started_reading', book_title: 'Hysj', bookwyrm_book_url: URL }, { at: '2026-06-11T12:16:55Z' }),
+    ])
+    expect(books).toHaveLength(1)
+    expect(books[0].cycles).toHaveLength(1)
+  })
+
+  it('still keeps a URL-only book that no titled status names as its own row', () => {
+    const books = collapseReadingEvents([
+      derived({ event_type: 'comment', reading_status: 'read', bookwyrm_book_url: 'https://bw/x' }, { at: '2026-01-01T10:00:00Z' }),
+      derived({ event_type: 'finished_reading', book_title: 'Other', bookwyrm_book_url: 'https://bw/y' }, { at: '2026-01-02T10:00:00Z' }),
+    ])
+    expect(books.map((b) => b.title ?? b.url).sort()).toEqual(['Other', 'https://bw/x'])
+  })
+})

@@ -222,7 +222,7 @@ export async function importStorygraphReads(rows: StorygraphCsvRow[], actorApId:
   // What the matched reads do to BookWyrm's cycles. The same merge the reading tools run,
   // so the report and the tools cannot disagree about what was filled.
   const books = new Map((await loadBookwyrmBooks(actorApId)).map((b) => [collapseKey(b), b]))
-  for (const { match, reads } of planned.values()) {
+  for (const { row, match, reads } of planned.values()) {
     if (!match || reads.size === 0) continue
     const book = books.get(match.key)
     if (!book) continue
@@ -230,7 +230,8 @@ export async function importStorygraphReads(rows: StorygraphCsvRow[], actorApId:
     report.startsFilled += out.startsFilled
     report.finishesFilled += out.finishesFilled
     report.readsAdded += out.readsAdded
-    report.conflicts.push(...out.conflicts)
+    // A book only ever named by URL has no BookWyrm title; StoryGraph's names it.
+    report.conflicts.push(...out.conflicts.map((c) => ({ ...c, book: c.book ?? row.title })))
   }
 
   for (const c of report.conflicts) {
