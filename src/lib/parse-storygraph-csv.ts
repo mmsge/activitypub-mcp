@@ -51,6 +51,9 @@ export function parseStorygraphDay(raw: string): string | null {
   const m = raw.trim().match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/)
   if (!m) return null
   const [, y, mo, d] = m
+  // JavaScript accepts year 0000; Postgres DATE does not, and one bad cell would abort
+  // the whole import's transaction.
+  if (Number(y) < 1000) return null
   const iso = `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`
   const probe = new Date(`${iso}T00:00:00Z`)
   if (Number.isNaN(probe.getTime()) || probe.toISOString().slice(0, 10) !== iso) return null

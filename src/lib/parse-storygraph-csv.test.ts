@@ -12,6 +12,8 @@ describe('parseStorygraphDay', () => {
   it('refuses a day that does not exist', () => {
     expect(parseStorygraphDay('2024/02/30')).toBeNull()
     expect(parseStorygraphDay('15/03/2024')).toBeNull()
+    // Postgres DATE has no year 0, and one bad cell must not abort the whole import.
+    expect(parseStorygraphDay('0000/01/01')).toBeNull()
   })
 })
 

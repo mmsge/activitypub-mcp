@@ -600,7 +600,11 @@ export const StorygraphImportResultPage: FC<{ report: StorygraphImportReport }> 
                 <td>{c.field}</td>
                 <td class="mono">{c.bookwyrm}</td>
                 <td class="mono">{c.storygraph}</td>
-                <td>{c.reason === 'disagree' ? 'Dates differ' : 'Start would fall after the finish'}</td>
+                <td>{c.reason === 'disagree'
+                    ? 'Dates differ'
+                    : c.reason === 'start_after_finish'
+                      ? 'Start would fall after the finish'
+                      : 'Finish would fall before the start'}</td>
               </tr>
             ))}
           </tbody>

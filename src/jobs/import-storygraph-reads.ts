@@ -125,12 +125,19 @@ export async function importStorygraphReads(rows: StorygraphCsvRow[], actorApId:
 
   // One entry per book key; two export rows for one book (it happens with ISBN-less
   // duplicates) pool their reads.
-  type Planned = { row: StorygraphCsvRow; match: BookMatch | null; reads: Map<string, StorygraphReadRange> }
+  type Planned = {
+    row: StorygraphCsvRow
+    match: BookMatch | null
+    reads: Map<string, StorygraphReadRange>
+    /** A range in the file failed to parse, so the file cannot say which reads are gone. */
+    partial: boolean
+  }
   const planned = new Map<string, Planned>()
   for (const row of rows) {
     for (const value of row.unparsed) report.unparsed.push({ title: row.title, value })
     const key = storygraphBookKey(row)
-    const entry = planned.get(key) ?? { row, match: null, reads: new Map() }
+    const entry = planned.get(key) ?? { row, match: null, reads: new Map(), partial: false }
+    if (row.unparsed.length) entry.partial = true
     for (const r of row.reads) entry.reads.set(rangeKey(r), r)
     planned.set(key, entry)
   }
@@ -158,6 +165,9 @@ export async function importStorygraphReads(rows: StorygraphCsvRow[], actorApId:
       : []
     const existingById = new Map(existing.map((e) => [`${e.bookKey}\u0000${e.rangeKey}`, e]))
     const keep = new Set<string>()
+    // A book whose cell did not fully parse keeps every stored read: a range that failed
+    // to parse is not a range StoryGraph dropped.
+    const partialKeys = new Set([...planned].filter(([, p]) => p.partial).map(([k]) => k))
 
     for (const [bookKey, { row, match, reads }] of planned) {
       for (const [rk, r] of reads) {
@@ -200,7 +210,9 @@ export async function importStorygraphReads(rows: StorygraphCsvRow[], actorApId:
       }
     }
 
-    const stale = existing.filter((e) => !keep.has(`${e.bookKey}\u0000${e.rangeKey}`)).map((e) => e.id)
+    const stale = existing
+      .filter((e) => !partialKeys.has(e.bookKey) && !keep.has(`${e.bookKey}\u0000${e.rangeKey}`))
+      .map((e) => e.id)
     if (stale.length) {
       await tx.delete(storygraphReads).where(inArray(storygraphReads.id, stale))
       report.readsDeleted = stale.length

@@ -40,13 +40,20 @@ is the ISBN-13 when the export has one, else the folded title and first author. 
 is both ends of the range. The same file twice writes nothing; a reread is a second row. An
 export is complete for the books it lists, so a read no longer listed for a book in the file
 is deleted, and a book absent from the file is left alone (0054's rule, scoped by book
-instead of by date range). Dates are DATEs stored verbatim, already the local day StoryGraph
+instead of by date range). A book whose `Dates Read` did not fully parse keeps every stored
+read, because a range that failed to parse is not a range StoryGraph dropped. The same read
+can end up under two book keys (an export that once gave a StoryGraph uid now gives an
+ISBN), so the loader de-duplicates by range within each matched book rather than serving a
+phantom reread. Dates are DATEs stored verbatim, already the local day StoryGraph
 shows (0062's rule).
 
 **Match at import: ISBN-13 first, then normalised title with an agreeing author.** Titles
-fold diacritics and punctuation, and compare both whole and without the subtitle, because
-StoryGraph says *Ducks: Two Years in the Oil Sands* where BookWyrm says *Ducks*. An exact
-title beats a subtitle-stripped one. Authors agree whole or by surname. A title matching
+fold diacritics and punctuation. StoryGraph's subtitle may be dropped, because it says
+*Ducks: Two Years in the Oil Sands* where BookWyrm says *Ducks*, but BookWyrm's never is:
+dropping it would land a read of *Dune* on *Dune: Messiah* when *Dune* is not on the shelf.
+An exact title beats a subtitle-stripped one. Authors agree whole, or by surname with the
+same first initial, so *Ursula Le Guin* finds *Ursula K. Le Guin* and *John Smith* never
+finds *Zadie Smith*. A title matching
 more than one book is no match: a read attached to the wrong volume of a series is worse
 than one listed as unmatched. Candidates carry every Edition URL their statuses named and
 every ISBN and author the metadata cache holds for those Editions. Unmatched rows are
@@ -57,7 +64,8 @@ paired with at most one BookWyrm cycle, closest first, when their finishes (or, 
 cycle, their starts) are within `PAIR_WINDOW_DAYS` (7). A paired cycle keeps every date it
 has. StoryGraph fills a missing start or finish; a date both sides have that differs is a
 conflict BookWyrm wins. A start that would land after the cycle's own finish is refused the
-same way. A cycle BookWyrm says he put down keeps no finish. An unpaired read becomes a
+same way, and so is a finish that would land before the cycle's own start. A cycle BookWyrm
+says he put down keeps no finish. An unpaired read becomes a
 cycle of its own. Cycles are re-ordered by where they end and re-numbered, and the book
 window re-derived with the same reducers as the collapse. The shelf is BookWyrm's and is
 not touched. The import runs the same merge to count starts filled and conflicts, and logs
@@ -81,5 +89,9 @@ status are in the file and are not read, and the parser does not carry them in a
   unmatched until the next upload; re-uploading is the remedy, and it is idempotent.
 - BookWyrm statuses still drive the shelf and any date they carry. If a future BookWyrm
   date contradicts StoryGraph, BookWyrm wins on the next query with no re-import.
+- BookWyrm dates are compared as UTC days, the way every reading tool already prints them,
+  while StoryGraph's are local. A status posted just after midnight in Oslo can read as the
+  previous day and show up as a conflict. BookWyrm wins either way, so the cost is a line
+  in the report, not a wrong date.
 - `get_reading_pace` measures reads StoryGraph completed, so its averages move once a file
   is imported. That is the point of the story, not a side effect.

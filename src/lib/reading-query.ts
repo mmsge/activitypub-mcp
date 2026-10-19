@@ -9,7 +9,7 @@ import {
   type CollapsedBook,
 } from './bookwyrm-reading.js'
 import { collapseKey, mergeStorygraphReads } from './storygraph-reads.js'
-import type { StorygraphReadRange } from './parse-storygraph-csv.js'
+import { rangeKey, type StorygraphReadRange } from './parse-storygraph-csv.js'
 
 // Shared loader for every reading tool: pull an actor's stored BookWyrm posts
 // from the generic `objects` store and classify them into reading events. The
@@ -70,14 +70,18 @@ export async function loadStorygraphReads(actorApId: string): Promise<Map<string
     .select({ key: storygraphReads.matchedKey, started: storygraphReads.startedOn, finished: storygraphReads.finishedOn })
     .from(storygraphReads)
     .where(and(eq(storygraphReads.actorApId, actorApId), isNotNull(storygraphReads.matchedKey)))
-  const byKey = new Map<string, StorygraphReadRange[]>()
+  // Keyed by range within each book: the same read can be stored under two book keys
+  // (an export that once gave a StoryGraph uid and now gives an ISBN), and counting it
+  // twice would invent a reread.
+  const byKey = new Map<string, Map<string, StorygraphReadRange>>()
   for (const r of rows) {
     if (!r.key) continue
-    const list = byKey.get(r.key) ?? []
-    list.push({ started: r.started, finished: r.finished })
-    byKey.set(r.key, list)
+    const ranges = byKey.get(r.key) ?? new Map<string, StorygraphReadRange>()
+    const range = { started: r.started, finished: r.finished }
+    ranges.set(rangeKey(range), range)
+    byKey.set(r.key, ranges)
   }
-  return byKey
+  return new Map([...byKey].map(([k, v]) => [k, [...v.values()]]))
 }
 
 // One collapsed current-state row per book (with derived dates and reading

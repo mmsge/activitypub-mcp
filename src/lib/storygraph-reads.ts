@@ -33,7 +33,7 @@ export interface StorygraphConflict {
   bookwyrm: string
   storygraph: string
   /** Why StoryGraph's date was not used. */
-  reason: 'disagree' | 'start_after_finish'
+  reason: 'disagree' | 'start_after_finish' | 'finish_before_start'
 }
 
 export interface MergeOutcome {
@@ -103,6 +103,11 @@ export function mergeStorygraphReads(book: CollapsedBook, reads: StorygraphReadR
     } else if (!c.finished && r.finished && !c.abandoned) {
       // A cycle he put down stays put down: StoryGraph may count the same pass as read,
       // but BookWyrm saying "stopped" is a date it has, and it wins.
+      const cs0 = day(c.started)
+      if (cs0 && r.finished < cs0) {
+        outcome.conflicts.push({ book: book.title, field: 'finished', bookwyrm: cs0, storygraph: r.finished, reason: 'finish_before_start' })
+        continue
+      }
       c.finished = fromDay(r.finished)
       c.finishedSource = 'storygraph'
       outcome.finishesFilled++
@@ -178,8 +183,7 @@ export interface BookMatch {
 }
 
 /**
- * Fold a title for comparison: diacritics off, lower case, punctuation to spaces. The
- * subtitle (after a colon) is dropped by `titleForms`, not here, so both forms compare.
+ * Fold a title or name for comparison: diacritics off, lower case, punctuation to spaces.
  */
 export function normalizeMatchText(s: string | null): string {
   return (s ?? '')
@@ -192,20 +196,23 @@ export function normalizeMatchText(s: string | null): string {
     .trim()
 }
 
-/** The full title and the title before its subtitle. StoryGraph and BookWyrm disagree on which to show. */
-function titleForms(title: string | null): string[] {
-  const full = normalizeMatchText(title)
-  const base = normalizeMatchText((title ?? '').split(':')[0])
-  return [...new Set([full, base].filter(Boolean))]
-}
+/** A title before its subtitle: StoryGraph shows "Ducks: Two Years in the Oil Sands" where BookWyrm keeps the subtitle apart. */
+const baseTitle = (title: string | null): string => normalizeMatchText((title ?? '').split(':')[0])
 
-/** A name compared whole, and by surname: "Ursula K. Le Guin" vs "Ursula Le Guin". */
+/**
+ * A name compared whole, or by surname with the same first initial: "Ursula K. Le Guin"
+ * vs "Ursula Le Guin", but never "John Smith" vs "Zadie Smith".
+ */
 function authorsMatch(a: string[], b: string[]): boolean {
   const names = (xs: string[]) => xs.map(normalizeMatchText).filter(Boolean)
-  const surname = (n: string) => n.split(' ').pop() ?? n
+  const loose = (l: string, r: string) => {
+    const lt = l.split(' ')
+    const rt = r.split(' ')
+    return lt[lt.length - 1] === rt[rt.length - 1] && lt[0][0] === rt[0][0]
+  }
   const left = names(a)
   const right = names(b)
-  return left.some((l) => right.some((r) => l === r || surname(l) === surname(r)))
+  return left.some((l) => right.some((r) => l === r || loose(l, r)))
 }
 
 /**
@@ -222,16 +229,18 @@ export function matchStorygraphBook(
     const hits = candidates.filter((c) => c.isbn13s.includes(row.isbn13!))
     if (hits.length === 1) return { key: hits[0].key, url: hits[0].url, by: 'isbn' }
   }
-  const forms = titleForms(row.title)
-  const full = forms[0]
+  const full = normalizeMatchText(row.title)
+  const base = baseTitle(row.title)
+  // Only the StoryGraph side's subtitle is ever dropped. Dropping BookWyrm's too would
+  // let a read of "Dune" land on "Dune: Messiah" when "Dune" itself is not on the shelf.
   const byTitle = (exact: boolean) =>
     candidates.filter((c) => {
-      const theirs = titleForms(c.title)
-      const titleHit = exact ? theirs[0] === full : theirs.some((t) => forms.includes(t))
+      const theirs = normalizeMatchText(c.title)
+      const titleHit = theirs !== '' && (theirs === full || (!exact && theirs === base))
       return titleHit && authorsMatch(row.authors, c.authors)
     })
-  // An exact full-title hit beats a subtitle-stripped one, so "Dune" and "Dune: Messiah"
-  // do not collide when both are on the shelf.
+  // An exact full-title hit beats a subtitle-stripped one, so "Dune: Messiah" on
+  // StoryGraph finds "Dune: Messiah" and not "Dune" when both are on the shelf.
   const exact = byTitle(true)
   if (exact.length === 1) return { key: exact[0].key, url: exact[0].url, by: 'title_author' }
   if (exact.length > 1) return null

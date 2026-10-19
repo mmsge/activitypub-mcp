@@ -123,6 +123,13 @@ describe('mergeStorygraphReads — rules', () => {
     expect(out.conflicts[0]).toMatchObject({ field: 'finished', bookwyrm: '2024-03-14' })
   })
 
+  it('refuses a finish that would land before BookWyrm\'s start', () => {
+    const out = mergeStorygraphReads(book('X', [cycle('2024-03-10', null)]), [{ started: '2024-03-05', finished: '2024-03-08' }])
+    expect(out.book.cycles[0].finished).toBeNull()
+    expect(out.finishesFilled).toBe(0)
+    expect(out.conflicts.map((c) => c.reason)).toEqual(['finish_before_start'])
+  })
+
   it('is a no-op with no reads', () => {
     const b = book('X', [cycle(null, '2024-03-10')])
     expect(mergeStorygraphReads(b, []).book).toBe(b)
@@ -156,6 +163,18 @@ describe('matchStorygraphBook', () => {
 
   it('prefers an exact title over a subtitle-stripped one', () => {
     expect(matchStorygraphBook({ title: 'Dune', authors: ['Frank Herbert'], isbn13: null }, candidates)).toMatchObject({ key: 'dune' })
+  })
+
+  it('never strips the BookWyrm subtitle: "Dune" does not land on "Dune: Messiah"', () => {
+    const shelf: MatchCandidate[] = [
+      { key: 'dune: messiah', url: null, title: 'Dune: Messiah', authors: ['Frank Herbert'], isbn13s: [] },
+    ]
+    expect(matchStorygraphBook({ title: 'Dune', authors: ['Frank Herbert'], isbn13: null }, shelf)).toBeNull()
+  })
+
+  it('does not take a shared surname with a different first name as the same author', () => {
+    const shelf: MatchCandidate[] = [{ key: 'x', url: null, title: 'White Teeth', authors: ['Zadie Smith'], isbn13s: [] }]
+    expect(matchStorygraphBook({ title: 'White Teeth', authors: ['John Smith'], isbn13: null }, shelf)).toBeNull()
   })
 
   it('needs the author to agree', () => {
