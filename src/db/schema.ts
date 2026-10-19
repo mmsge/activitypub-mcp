@@ -1554,3 +1554,42 @@ export const storygraphBooks = pgTable('storygraph_books', {
   updatedAt: timestamp('updated_at', { withTimezone: true }),
   ingestedAt: timestamp('ingested_at', { withTimezone: true }).notNull().defaultNow(),
 })
+
+// One row per read StoryGraph lists in a library export's `Dates Read`, per BookWyrm
+// actor. Filled by the admin CSV upload and folded into the derived reading cycles by
+// `loadCollapsedBooks`, where BookWyrm's own dates always win. See ADR 0063.
+//
+//  - `startedOn` / `finishedOn` are DATEs in string mode, already the local day
+//    StoryGraph shows — the ADR 0062 rule. Either may be null, never both.
+//  - `matchedKey` is the BookWyrm collapse key the row was matched to AT IMPORT. Null
+//    means unmatched: stored, reported, and invisible to the reading tools until a later
+//    import matches it.
+//  - Identity is (actor, book, both ends of the range), so a re-import of the same file
+//    writes nothing, and a reread is a second row rather than a widened first one.
+//  - Nothing else from the export is kept. Ratings, reviews, moods and the rest are out
+//    of scope, and a column that could hold them would be an invitation.
+export const storygraphReads = pgTable('storygraph_reads', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  actorApId: text('actor_ap_id').notNull(),
+  /** `isbn:<13>` when the export carried one, else `title:<normalised title>|<first author>`. */
+  bookKey: text('book_key').notNull(),
+  title: text('title').notNull(),
+  authors: jsonb('authors').$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  isbn13: text('isbn13'),
+  startedOn: date('started_on', { mode: 'string' }),
+  finishedOn: date('finished_on', { mode: 'string' }),
+  /** `<started>..<finished>`, either end blank. The per-book half of the identity. */
+  rangeKey: text('range_key').notNull(),
+  matchedKey: text('matched_key'),
+  matchedBookUrl: text('matched_book_url'),
+  /** isbn | title_author */
+  matchedBy: text('matched_by'),
+  importedAt: timestamp('imported_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('storygraph_reads_identity_idx').on(t.actorApId, t.bookKey, t.rangeKey),
+  index('storygraph_reads_actor_matched_idx').on(t.actorApId, t.matchedKey),
+  check('storygraph_reads_has_a_date', sql`${t.startedOn} IS NOT NULL OR ${t.finishedOn} IS NOT NULL`),
+  check('storygraph_reads_in_order', sql`${t.startedOn} IS NULL OR ${t.finishedOn} IS NULL OR ${t.startedOn} <= ${t.finishedOn}`),
+  check('storygraph_reads_matched_by', sql`${t.matchedBy} IS NULL OR ${t.matchedBy} IN ('isbn', 'title_author')`),
+])
