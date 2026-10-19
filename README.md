@@ -1198,6 +1198,15 @@ than silently dropping the rest, and `avg_pages_prose` excludes comics, graphic 
 audiobooks so a comics-heavy span doesn't skew the prose figure. Filter by `year`/`from`/`to`
 (on finish date), `format`, `author`, or `rating`.
 
+**StoryGraph read dates.** BookWyrm only knows a start date when a "started reading" status
+was posted. Upload a StoryGraph library export at **Admin → Import → StoryGraph Read Dates**
+to fill the gaps: each range in `Dates Read` becomes its own read, matched to the BookWyrm
+book by ISBN-13 and then by title and author. A StoryGraph date only fills a missing one;
+where the two disagree, BookWyrm wins and the result page lists the conflict. Every date the
+reading tools return now has a `*_source` (`bookwyrm` or `storygraph`), and
+`get_reading_events` returns `book_reads`, one window per read, so rereads stay separate.
+Re-importing the same file changes nothing. See ADR 0063.
+
 ### Posts on trips
 
 The train trips (imported from viaduct.world CSV exports) and the archived posts share

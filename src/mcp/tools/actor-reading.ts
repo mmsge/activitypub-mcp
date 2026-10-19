@@ -6,6 +6,7 @@ import { resolveActorByHandle } from '../../lib/fetch-actor.js'
 import { fetchBookwyrmShelf, SHELVES, type Shelf, type ShelfItem } from '../../lib/fetch-bookwyrm-shelf.js'
 import { normalizeTitle, indexCollapsedBooks, type CollapsedBook } from '../../lib/bookwyrm-reading.js'
 import { loadCollapsedBooks } from '../../lib/reading-query.js'
+import { bookWindowSources } from '../../lib/storygraph-reads.js'
 import { hiddenBookUrls } from '../../lib/hidden.js'
 
 export const getActorReadingStatusSchema = z.object({
@@ -40,7 +41,10 @@ type ReadingResult = {
   cover: string | null
   shelf: Shelf | null
   started_date: string | null
+  /** bookwyrm | storygraph — where started_date came from (ADR 0063). */
+  started_source: 'bookwyrm' | 'storygraph' | null
   finished_date: string | null
+  finished_source: 'bookwyrm' | 'storygraph' | null
   rating: string | null
   bookwyrm_book_url: string | null
   pages: number | null
@@ -132,7 +136,9 @@ export function mergeShelfWithDerived(
       cover: item.bookCover,
       shelf: item.shelf,
       started_date: isoDate(derived?.started ?? null),
+      started_source: derived ? bookWindowSources(derived).started : null,
       finished_date: isoDate(derived?.finished ?? null),
+      finished_source: derived ? bookWindowSources(derived).finished : null,
       rating: derived?.rating ?? null,
       bookwyrm_book_url: item.bookUrl,
       pages: null,
@@ -185,7 +191,9 @@ async function fetchFromDb(
       cover: a.cover,
       shelf: a.shelf,
       started_date: isoDate(a.started),
+      started_source: bookWindowSources(a).started,
       finished_date: isoDate(a.finished),
+      finished_source: bookWindowSources(a).finished,
       rating: a.rating,
       bookwyrm_book_url: a.url,
       pages: null,

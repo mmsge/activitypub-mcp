@@ -5,8 +5,14 @@ import type { ImportResult, TripImportResult } from '../import.js'
 import type { ParseProblem, ParseNormalisation } from '../../lib/parse-youtube-takeout.js'
 import type { RowFailure } from '../../jobs/import-youtube-watches.js'
 import type { ApplyPruneResult } from '../prune-trips.js'
+import type { StorygraphImportReport } from '../../jobs/import-storygraph-reads.js'
+import type { StorygraphReadRange } from '../../lib/parse-storygraph-csv.js'
+import { getBookwyrmActors } from '../../config.js'
 
-export const ImportPage: FC<{ error?: string }> = ({ error }) => (
+export const ImportPage: FC<{ error?: string; bookwyrmActors?: string[] }> = ({
+  error,
+  bookwyrmActors = getBookwyrmActors(),
+}) => (
   <Layout title="Import">
     <h1>Import Historical Activities</h1>
 
@@ -65,6 +71,38 @@ export const ImportPage: FC<{ error?: string }> = ({ error }) => (
         <div class="filters">
           <input type="file" name="file" accept=".csv,text/csv" required />
           <button type="submit">Import Trips</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="section">
+      <h2>StoryGraph Read Dates (CSV)</h2>
+      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
+        Upload a <strong>StoryGraph library export</strong> (Manage account → Export StoryGraph
+        library). Each range in <code>Dates Read</code> becomes a read of its own, matched to
+        the BookWyrm book by ISBN-13, then by title and author. A StoryGraph date fills only
+        what BookWyrm is missing; where both have a date and they disagree, BookWyrm wins and
+        the result page lists the conflict. Books with no BookWyrm match are stored and listed,
+        but not shown by the reading tools. Only dates are read: ratings, reviews, moods and
+        the rest of the file are ignored. Re-importing the same file changes nothing.
+      </p>
+      <form method="post" action="/admin/import/storygraph" enctype="multipart/form-data">
+        <div class="filters">
+          <input type="file" name="file" accept=".csv,text/csv" required />
+          <input
+            name="actor"
+            list="bookwyrm-actors"
+            placeholder="BookWyrm actor (@user@host or URL)"
+            value={bookwyrmActors[0] ?? ''}
+            style="width: 280px;"
+            required
+          />
+          <datalist id="bookwyrm-actors">
+            {bookwyrmActors.map((a) => (
+              <option key={a} value={a} />
+            ))}
+          </datalist>
+          <button type="submit">Import Read Dates</button>
         </div>
       </form>
     </div>
@@ -480,6 +518,144 @@ export const TripPruneResultPage: FC<{ result: ApplyPruneResult }> = ({ result }
     <div class="filters">
       <a href="/admin/import" class="btn">Import More</a>
       <a href="/admin/objects" class="btn" style="background: #333;">View Posts</a>
+    </div>
+  </Layout>
+)
+
+const range = (r: StorygraphReadRange): string => `${r.started ?? '?'} → ${r.finished ?? '?'}`
+
+/** The outcome of a StoryGraph read-dates import. See ADR 0063. */
+export const StorygraphImportResultPage: FC<{ report: StorygraphImportReport }> = ({ report }) => (
+  <Layout title="Import Result">
+    <h1>StoryGraph Read Dates Imported</h1>
+    <p style="color: #888; margin-bottom: 20px;">
+      Matched against <span class="mono">{report.actorApId}</span>
+    </p>
+
+    <div class="grid" style="margin-bottom: 24px;">
+      <div class="card">
+        <div class="num">{report.rowsRead}</div>
+        <div class="label">Rows read</div>
+      </div>
+      <div class="card">
+        <div class="num" style="color: #4ade80;">{report.booksMatched}</div>
+        <div class="label">
+          Books matched ({report.matchedByIsbn} by ISBN, {report.matchedByTitle} by title)
+        </div>
+      </div>
+      <div class="card">
+        <div class="num" style={report.unmatched.length ? 'color: #fbbf24;' : 'color: #888;'}>
+          {report.unmatched.length}
+        </div>
+        <div class="label">Unmatched books</div>
+      </div>
+      <div class="card">
+        <div class="num" style="color: #60a5fa;">{report.startsFilled}</div>
+        <div class="label">Starts filled</div>
+      </div>
+      <div class="card">
+        <div class="num" style="color: #60a5fa;">{report.finishesFilled}</div>
+        <div class="label">Finishes filled</div>
+      </div>
+      <div class="card">
+        <div class="num" style="color: #60a5fa;">{report.readsAdded}</div>
+        <div class="label">Reads BookWyrm never saw</div>
+      </div>
+      <div class="card">
+        <div class="num" style={report.conflicts.length ? 'color: #fbbf24;' : 'color: #888;'}>
+          {report.conflicts.length}
+        </div>
+        <div class="label">Conflicts (BookWyrm kept)</div>
+      </div>
+    </div>
+
+    <p style="color: #888; margin-bottom: 16px; line-height: 1.5;">
+      Stored reads: <strong>{report.readsInserted}</strong> inserted,{' '}
+      <strong>{report.readsUpdated}</strong> updated, <strong>{report.readsUnchanged}</strong>{' '}
+      unchanged, <strong>{report.readsDeleted}</strong> deleted because StoryGraph no longer
+      lists them. {report.rowsWithReads} of the {report.rowsRead} rows had at least one read.
+    </p>
+
+    {report.conflicts.length > 0 && (
+      <div class="section">
+        <h2>Conflicts</h2>
+        <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
+          Both sources had a date for the same read and they disagree. The BookWyrm date is the
+          one served; nothing here was changed.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Book</th>
+              <th>Field</th>
+              <th>BookWyrm</th>
+              <th>StoryGraph</th>
+              <th>Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            {report.conflicts.map((c, i) => (
+              <tr key={String(i)}>
+                <td>{c.book ?? '—'}</td>
+                <td>{c.field}</td>
+                <td class="mono">{c.bookwyrm}</td>
+                <td class="mono">{c.storygraph}</td>
+                <td>{c.reason === 'disagree'
+                    ? 'Dates differ'
+                    : c.reason === 'start_after_finish'
+                      ? 'Start would fall after the finish'
+                      : 'Finish would fall before the start'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+
+    {report.unmatched.length > 0 && (
+      <div class="section">
+        <h2>Unmatched</h2>
+        <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
+          Stored, but no BookWyrm book matched by ISBN-13 or by title and author, so the
+          reading tools do not show these reads. A later import matches them once the book
+          is on BookWyrm.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Authors</th>
+              <th>Reads</th>
+            </tr>
+          </thead>
+          <tbody>
+            {report.unmatched.map((u, i) => (
+              <tr key={String(i)}>
+                <td>{u.title}</td>
+                <td>{u.authors.join(', ') || '—'}</td>
+                <td class="mono">{u.reads.map(range).join(', ')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+
+    {report.unparsed.length > 0 && (
+      <div class="section">
+        <h2>Ranges that could not be read</h2>
+        <ul>
+          {report.unparsed.map((u, i) => (
+            <li key={String(i)}>
+              {u.title}: <span class="mono">{u.value}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    )}
+
+    <div class="filters">
+      <a href="/admin/import" class="btn">Import More</a>
     </div>
   </Layout>
 )

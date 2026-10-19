@@ -1,6 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { describe, it, expect } from 'vitest'
-import { TripImportResultPage } from './import.js'
+import { ImportPage, StorygraphImportResultPage, TripImportResultPage } from './import.js'
+import type { StorygraphImportReport } from '../../jobs/import-storygraph-reads.js'
 import type { TripImportResult } from '../import.js'
 import type { StoredTrip } from '../../lib/trip-prune.js'
 
@@ -81,5 +82,54 @@ describe('TripImportResultPage', () => {
   it('states the range, so the reader can see what was never eligible', () => {
     expect(render(result())).toContain('2026-08-20 15:30:00')
     expect(render(result())).toContain('5</strong> trips in that range')
+  })
+})
+
+const sgReport = (over: Partial<StorygraphImportReport> = {}): StorygraphImportReport => ({
+  actorApId: 'https://bookwyrm.social/user/mvrkws',
+  rowsRead: 3,
+  rowsWithReads: 2,
+  booksMatched: 1,
+  matchedByIsbn: 1,
+  matchedByTitle: 0,
+  unmatched: [],
+  readsInserted: 2,
+  readsUpdated: 0,
+  readsUnchanged: 0,
+  readsDeleted: 0,
+  startsFilled: 1,
+  finishesFilled: 0,
+  readsAdded: 0,
+  conflicts: [],
+  unparsed: [],
+  ...over,
+})
+
+describe('StoryGraph read dates import', () => {
+  it('offers the upload with the configured BookWyrm actor prefilled', () => {
+    const html = String(<ImportPage bookwyrmActors={['@mvrkws@bookwyrm.social']} />)
+    expect(html).toContain('action="/admin/import/storygraph"')
+    expect(html).toContain('value="@mvrkws@bookwyrm.social"')
+  })
+
+  it('lists conflicts and unmatched books, and says BookWyrm was kept', () => {
+    const html = String(
+      <StorygraphImportResultPage
+        report={sgReport({
+          conflicts: [{ book: 'Ducks', field: 'finished', bookwyrm: '2024-10-02', storygraph: '2024-10-03', reason: 'disagree' }],
+          unmatched: [{ title: 'Only On StoryGraph', authors: ['A Writer'], reads: [{ started: null, finished: '2023-01-02' }] }],
+        })}
+      />,
+    )
+    expect(html).toContain('Conflicts (BookWyrm kept)')
+    expect(html).toContain('2024-10-03')
+    expect(html).toContain('Only On StoryGraph')
+    expect(html).toContain('? → 2023-01-02')
+  })
+
+  it('shows neither table when there is nothing to list', () => {
+    const html = String(<StorygraphImportResultPage report={sgReport()} />)
+    expect(html).not.toContain('<h2>Conflicts</h2>')
+    expect(html).not.toContain('<h2>Unmatched</h2>')
   })
 })

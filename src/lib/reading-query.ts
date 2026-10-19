@@ -1,6 +1,6 @@
-import { and, eq, isNull, desc, sql } from 'drizzle-orm'
+import { and, eq, isNull, isNotNull, desc, sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
-import { objects, bookwyrmObjects } from '../db/schema.js'
+import { objects, bookwyrmObjects, storygraphReads } from '../db/schema.js'
 import {
   classifyReadingEvent,
   collapseReadingEvents,
@@ -8,6 +8,8 @@ import {
   type DerivedReadingEvent,
   type CollapsedBook,
 } from './bookwyrm-reading.js'
+import { collapseKey, mergeStorygraphReads } from './storygraph-reads.js'
+import { rangeKey, type StorygraphReadRange } from './parse-storygraph-csv.js'
 
 // Shared loader for every reading tool: pull an actor's stored BookWyrm posts
 // from the generic `objects` store and classify them into reading events. The
@@ -54,8 +56,44 @@ export async function loadDerivedReadingEvents(actorApId: string): Promise<Deriv
   })
 }
 
+// BookWyrm alone: one collapsed row per book, dates derived from public statuses only.
+// The StoryGraph import matches against this, so a match never depends on an earlier
+// import's merge.
+export async function loadBookwyrmBooks(actorApId: string): Promise<CollapsedBook[]> {
+  return collapseReadingEvents(await loadDerivedReadingEvents(actorApId))
+}
+
+// The actor's matched StoryGraph reads, grouped by the BookWyrm collapse key they
+// matched at import. Unmatched rows are not read: they belong to the import report.
+export async function loadStorygraphReads(actorApId: string): Promise<Map<string, StorygraphReadRange[]>> {
+  const rows = await getDb()
+    .select({ key: storygraphReads.matchedKey, started: storygraphReads.startedOn, finished: storygraphReads.finishedOn })
+    .from(storygraphReads)
+    .where(and(eq(storygraphReads.actorApId, actorApId), isNotNull(storygraphReads.matchedKey)))
+  // Keyed by range within each book: the same read can be stored under two book keys
+  // (an export that once gave a StoryGraph uid and now gives an ISBN), and counting it
+  // twice would invent a reread.
+  const byKey = new Map<string, Map<string, StorygraphReadRange>>()
+  for (const r of rows) {
+    if (!r.key) continue
+    const ranges = byKey.get(r.key) ?? new Map<string, StorygraphReadRange>()
+    const range = { started: r.started, finished: r.finished }
+    ranges.set(rangeKey(range), range)
+    byKey.set(r.key, ranges)
+  }
+  return new Map([...byKey].map(([k, v]) => [k, [...v.values()]]))
+}
+
 // One collapsed current-state row per book (with derived dates and reading
 // cycles) for an actor — the shared source for the shelf, stats, and pace tools.
+// StoryGraph's imported reads fill the dates BookWyrm lacks (ADR 0063); every tool
+// built on this sees them, and BookWyrm's own dates always win.
 export async function loadCollapsedBooks(actorApId: string): Promise<CollapsedBook[]> {
-  return collapseReadingEvents(await loadDerivedReadingEvents(actorApId))
+  const [books, reads] = await Promise.all([loadBookwyrmBooks(actorApId), loadStorygraphReads(actorApId)])
+  if (reads.size === 0) return books
+  return books.map((b) => {
+    const key = collapseKey(b)
+    const mine = key ? reads.get(key) : undefined
+    return mine ? mergeStorygraphReads(b, mine).book : b
+  })
 }

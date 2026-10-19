@@ -28,12 +28,15 @@ import {
   TripImportResultPage,
   TripPruneResultPage,
   YoutubeImportResultPage,
+  StorygraphImportResultPage,
 } from './views/import.js'
 import { ToolsPage, INFRA_ROUTES } from './views/tools.js'
 import { endpoints } from '../rest/table.js'
 import { mediaRouter } from './media-router.js'
 import { mediaCounts } from './media-query.js'
 import { parseYoutubeWatchHistory } from '../lib/parse-youtube-takeout.js'
+import { parseStorygraphCsv } from '../lib/parse-storygraph-csv.js'
+import { importStorygraphReads } from '../jobs/import-storygraph-reads.js'
 import { importYoutubeWatches } from '../jobs/import-youtube-watches.js'
 import {
   parseMastodonArchive,
@@ -604,6 +607,52 @@ function parseInstant(value: unknown): Date | null {
   const d = new Date(value)
   return Number.isNaN(d.getTime()) ? null : d
 }
+
+// StoryGraph library export → read dates that fill BookWyrm's gaps. An upload for the
+// same reason as the others here: StoryGraph has no API, and sidetal's scrape covers the
+// reading journal, not the library. Rendered rather than redirected, like the trips
+// import: the conflicts and unmatched books are the report. See ADR 0063.
+app.post(
+  '/import/storygraph',
+  bodyLimit({ maxSize: 25 * 1024 * 1024 }),
+  async (c) => {
+    const body = await c.req.parseBody()
+    const file = body['file']
+    if (!file || typeof file === 'string') {
+      return c.html(<ImportPage error="No file uploaded" />)
+    }
+    const actorInput = typeof body['actor'] === 'string' ? body['actor'].trim() : ''
+    if (!actorInput) {
+      return c.html(<ImportPage error="Name the BookWyrm actor the reads belong to" />)
+    }
+
+    let text: string
+    try {
+      text = await (file as File).text()
+    } catch {
+      return c.html(<ImportPage error="Could not read file" />)
+    }
+
+    let rows
+    try {
+      rows = parseStorygraphCsv(text)
+    } catch (e) {
+      return c.html(<ImportPage error={e instanceof Error ? e.message : String(e)} />)
+    }
+
+    // The same resolution the reading tools use for actor_handle, so the rows are keyed
+    // on exactly the ap id loadCollapsedBooks is later called with.
+    const actor = actorInput.startsWith('http')
+      ? { apId: actorInput }
+      : await resolveActorByHandle(actorInput)
+    if (!actor) {
+      return c.html(<ImportPage error={`Could not resolve actor: ${actorInput}`} />)
+    }
+
+    const report = await importStorygraphReads(rows, actor.apId)
+    return c.html(<StorygraphImportResultPage report={report} />)
+  },
+)
 
 // LinkedIn monthly analytics export. An upload rather than a watched directory:
 // the file is produced by hand on Markus' laptop once a month, so the browser he

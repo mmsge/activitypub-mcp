@@ -171,7 +171,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/reading-events',
     name: 'get_reading_events',
-    description: 'Get BookWyrm reading events for an actor, derived from stored note posts with a normalized event_type field: started_reading, finished_reading, stopped_reading, review, rating, comment, quotation, note, shelved. Events carry derived signal dates (started_date/finished_date), the book\'s overall window (book_started_date/book_finished_date), inline rating, review_title, quote (for quotations), and progress/progress_mode when present. Defaults to newest-first; set sort_order=asc with limit=1 for the earliest event, and follow next_cursor for deep traversal.',
+    description: 'Get BookWyrm reading events for an actor, derived from stored note posts with a normalized event_type field: started_reading, finished_reading, stopped_reading, review, rating, comment, quotation, note, shelved. Events carry derived signal dates (started_date/finished_date), the book\'s overall window (book_started_date/book_finished_date) with each end\'s source (book_started_source/book_finished_source: bookwyrm | storygraph), book_reads (one window per read, so rereads stay separate), inline rating, review_title, quote (for quotations), and progress/progress_mode when present. Defaults to newest-first; set sort_order=asc with limit=1 for the earliest event, and follow next_cursor for deep traversal.',
     schema: getReadingEventsSchema,
     handler: getReadingEvents,
     numbers: ['limit'],

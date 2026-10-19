@@ -234,6 +234,23 @@ export interface ReadingCycle {
    */
   abandoned: Date | null
   cycle: number // 1-based ordinal per book; >1 means a reread (or a resumed read)
+  /**
+   * Where `started` / `finished` came from. Absent means BookWyrm, which is every date
+   * derived here; only the StoryGraph merge (`lib/storygraph-reads.ts`, ADR 0063) sets
+   * them. Read through `cycleDateSources`, never directly.
+   */
+  startedSource?: DateSource
+  finishedSource?: DateSource
+}
+
+export type DateSource = 'bookwyrm' | 'storygraph'
+
+/** A cycle's date provenance: null for an absent date, `bookwyrm` unless marked otherwise. */
+export function cycleDateSources(c: ReadingCycle): { started: DateSource | null; finished: DateSource | null } {
+  return {
+    started: c.started ? (c.startedSource ?? 'bookwyrm') : null,
+    finished: c.finished ? (c.finishedSource ?? 'bookwyrm') : null,
+  }
 }
 
 // One current-state record per book, the shape get_actor_reading_status returns.

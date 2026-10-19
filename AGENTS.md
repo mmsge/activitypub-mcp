@@ -364,6 +364,31 @@ Rules not to "simplify" back:
   job. Arm by filling both in `/srv/bot/.env`, `make deploy`, then `npm run sync-storygraph`
   inside the container.
 
+## StoryGraph read dates
+
+BookWyrm federates a start only when a "started reading" status was posted, so many books
+have a finish and no start and rereads fold into one window. Uploading a **StoryGraph library
+export** at **Admin → Import** fills the gaps from its `Dates Read` column, one row per read in
+`storygraph_reads`, matched to the BookWyrm book by ISBN-13 and then by normalised title with
+an agreeing author. The merge runs in `loadCollapsedBooks`, so every reading tool sees it;
+`get_reading_events` serves `book_reads` (one window per read) and a `*_source` beside every
+date. See ADR 0063.
+
+Rules not to "simplify" back:
+
+- **BookWyrm always wins.** A StoryGraph date only ever fills a missing one. A date both sides
+  have that differs is a conflict, logged and listed on the result page, and BookWyrm's is
+  served. A start that would fall after BookWyrm's finish is refused the same way.
+- **A reread is a second row, never a widened first one.** Identity is (actor, book_key,
+  range_key), which is also what makes a re-import of the same file write nothing.
+- **An export is complete for the books it lists, and only for those.** A read no longer
+  listed for a book in the file is deleted; a book absent from the file is left alone.
+- **An ambiguous title matches nothing.** A read on the wrong volume of a series is worse than
+  one listed as unmatched. Unmatched rows are stored and reported, not shown.
+- **Only dates.** Ratings, reviews, moods and the rest of the export are not read, and no
+  column can hold them.
+- **The dates are local days**, stored as DATEs verbatim — ADR 0062's rule.
+
 ## Stack
 
 Hono + TypeScript, PostgreSQL. The `db` service (postgres) is internal-only and not exposed to the host. The `app` service exposes port 3000 to the host so central Caddy can reach it.

@@ -4806,6 +4806,14 @@ components:
             type: [string, "null"],
             description: Derived from the "read" status or review that finished the book (day granularity).,
           }
+        started_source:
+          {
+            type: [string, "null"],
+            enum: [bookwyrm, storygraph, null],
+            description: Where started_date came from (ADR 0063).,
+          }
+        finished_source:
+          { type: [string, "null"], enum: [bookwyrm, storygraph, null] }
         rating: { type: [string, "null"] }
         bookwyrm_book_url: { type: [string, "null"] }
         pages: { type: [integer, "null"] }
@@ -5773,6 +5781,32 @@ components:
             type: [string, "null"],
             description: The book's derived overall finish date (last reading cycle's finish).,
           }
+        book_started_source:
+          {
+            type: [string, "null"],
+            enum: [bookwyrm, storygraph, null],
+            description: Where book_started_date came from. StoryGraph fills a date BookWyrm lacks and never replaces one (ADR 0063).,
+          }
+        book_finished_source:
+          {
+            type: [string, "null"],
+            enum: [bookwyrm, storygraph, null],
+            description: Where book_finished_date came from.,
+          }
+        book_reads:
+          type: array
+          description: One window per read, oldest first, so a reread is two windows rather than one spanning both.
+          items:
+            type: object
+            properties:
+              read: { type: integer, description: 1-based read ordinal. }
+              started_date: { type: [string, "null"], format: date }
+              started_source:
+                { type: [string, "null"], enum: [bookwyrm, storygraph, null] }
+              finished_date: { type: [string, "null"], format: date }
+              finished_source:
+                { type: [string, "null"], enum: [bookwyrm, storygraph, null] }
+              abandoned_date: { type: [string, "null"], format: date }
         rating: { type: [string, "null"] }
         review_title: { type: [string, "null"] }
         comment: { type: [string, "null"] }
@@ -7003,7 +7037,11 @@ components:
           }
         is_reread: { type: boolean }
         started_date: { type: [string, "null"], format: date }
+        started_source:
+          { type: [string, "null"], enum: [bookwyrm, storygraph, null] }
         finished_date: { type: [string, "null"], format: date }
+        finished_source:
+          { type: [string, "null"], enum: [bookwyrm, storygraph, null] }
         days_to_finish:
           {
             type: [integer, "null"],
