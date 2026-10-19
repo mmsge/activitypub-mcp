@@ -11,7 +11,10 @@ import {
   normalizeTitle,
   isStartSignal,
   isFinishSignal,
+  cycleDateSources,
+  type CollapsedBook,
 } from '../../lib/bookwyrm-reading.js'
+import { bookWindowSources } from '../../lib/storygraph-reads.js'
 import { loadCollapsedBooks } from '../../lib/reading-query.js'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
 
@@ -141,6 +144,13 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
         // present on every event of that book.
         book_started_date: book?.started?.toISOString().slice(0, 10) ?? null,
         book_finished_date: book?.finished?.toISOString().slice(0, 10) ?? null,
+        // bookwyrm | storygraph: StoryGraph's imported reads fill what BookWyrm lacks,
+        // and never replace a date it has (ADR 0063).
+        book_started_source: book ? bookWindowSources(book).started : null,
+        book_finished_source: book ? bookWindowSources(book).finished : null,
+        // One window per read, oldest first, so a reread is two windows and not one
+        // spanning both.
+        book_reads: book ? bookReads(book) : [],
         rating: r.rating,
         review_title: ev.review_title,
         comment: ev.comment,
@@ -153,4 +163,21 @@ export async function getReadingEvents(input: z.infer<typeof getReadingEventsSch
       }
     }),
   }
+}
+
+const isoDay = (d: Date | null): string | null => d?.toISOString().slice(0, 10) ?? null
+
+/** A book's cycles as the per-read windows get_reading_events serves. */
+export function bookReads(book: CollapsedBook) {
+  return book.cycles.map((c) => {
+    const src = cycleDateSources(c)
+    return {
+      read: c.cycle,
+      started_date: isoDay(c.started),
+      started_source: src.started,
+      finished_date: isoDay(c.finished),
+      finished_source: src.finished,
+      abandoned_date: isoDay(c.abandoned),
+    }
+  })
 }

@@ -136,8 +136,10 @@ export function mergeStorygraphReads(book: CollapsedBook, reads: StorygraphReadR
     outcome.readsAdded++
   })
 
+  // By where a cycle ENDS, as deriveReadingCycles closes them: a finish-only cycle is
+  // placed by its finish, and an open one (no end yet) by its start.
   const at = (c: ReadingCycle): number =>
-    (c.started ?? c.finished ?? c.abandoned)?.getTime() ?? Number.POSITIVE_INFINITY
+    (c.finished ?? c.abandoned ?? c.started)?.getTime() ?? Number.POSITIVE_INFINITY
   cycles.sort((a, b) => at(a) - at(b))
   cycles.forEach((c, i) => (c.cycle = i + 1))
 
