@@ -400,7 +400,7 @@ export const TripImportResultPage: FC<{ result: TripImportResult }> = ({ result 
         <div class="section">
           <h2>Journeys no longer in this export</h2>
           {result.droppedJourneys.map((d) => (
-            <p key={d.journey} style="line-height: 1.5;">
+            <p key={d.journey} style="line-height: 1.5; margin-bottom: 8px;">
               Journey <strong>{d.journey}</strong> was deleted, but{' '}
               <strong>{d.remaining}</strong> trip{d.remaining === 1 ? '' : 's'}{' '}
               {d.remaining === 1 ? 'remains' : 'remain'}.
