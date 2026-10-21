@@ -396,6 +396,24 @@ export const TripImportResultPage: FC<{ result: TripImportResult }> = ({ result 
 
       {prune.refusal && <div class="error">{prune.refusal}</div>}
 
+      {result.droppedJourneys.length > 0 && (
+        <div class="section">
+          <h2>Journeys no longer in this export</h2>
+          {result.droppedJourneys.map((d) => (
+            <p key={d.journey} style="line-height: 1.5; margin-bottom: 8px;">
+              Journey <strong>{d.journey}</strong> was deleted, but{' '}
+              <strong>{d.remaining}</strong> trip{d.remaining === 1 ? '' : 's'}{' '}
+              {d.remaining === 1 ? 'remains' : 'remain'}.
+            </p>
+          ))}
+          <p style="color: #888; line-height: 1.5;">
+            The archive still files these trips under the journey's name, because a blank
+            journey in an export never clears a stored one. To remove the trips too, delete
+            them in viaduct and import again.
+          </p>
+        </div>
+      )}
+
       {prune.candidates.length > 0 && (
         <div class="section">
           <h2>Stored, but not in this export</h2>

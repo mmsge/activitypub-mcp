@@ -9,9 +9,11 @@ import type { LinkedinExport } from '../lib/parse-linkedin-export.js'
 import type { TripRow } from '../lib/parse-trips-csv.js'
 import { linkTripPosts } from '../jobs/link-trip-posts.js'
 import {
+  droppedJourneys,
   identityKey,
   planTripPrune,
   pruneWindow,
+  type DroppedJourney,
   type PrunePlan,
   type StoredTrip,
   type TripIdentity,
@@ -208,6 +210,11 @@ export interface TripImportResult {
    */
   prune: PrunePlan
   /**
+   * Journeys this export no longer names while still containing their trips, which
+   * keep the stored name. Reported only; see `droppedJourneys`.
+   */
+  droppedJourneys: DroppedJourney[]
+  /**
    * When the plan was drawn, carried to the confirm step so a trip stored after this
    * run — one re-added in viaduct and re-imported between the two clicks — cannot be
    * deleted on the strength of a page that never showed it.
@@ -367,7 +374,15 @@ export async function importTrainTrips(rows: TripRow[]): Promise<TripImportResul
   const total = rows.length
   const derivedAt = new Date()
   if (total === 0) {
-    return { total: 0, inserted: 0, updated: 0, unchanged: 0, prune: NO_PRUNE, derivedAt }
+    return {
+      total: 0,
+      inserted: 0,
+      updated: 0,
+      unchanged: 0,
+      prune: NO_PRUNE,
+      droppedJourneys: [],
+      derivedAt,
+    }
   }
 
   // Resolve every row's departure instant before anything else. It is what the archive
@@ -383,14 +398,14 @@ export async function importTrainTrips(rows: TripRow[]): Promise<TripImportResul
   // the whole statement.
   const seen = new Set<string>()
   const unique: TripRow[] = []
-  const incomingIds: TripIdentity[] = []
+  const incomingIds: (TripIdentity & { journey: string | null })[] = []
   for (let i = 0; i < rows.length; i++) {
     const identity = fileIdentities[i]
     const key = identityKey(identity)
     if (seen.has(key)) continue
     seen.add(key)
     unique.push(rows[i])
-    incomingIds.push(identity)
+    incomingIds.push({ ...identity, journey: rows[i].journey })
   }
 
   const assumed = rows.filter((r) => r.tzAssumed).length
@@ -489,7 +504,14 @@ export async function importTrainTrips(rows: TripRow[]): Promise<TripImportResul
 
   // Planned after the upsert, so a leg this very file inserted is structurally incapable
   // of being a candidate — it is in `incomingIds`, and it is now in the window too.
-  const prune = await planPrune(incomingIds)
+  const { prune, storedInWindow } = await planPrune(incomingIds)
+  const dropped = droppedJourneys(incomingIds, storedInWindow)
+  for (const d of dropped) {
+    logger.info(
+      { journey: d.journey, remaining: d.remaining },
+      'Journey is no longer named in this export, but its trips remain (name kept)',
+    )
+  }
 
   // Logged as well as returned. The page is one route away from being closed and
   // forgotten; this is the record that the file said these trips were gone, whether or
@@ -524,6 +546,7 @@ export async function importTrainTrips(rows: TripRow[]): Promise<TripImportResul
     updated,
     unchanged: total - inserted - updated,
     prune,
+    droppedJourneys: dropped,
     derivedAt,
   }
 }
@@ -558,16 +581,18 @@ async function resolveTripIdentities(rows: readonly TripRow[]): Promise<TripIden
  * The window is computed from the file alone and the stored read is bounded by it, so
  * a partial or truncated export cannot reach a single trip outside what it describes.
  */
-async function planPrune(fileIds: readonly TripIdentity[]): Promise<PrunePlan> {
+async function planPrune(
+  fileIds: readonly TripIdentity[],
+): Promise<{ prune: PrunePlan; storedInWindow: StoredTrip[] }> {
   const window = pruneWindow(fileIds)
-  if (!window) return NO_PRUNE
+  if (!window) return { prune: NO_PRUNE, storedInWindow: [] }
 
   const storedInWindow = (await buildStoredInWindowSelect(
     window.from,
     window.to,
   )) as StoredTrip[]
 
-  return planTripPrune(fileIds, storedInWindow, tripPruneLimits())
+  return { prune: planTripPrune(fileIds, storedInWindow, tripPruneLimits()), storedInWindow }
 }
 
 export interface LinkedinImportResult {

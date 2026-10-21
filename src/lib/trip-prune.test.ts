@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  droppedJourneys,
   identityKey,
   planTripPrune,
   pruneRefusal,
@@ -197,5 +198,50 @@ describe('identityKey', () => {
     expect(identityKey(incoming('Oslo', 'S Hamar', key(20, '04:34')))).not.toBe(
       identityKey(incoming('Oslo S', 'Hamar', key(20, '04:34'))),
     )
+  })
+})
+
+describe('droppedJourneys', () => {
+  const named = (t: TripIdentity, journey: string | null) => ({ ...t, journey })
+  const under = (t: StoredTrip, journey: string): StoredTrip => ({ ...t, journey })
+
+  it('names a journey the export dropped while keeping its legs', () => {
+    // Deleting a journey in viaduct ungroups its legs: they come back blank, the
+    // upsert keeps the stored name, and the prune finds nothing missing.
+    const a = incoming('Bergen', 'Oslo S', key(20, '05:34'))
+    const b = incoming('Oslo S', 'Bergen', key(22, '05:34'))
+    expect(
+      droppedJourneys(
+        [named(a, null), named(b, null)],
+        [under(stored('Bergen', 'Oslo S', a.key), 'Naples'), under(stored('Oslo S', 'Bergen', b.key), 'Naples')],
+      ),
+    ).toEqual([{ journey: 'Naples', remaining: 2 }])
+  })
+
+  it('says nothing while any row in the file still names the journey', () => {
+    // One leg taken out of a journey that keeps the others is an edit, not a deletion.
+    const a = incoming('Bergen', 'Oslo S', key(20, '05:34'))
+    const b = incoming('Oslo S', 'Bergen', key(22, '05:34'))
+    expect(
+      droppedJourneys(
+        [named(a, null), named(b, 'Naples')],
+        [under(stored('Bergen', 'Oslo S', a.key), 'Naples'), under(stored('Oslo S', 'Bergen', b.key), 'Naples')],
+      ),
+    ).toEqual([])
+  })
+
+  it('counts only the legs still in the export, not the ones it is about to prune', () => {
+    const a = incoming('Bergen', 'Oslo S', key(20, '05:34'))
+    expect(
+      droppedJourneys(
+        [named(a, null)],
+        [under(stored('Bergen', 'Oslo S', a.key), 'Naples'), under(stored('Oslo S', 'Bergen', key(22, '05:34')), 'Naples')],
+      ),
+    ).toEqual([{ journey: 'Naples', remaining: 1 }])
+  })
+
+  it('ignores trips that never had a journey', () => {
+    const a = incoming('Bergen', 'Oslo S', key(20, '05:34'))
+    expect(droppedJourneys([named(a, null)], [stored('Bergen', 'Oslo S', a.key)])).toEqual([])
   })
 })
