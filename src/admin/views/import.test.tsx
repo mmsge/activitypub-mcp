@@ -31,6 +31,7 @@ const result = (over: Partial<TripImportResult['prune']> = {}): TripImportResult
   updated: 0,
   unchanged: 4,
   derivedAt: new Date('2026-08-20T12:00:00Z'),
+  droppedJourneys: [],
   prune: {
     window: {
       from: new Date('2026-08-20T04:34:00Z'),
@@ -71,6 +72,19 @@ describe('TripImportResultPage', () => {
     const html = render(result({ refusal: 'too many' }))
     expect(html).toContain('too many')
     expect(html).not.toContain('/admin/import/trips/prune')
+  })
+
+  it('says when a journey was deleted but its trips remain', () => {
+    const html = render({
+      ...result({ candidates: [] }),
+      droppedJourneys: [{ journey: 'Champions League Naples', remaining: 14 }],
+    })
+    expect(html).toContain('Journey <strong>Champions League Naples</strong> was deleted')
+    expect(html).toContain('<strong>14</strong> trips remain')
+  })
+
+  it('stays quiet about journeys when none was dropped', () => {
+    expect(render(result())).not.toContain('Journeys no longer in this export')
   })
 
   it('offers no confirm when the export accounts for everything in its range', () => {

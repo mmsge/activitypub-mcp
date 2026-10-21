@@ -191,3 +191,48 @@ function parseKey(key: string): Date {
   const [, y, mo, d, h, mi, s] = m
   return new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +s))
 }
+
+/** A journey the export stopped naming while its trips stayed in it. */
+export interface DroppedJourney {
+  journey: string
+  /** Stored trips under the name that this export still contains, without it. */
+  remaining: number
+}
+
+/**
+ * Journeys deleted in viaduct whose trips were not.
+ *
+ * Deleting a journey there ungroups its legs rather than removing them, so the next
+ * export carries every leg with a blank journey. The upsert reads that blank as
+ * silence and keeps the stored name, which is right for a thinner export and wrong
+ * here — and the legs are all present, so the prune has nothing to say either. Without
+ * this the import reads as a clean no-op while the archive still files the legs under
+ * a trip that no longer exists.
+ *
+ * A journey counts only when NO row in the file names it. A rename arrives as the new
+ * name and is applied by the upsert, so it never reaches here; one leg taken out of a
+ * journey that keeps its other legs is an edit, not a deletion.
+ *
+ * Reported, never applied: clearing the name stays a decision for viaduct.
+ */
+export function droppedJourneys(
+  incoming: readonly (TripIdentity & { journey: string | null })[],
+  storedInWindow: readonly StoredTrip[],
+): DroppedJourney[] {
+  const named = new Set<string>()
+  const present = new Set<string>()
+  for (const t of incoming) {
+    if (t.journey) named.add(t.journey)
+    present.add(identityKey(t))
+  }
+
+  const remaining = new Map<string, number>()
+  for (const t of storedInWindow) {
+    if (!t.journey || named.has(t.journey) || !present.has(identityKey(t))) continue
+    remaining.set(t.journey, (remaining.get(t.journey) ?? 0) + 1)
+  }
+
+  return [...remaining]
+    .map(([journey, n]) => ({ journey, remaining: n }))
+    .sort((a, b) => a.journey.localeCompare(b.journey))
+}
