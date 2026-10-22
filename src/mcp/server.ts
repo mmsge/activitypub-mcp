@@ -269,7 +269,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_train_trips',
-    "Query the locally-stored train travel history (imported from viaduct.world CSV exports). Filter by station (origin or destination), journey name, operator, mode (Train/Ferry), status (Completed/Planned), tag, year, or a departure time window. Defaults to newest-first; set sort_order='asc' with limit=1 for the earliest matching trip, and follow next_cursor for deep traversal.",
+    "Query the locally-stored train travel history (imported from viaduct.world CSV exports). Filter by station (origin or destination), journey name, operator, mode (Train/Ferry), status (Completed/Planned), tag, year, or a departure time window. Defaults to newest-first; set sort_order='asc' with limit=1 for the earliest matching trip, and follow next_cursor for deep traversal. Each trip carries the IANA time zone of both ends (fromTz/toTz) and the geocoded station coordinates (fromLat/fromLon/toLat/toLon, null where a station is not geocoded yet).",
     getTrainTripsSchema.shape,
     async (input) => {
       const result = await getTrainTrips(input as any)

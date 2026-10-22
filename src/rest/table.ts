@@ -325,7 +325,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/train-trips',
     name: 'get_train_trips',
-    description: 'Query the locally-stored train travel history (imported from viaduct.world CSV exports). Filter by station (origin or destination), journey, operator, mode, status, tag, year, or a departure time window. Newest-first by default; pass sort_order=asc with limit=1 for the earliest match, and paginate deeply via next_cursor.',
+    description: 'Query the locally-stored train travel history (imported from viaduct.world CSV exports). Filter by station (origin or destination), journey, operator, mode, status, tag, year, or a departure time window. Newest-first by default; pass sort_order=asc with limit=1 for the earliest match, and paginate deeply via next_cursor. Each trip carries the IANA time zone of both ends (fromTz/toTz) and the geocoded station coordinates (fromLat/fromLon/toLat/toLon, null where a station is not geocoded yet).',
     schema: getTrainTripsSchema,
     handler: getTrainTrips,
     numbers: ['limit', 'page', 'year'],

@@ -1948,7 +1948,10 @@ paths:
         exports). Filter by `station` (origin or destination), `from_station`,
         `to_station`, `journey`, `operator`, `mode`, `status`, `tag`, `year`, or
         a departure `from`/`to` window. Newest-first by default; paginate via
-        `next_cursor`.
+        `next_cursor`. Each trip carries the IANA time zone of both ends
+        (`fromTz`/`toTz`) and the geocoded station coordinates
+        (`fromLat`/`fromLon`/`toLat`/`toLon`, null where a station is not
+        geocoded yet).
       operationId: getTrainTripsGet
       parameters:
         - {
@@ -6688,6 +6691,24 @@ components:
         night: { type: boolean }
         status: { type: [string, "null"] }
         tags: { type: [array, "null"], items: { type: string } }
+        fromTz:
+          type: [string, "null"]
+          description: IANA time zone the departure was recorded in, e.g. Europe/Oslo.
+        toTz:
+          type: [string, "null"]
+          description: IANA time zone the arrival was recorded in.
+        fromLat:
+          type: [number, "null"]
+          description: Origin station latitude (WGS84); null when not geocoded.
+        fromLon:
+          type: [number, "null"]
+          description: Origin station longitude (WGS84); null when not geocoded.
+        toLat:
+          type: [number, "null"]
+          description: Destination station latitude (WGS84); null when not geocoded.
+        toLon:
+          type: [number, "null"]
+          description: Destination station longitude (WGS84); null when not geocoded.
 
     TrainTripsResponse:
       type: object
