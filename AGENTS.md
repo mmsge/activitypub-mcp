@@ -411,6 +411,9 @@ Rules not to "simplify" back:
 
 - **Never derive a country from `train_trips.from_tz`/`to_tz`.** The geocoder uses the leg's
   zone only to refuse hits whose clock disagrees with it.
+- **A hit in a country with no zone in `COUNTRY_TZ` is refused** when the leg's zone is
+  known (ADR 0066). Letting it through put Bangor in Maine and Tirano in Tirana. A new
+  country the trips reach goes into the table; Albania and the Americas stay out.
 - **`train_trips.from_tz`/`to_tz` stay verbatim.** `departure_at` is computed from them and
   the next import writes them back. The station's real zone is `stations.timezone`, derived
   from its geocoded country, and the trip API prefers it.

@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
-  chooseStationHit, offsetAgrees, parseNominatim, parseNominatimHits, timezoneForCountry,
-  type GeocodeHit,
+  chooseStationHit, geocodeStation, offsetAgrees, parseNominatim, parseNominatimHits,
+  preferExactName, timezoneForCountry, type GeocodeHit,
 } from './geocode-station.js'
 
 describe('timezoneForCountry', () => {
@@ -46,18 +48,29 @@ describe('offsetAgrees', () => {
     expect(offsetAgrees('UTC', 'gb')).toBe(true)
   })
 
-  it('accepts when either side is unknown or unreadable', () => {
+  it('accepts anything when the leg zone is unknown or unreadable', () => {
     expect(offsetAgrees(null, 'no')).toBe(true)
     expect(offsetAgrees(undefined, 'no')).toBe(true)
-    expect(offsetAgrees('Europe/Paris', null)).toBe(true)
-    expect(offsetAgrees('Europe/Paris', 'us')).toBe(true)
     expect(offsetAgrees('Not/AZone', 'no')).toBe(true)
+    expect(offsetAgrees(null, 'us')).toBe(true)
+  })
+
+  // ADR 0066: these used to pass, which put Bangor in Maine and Tirano in Tirana.
+  it('refuses a country it keeps no clock for, or a hit with no country', () => {
+    expect(offsetAgrees('Europe/London', 'us')).toBe(false)
+    expect(offsetAgrees('Europe/Paris', 'al')).toBe(false)
+    expect(offsetAgrees('Europe/Paris', null)).toBe(false)
+  })
+
+  it('accepts the micro-states on the lines through France and Italy', () => {
+    expect(offsetAgrees('Europe/Paris', 'mc')).toBe(true)
+    expect(offsetAgrees('Europe/Paris', 'sm')).toBe(true)
   })
 })
 
 describe('parseNominatim', () => {
   const hit = (over: Record<string, unknown> = {}) => [{
-    lat: '60.3894', lon: '5.3327',
+    lat: '60.3894', lon: '5.3327', name: 'Bergen stasjon',
     display_name: 'Bergen stasjon, Bergen, Vestland, Noreg',
     category: 'railway', type: 'station',
     address: { country_code: 'NO' },
@@ -68,6 +81,7 @@ describe('parseNominatim', () => {
     expect(parseNominatim(hit())).toEqual({
       latitude: 60.3894,
       longitude: 5.3327,
+      name: 'Bergen stasjon',
       displayName: 'Bergen stasjon, Bergen, Vestland, Noreg',
       countryCode: 'no',
       isStation: true,
@@ -89,9 +103,9 @@ describe('parseNominatim', () => {
     expect(parseNominatim([{ lat: 'x', lon: 'y' }, ...hit()])?.latitude).toBe(60.3894)
   })
 
-  it('tolerates a missing display name, address and tags', () => {
+  it('tolerates a missing name, display name, address and tags', () => {
     const out = parseNominatim([{ lat: '1', lon: '2' }])
-    expect(out).toEqual({ latitude: 1, longitude: 2, displayName: '', countryCode: null, isStation: false })
+    expect(out).toEqual({ latitude: 1, longitude: 2, name: '', displayName: '', countryCode: null, isStation: false })
   })
 
   it('tolerates junk', () => {
@@ -127,9 +141,29 @@ describe('parseNominatimHits', () => {
   })
 })
 
+describe('preferExactName', () => {
+  const n = (name: string): GeocodeHit =>
+    ({ latitude: 1, longitude: 2, name, displayName: name, countryCode: 'se', isStation: false })
+
+  it('moves hits named exactly like the query first, keeping order otherwise', () => {
+    const hits = [n('Faulquemont'), n('Monfalcone'), n('Falkenberg'), n('Falkenbergs kommun')]
+    expect(preferExactName(hits, 'Falkenberg').map((h) => h.name))
+      .toEqual(['Falkenberg', 'Faulquemont', 'Monfalcone', 'Falkenbergs kommun'])
+  })
+
+  it('ignores case and diacritics', () => {
+    expect(preferExactName([n('x'), n('Malmö')], 'malmo')[0]!.name).toBe('Malmö')
+  })
+
+  it('leaves the order alone when nothing matches exactly', () => {
+    const hits = [n('Malmö centralstation'), n('Malmö')]
+    expect(preferExactName(hits, 'Malmö C')).toEqual(hits)
+  })
+})
+
 describe('chooseStationHit', () => {
   const h = (countryCode: string, isStation: boolean, displayName = countryCode): GeocodeHit =>
-    ({ latitude: 1, longitude: 2, displayName, countryCode, isStation })
+    ({ latitude: 1, longitude: 2, name: displayName, displayName, countryCode, isStation })
 
   it('takes the bare name outright when it lands on a station', () => {
     // Oslo S, Malmö C, Göteborgs central: Nominatim finds the station unaided.
@@ -171,5 +205,43 @@ describe('chooseStationHit', () => {
 
   it('returns null when neither search found anything', () => {
     expect(chooseStationHit([], [])).toBeNull()
+  })
+})
+
+// End to end against what Nominatim answered on 2026-10-22, with the zones Viaduct
+// writes: Europe/London for the UK, Europe/Paris for everything on CET (ADR 0065).
+describe('geocodeStation against real Nominatim answers (ADR 0066)', () => {
+  const fixture = JSON.parse(
+    readFileSync(join(import.meta.dirname, '__fixtures__', 'nominatim-2026-10-22.json'), 'utf8'),
+  ) as { responses: Record<string, unknown[]> }
+
+  afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
+
+  async function geocode(name: string, zone: string) {
+    vi.useFakeTimers()
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const q = new URL(url).searchParams.get('q') ?? ''
+      return { ok: true, status: 200, json: async () => fixture.responses[q] ?? [] }
+    }))
+    const pending = geocodeStation(name, zone)
+    await vi.runAllTimersAsync()
+    return pending
+  }
+
+  it('puts Bangor in Wales, not in Maine', async () => {
+    const hit = await geocode('Bangor', 'Europe/London')
+    expect(hit).toMatchObject({ countryCode: 'gb', name: 'Bangor' })
+    expect(hit!.latitude).toBeCloseTo(53.2277, 3)
+  })
+
+  it('puts Tirano in Italy, at the station, not in Tirana', async () => {
+    const hit = await geocode('Tirano', 'Europe/Paris')
+    expect(hit).toMatchObject({ countryCode: 'it', name: 'Tirano RhB', isStation: true })
+  })
+
+  it('puts Falkenberg in Sweden, at the station, not at Faulquemont', async () => {
+    const hit = await geocode('Falkenberg', 'Europe/Paris')
+    expect(hit).toMatchObject({ countryCode: 'se', name: 'Falkenberg', isStation: true })
+    expect(hit!.latitude).toBeCloseTo(56.9195, 3)
   })
 })
