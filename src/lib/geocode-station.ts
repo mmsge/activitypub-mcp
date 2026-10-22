@@ -19,7 +19,11 @@ import { logger } from './logger.js'
  * station all arrive as `Europe/Paris`, and only the UK ones as `Europe/London`.
  * Used as a country filter, that put Bergen in Picardy and Oslo S in Strasbourg
  * (ADR 0065). So the zone is now only what it really is, an offset: a hit in a
- * country whose clock disagrees with the leg's is rejected, and nothing more.
+ * country whose clock disagrees with the leg's is rejected, and so is a hit in a
+ * country this file keeps no clock for, which it cannot vouch for at all (ADR 0066:
+ * Bangor went to Maine and Tirano to Tirana through that gap). Among what is left,
+ * a hit whose own name is the station's comes first: Faulquemont is "Falkenberg" in
+ * German, and keeps the same clock as Sweden.
  *
  * Nominatim's usage policy allows one request a second and requires an
  * identifying User-Agent. Both are honoured here and in the job that drives it.
@@ -40,6 +44,12 @@ const USER_AGENT = `activitypub-mcp/1.0 (+https://${config.APP_DOMAIN})`
  * reading a country out of it is the mistake ADR 0065 records. A table rather than
  * a library: `Intl` will not map a country to a zone, and an unmapped country is
  * simply left without one rather than given a wrong one.
+ *
+ * Leaving a country out also means a geocoder hit there is never accepted for a leg
+ * with a known zone (`offsetAgrees`). That is deliberate for Albania and the
+ * Americas, where a European station's namesake lives. A station in a country the
+ * trips have not reached yet misses until its country is added here, or until it
+ * is pinned by hand with `source = 'manual'`.
  */
 const COUNTRY_TZ: Record<string, string> = {
   no: 'Europe/Oslo',
@@ -72,6 +82,12 @@ const COUNTRY_TZ: Record<string, string> = {
   ro: 'Europe/Bucharest',
   bg: 'Europe/Sofia',
   gr: 'Europe/Athens',
+  // Micro-states on the lines through France and Italy (Monaco - Monte Carlo is in
+  // the archive). Their own zones keep the same clock as their neighbours.
+  mc: 'Europe/Monaco',
+  ad: 'Europe/Andorra',
+  sm: 'Europe/San_Marino',
+  va: 'Europe/Vatican',
 }
 
 /** Every mapped (country, zone) pair, for SQL that needs the table as rows. */
@@ -98,16 +114,20 @@ function utcOffsets(zone: string): string[] | null {
 /**
  * Whether a hit in `countryCode` is plausible for a leg recorded in `legZone`.
  *
- * True unless both are known and their clocks disagree, winter or summer. 'UTC' is
- * the CSV parser's fallback for a missing zone (parse-trips-csv.ts), so it means
- * "unknown" here, never "the UK". This is a sanity check, not a country hint:
- * `Europe/Paris` accepts Norway, Sweden and Czechia alike, which is exactly right,
- * and refuses London, which is exactly what it is for.
+ * With no usable leg zone, anything goes. 'UTC' is the CSV parser's fallback for a
+ * missing zone (parse-trips-csv.ts), so it means "unknown" here, never "the UK".
+ *
+ * With a leg zone, the hit's country must be one this file keeps a clock for, and
+ * that clock must agree with the leg's, winter and summer. A country with no zone
+ * here (the US, Albania) or a hit with no country at all is refused: it used to
+ * pass, which put Bangor in Maine and Tirano in Tirana (ADR 0066). This is a sanity
+ * check, not a country hint: `Europe/Paris` accepts Norway, Sweden and Czechia
+ * alike, which is exactly right, and refuses London.
  */
 export function offsetAgrees(legZone: string | null | undefined, countryCode: string | null): boolean {
-  if (!legZone || legZone === 'UTC') return true
+  if (!legZone || legZone === 'UTC' || !utcOffsets(legZone)) return true
   const countryZone = timezoneForCountry(countryCode)
-  if (!countryZone) return true
+  if (!countryZone) return false
   const a = utcOffsets(legZone)
   const b = utcOffsets(countryZone)
   if (!a || !b) return true
@@ -117,6 +137,8 @@ export function offsetAgrees(legZone: string | null | undefined, countryCode: st
 export interface GeocodeHit {
   latitude: number
   longitude: number
+  /** The place's own name in OSM (`name` in jsonv2), or '' when Nominatim sent none. */
+  name: string
   /** Nominatim's full matched name, stored so a wrong hit is auditable. */
   displayName: string
   countryCode: string | null
@@ -160,12 +182,28 @@ export function parseNominatimHits(json: unknown): GeocodeHit[] {
     hits.push({
       latitude,
       longitude,
+      name: typeof r.name === 'string' ? r.name : '',
       displayName: typeof r.display_name === 'string' ? r.display_name : '',
       countryCode: typeof cc === 'string' ? cc.toLowerCase() : null,
       isStation: isStationTag(r.category, r.type),
     })
   }
   return hits
+}
+
+function foldName(s: string): string {
+  return s.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+}
+
+/**
+ * The hits whose own name is `query` first, the rest after, each in Nominatim's
+ * order. Nominatim also matches alternative names, so a bare "Falkenberg" ranks
+ * Faulquemont (its German name) above Falkenberg itself. Pure.
+ */
+export function preferExactName(hits: GeocodeHit[], query: string): GeocodeHit[] {
+  const want = foldName(query)
+  const exact = hits.filter((h) => foldName(h.name) === want)
+  return exact.length ? [...exact, ...hits.filter((h) => foldName(h.name) !== want)] : hits
 }
 
 /** The first usable hit, or null. */
@@ -248,7 +286,7 @@ export async function geocodeStation(
 ): Promise<GeocodeHit | null> {
   const plausible = (hits: GeocodeHit[]) => hits.filter((h) => offsetAgrees(timezone, h.countryCode))
 
-  const plain = plausible(await search(name))
+  const plain = preferExactName(plausible(await search(name)), name)
   let station: GeocodeHit[] = []
   if (!plain[0]?.isStation) {
     await sleep(RETRY_SPACING_MS)

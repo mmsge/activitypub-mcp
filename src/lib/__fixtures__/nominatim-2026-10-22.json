@@ -1,0 +1,204 @@
+{
+  "_comment": "Nominatim /search jsonv2 answers on 2026-10-22, trimmed to the fields parseNominatimHits reads (ADR 0066).",
+  "responses": {
+    "Bangor": [
+      {
+        "lat": "44.8016255",
+        "lon": "-68.7713289",
+        "name": "Bangor",
+        "category": "boundary",
+        "type": "administrative",
+        "display_name": "Bangor, Penobscot County, Maine, 04401, United States",
+        "address": {
+          "country_code": "us"
+        }
+      },
+      {
+        "lat": "53.2277163",
+        "lon": "-4.1268822",
+        "name": "Bangor",
+        "category": "boundary",
+        "type": "administrative",
+        "display_name": "Bangor, Gwynedd, Cymru / Wales, United Kingdom",
+        "address": {
+          "country_code": "gb"
+        }
+      },
+      {
+        "lat": "47.3151265",
+        "lon": "-3.1885206",
+        "name": "Bangor",
+        "category": "boundary",
+        "type": "administrative",
+        "display_name": "Bangor, Lorient, Morbihan, Bretagne, France métropolitaine, 56360, France",
+        "address": {
+          "country_code": "fr"
+        }
+      },
+      {
+        "lat": "54.6625950",
+        "lon": "-5.6679127",
+        "name": "Bangor",
+        "category": "place",
+        "type": "city",
+        "display_name": "Bangor, Ards and North Down District, County Down, Northern Ireland / Tuaisceart Éireann, BT20 3BJ, United Kingdom",
+        "address": {
+          "country_code": "gb"
+        }
+      },
+      {
+        "lat": "42.3125356",
+        "lon": "-86.1130794",
+        "name": "Bangor",
+        "category": "boundary",
+        "type": "administrative",
+        "display_name": "Bangor, Van Buren County, Michigan, United States",
+        "address": {
+          "country_code": "us"
+        }
+      }
+    ],
+    "Bangor station": [
+      {
+        "lat": "47.6762236",
+        "lon": "-122.7208457",
+        "name": "Bangor Station",
+        "category": "place",
+        "type": "locality",
+        "display_name": "Bangor Station, Kitsap County, Washington, 98315, United States",
+        "address": {
+          "country_code": "us"
+        }
+      },
+      {
+        "lat": "53.2228253",
+        "lon": "-4.1356411",
+        "name": "Royal Mail",
+        "category": "amenity",
+        "type": "post_box",
+        "display_name": "Royal Mail, Station Road, Upper Bangor, Bangor, Gwynedd, Cymru / Wales, LL57 2UR, United Kingdom",
+        "address": {
+          "country_code": "gb"
+        }
+      }
+    ],
+    "Tirano": [
+      {
+        "lat": "41.3281482",
+        "lon": "19.8184435",
+        "name": "Tiranë",
+        "category": "boundary",
+        "type": "administrative",
+        "display_name": "Tiranë, Bashkia Tiranë, Qarku i Tiranës, 1001-1028, Shqipëria",
+        "address": {
+          "country_code": "al"
+        }
+      },
+      {
+        "lat": "46.2156719",
+        "lon": "10.1731777",
+        "name": "Tirano",
+        "category": "boundary",
+        "type": "administrative",
+        "display_name": "Tirano, Comunità montana della Valtellina di Tirano, Sondrio, Lombardia, 23037, Italia",
+        "address": {
+          "country_code": "it"
+        }
+      }
+    ],
+    "Tirano station": [
+      {
+        "lat": "46.2157380",
+        "lon": "10.1666093",
+        "name": "Tirano RhB",
+        "category": "railway",
+        "type": "station",
+        "display_name": "Tirano RhB, Piazza delle stazioni, Visoli, Madonna, Dosso, Baruffini, Tirano, Comunità montana della Valtellina di Tirano, Sondrio, Lombardia, 23037, Italia",
+        "address": {
+          "country_code": "it"
+        }
+      },
+      {
+        "lat": "46.2154402",
+        "lon": "10.1671528",
+        "name": "Tirano RFI",
+        "category": "railway",
+        "type": "station",
+        "display_name": "Tirano RFI, 16, Piazza delle stazioni, Visoli, Madonna, Dosso, Baruffini, Tirano, Comunità montana della Valtellina di Tirano, Sondrio, Lombardia, 23037, Italia",
+        "address": {
+          "country_code": "it"
+        }
+      }
+    ],
+    "Falkenberg": [
+      {
+        "lat": "49.0487769",
+        "lon": "6.5958205",
+        "name": "Faulquemont",
+        "category": "boundary",
+        "type": "administrative",
+        "display_name": "Faulquemont, Forbach-Boulay-Moselle, Moselle, Grand Est, France métropolitaine, 57380, France",
+        "address": {
+          "country_code": "fr"
+        }
+      },
+      {
+        "lat": "45.8049454",
+        "lon": "13.5330592",
+        "name": "Monfalcone",
+        "category": "boundary",
+        "type": "administrative",
+        "display_name": "Monfalcone, Gorizia, Friuli-Venezia Giulia, 34074, Italia",
+        "address": {
+          "country_code": "it"
+        }
+      },
+      {
+        "lat": "56.9048940",
+        "lon": "12.4912926",
+        "name": "Falkenberg",
+        "category": "place",
+        "type": "town",
+        "display_name": "Falkenberg, Falkenbergs kommun, Hallands län, 311 21, Sverige",
+        "address": {
+          "country_code": "se"
+        }
+      },
+      {
+        "lat": "42.8918739",
+        "lon": "12.6500673",
+        "name": "Montefalco",
+        "category": "boundary",
+        "type": "administrative",
+        "display_name": "Montefalco, Perugia, Umbria, 06036, Italia",
+        "address": {
+          "country_code": "it"
+        }
+      },
+      {
+        "lat": "56.8996865",
+        "lon": "12.5345561",
+        "name": "Falkenbergs kommun",
+        "category": "boundary",
+        "type": "administrative",
+        "display_name": "Falkenbergs kommun, Hallands län, Sverige",
+        "address": {
+          "country_code": "se"
+        }
+      }
+    ],
+    "Falkenberg station": [
+      {
+        "lat": "56.9195368",
+        "lon": "12.5082399",
+        "name": "Falkenberg",
+        "category": "railway",
+        "type": "station",
+        "display_name": "Falkenberg, Kilavägen, Blackeberg, Falkenberg, Falkenbergs kommun, Hallands län, 311 76, Sverige",
+        "address": {
+          "country_code": "se"
+        }
+      }
+    ]
+  }
+}
