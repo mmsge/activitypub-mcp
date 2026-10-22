@@ -400,6 +400,11 @@ const schema = z.object({
   // Where those bytes live. A named volume in docker-compose, so a rebuild does
   // not throw the cache away and refetch everything from seven CDNs at once.
   STREAM_IMAGE_CACHE_DIR: z.string().default('/data/images'),
+  // Where imported archives keep their files (Twitter photos and videos, profile images).
+  // A named volume in docker-compose and, unlike the image cache above, NEVER swept: these
+  // files are the only copy outside the export zip, which is the whole point of importing
+  // them. Served read-only at /archive/media/... by src/activitypub/archive-media.ts.
+  ARCHIVE_MEDIA_DIR: z.string().default('/data/archive'),
   PORT: z.coerce.number().default(3000),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.string().default('info'),

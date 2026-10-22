@@ -2,7 +2,8 @@ import { getDb } from '../db/client.js'
 import { actors } from '../db/schema.js'
 import { fetchActor } from '../lib/fetch-actor.js'
 import { fetchSoftwareName } from '../lib/fetch-nodeinfo.js'
-import { lt, isNull, eq } from 'drizzle-orm'
+import { lt, isNull, eq, and, notInArray } from 'drizzle-orm'
+import { ARCHIVE_DOMAINS } from '../lib/archive-actors.js'
 import { logger } from '../lib/logger.js'
 
 const REFRESH_AFTER_MS = 24 * 60 * 60 * 1000
@@ -12,7 +13,8 @@ export async function refreshStaleActors(): Promise<void> {
   const cutoff = new Date(Date.now() - REFRESH_AFTER_MS)
   const stale = await db.select({ apId: actors.apId })
     .from(actors)
-    .where(lt(actors.fetchedAt, cutoff))
+    // Archive actors (twitter.com) have no server to refresh from; see ADR 0067.
+    .where(and(lt(actors.fetchedAt, cutoff), notInArray(actors.domain, [...ARCHIVE_DOMAINS])))
     .limit(20)
 
   for (const { apId } of stale) {
@@ -29,7 +31,7 @@ export async function refreshStaleActors(): Promise<void> {
   // so probe NodeInfo directly and patch just this column.
   const missing = await db.select({ apId: actors.apId, domain: actors.domain })
     .from(actors)
-    .where(isNull(actors.software))
+    .where(and(isNull(actors.software), notInArray(actors.domain, [...ARCHIVE_DOMAINS])))
     .limit(20)
 
   for (const { apId, domain } of missing) {

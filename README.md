@@ -902,6 +902,50 @@ a video — which is invisible from anywhere that is not consent-walled. See ADR
 `get_youtube_watches` is the raw record of what he **opened** on YouTube, most of which was
 never marked anywhere. The two are separate stores and neither filters the other.
 
+### Twitter archives
+
+A Twitter archive ("Download an archive of your data") can be imported as an actor,
+`@<username>@twitter.com`, with one post per tweet — so `get_actor_posts`,
+`search_actor_content`, `get_hashtag_stats` and the rest read it exactly as they read any
+other account. It is **imported by hand and never updates**: there is no server behind
+`twitter.com` here, and nothing polls, follows or refreshes it.
+
+```bash
+# unzip each export under /srv/twitter-import on the box, then — as a one-off container,
+# not inside the running app (the image's entrypoint starts the server, hence --entrypoint):
+cd /srv/bot
+docker compose run --rm --no-deps -v /srv/twitter-import:/import:ro --entrypoint npx app \
+  tsx scripts/import-twitter-archive.ts \
+  /import/mthorr_twitter_archive /import/norskus_twitter_archive_20201107 --dry-run   # report only
+# …then the same command without --dry-run
+```
+
+Give every account in one run: a reply from one account to the other then points at a
+tweet that is actually imported. The command is idempotent (re-running updates in place and
+copies nothing new), reports tweets it could not map and rows the database refused, and
+exits non-zero if any did not land.
+
+What is kept: **every tweet** (own, replies, retweets), with its date, language, hashtags,
+mentions, expanded links, reply parent, place, client, like/retweet counts, sensitivity flag
+and photos/videos (served from the `archive_media` volume at
+`/archive/media/twitter/<account>/…`) — and the tweet exactly as exported, in
+`raw.twitterArchive.tweet`, so a field nobody mapped is re-derivable. The profile (bio,
+avatar, banner, creation date, rename history) becomes the actor. Not read at all: the
+archive's email, phone number, IP audit, direct messages, likes and follower/following
+lists.
+
+Things to know when querying:
+
+- **Retweets are type `Announce`.** `object_types: ["Note"]` is the account's own writing;
+  leave the filter off for the whole timeline.
+- **`ap_id` is the tweet's permalink**, `https://twitter.com/<username>/status/<id>`; handles
+  are matched case-insensitively. The `<username>` is the account's *current* screen name
+  (`mvrkws`, not `norskus`); earlier names are in the actor's `raw.twitterArchive`.
+- Posts are marked public (they were), so they appear on the REST API. They are **not** on
+  meg.msge.no, which only shows accounts listed in `STREAM_SOURCES`.
+
+See [ADR 0067](docs/decision-records/0067-a-twitter-archive-is-an-actor-that-never-updates.md).
+
 ### Last.fm scrobbles
 
 When `LASTFM_API_KEY` and `LASTFM_USERNAME` are set, the server ingests the user's Last.fm

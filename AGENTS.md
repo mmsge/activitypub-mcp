@@ -91,6 +91,26 @@ Rules not to "simplify" back:
   A genuinely private post refuses the AP object too, which is the leg that can tell the
   difference.
 
+## Twitter archives are actors that never update
+
+`@MThorr@twitter.com` and `@mvrkws@twitter.com` are imported archives (ADR 0067), stored as
+ordinary actors and `objects` rows. `twitter.com` is in `ARCHIVE_DOMAINS`
+(`src/lib/archive-actors.ts`); there is no server behind it.
+
+Rules not to "simplify" back:
+
+- **Never dial an archive actor.** `resolveActorByHandle` answers from the table,
+  `fetchActor` returns the stored row at any age, and `refreshStaleActors` skips the domain.
+  Removing any one of the three brings back a WebFinger call to Twitter or 20 failed
+  refreshes per run.
+- **Retweets are type `Announce`**, so `object_types: ["Note"]` means the account's own words.
+- **The tweet rides along verbatim in `raw.twitterArchive.tweet`.** The importer is an
+  upsert precisely so a parser fix is a re-run; do not drop fields from `raw` as "unused".
+- **The importer does not go through `ingestObject`.** Its enrichment queues and msge.no
+  webhook are for live objects. Derive columns with the same helpers instead.
+- **The archive's email, phone, IPs, DMs, likes and follower lists are not imported.**
+- **`ARCHIVE_MEDIA_DIR` is never swept** (unlike the image cache): those files are the archive.
+
 ## Scrobble races
 
 Two things in the listening history race head-to-head, and a **side is an entity**: an

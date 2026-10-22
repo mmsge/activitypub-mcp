@@ -51,6 +51,10 @@ services:
     # by default) — the app sweeps it, Docker does not.
     volumes:
       - image_cache:/data/images
+      # Photos and videos of imported archives (Twitter), served at /archive/media/. A
+      # separate volume from the cache above on purpose: nothing sweeps this one, because
+      # these files are the archive. ~265 MB for the two Twitter accounts (ADR 0067).
+      - archive_media:/data/archive
     depends_on:
       db:
         condition: service_healthy
@@ -72,3 +76,4 @@ services:
 volumes:
   postgres_data:
   image_cache:
+  archive_media:
