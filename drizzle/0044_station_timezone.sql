@@ -1,0 +1,11 @@
+-- The time zone a station's clocks actually keep, derived from the country it
+-- geocoded to.
+--
+-- `train_trips.from_tz`/`to_tz` are viaduct.world's, and Viaduct writes one zone
+-- per offset rule rather than per station: every CET station, Oslo S and Praha
+-- hl.n. alike, arrives as Europe/Paris. Those columns stay verbatim, because
+-- `departure_at` was computed from them and the next import would only write them
+-- back. This column is where the true zone lives, and the trip API prefers it.
+-- Null until the station is geocoded (or re-geocoded) into a mapped country.
+-- See ADR 0065.
+ALTER TABLE "stations" ADD COLUMN "timezone" text;

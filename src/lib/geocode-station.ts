@@ -10,10 +10,16 @@ import { logger } from './logger.js'
  * error reads the same weather. That is what makes a bare name lookup adequate
  * and a station-by-station gazetteer unnecessary.
  *
- * The hard part is not precision but *country*. "Bergen" is a Norwegian city and
- * a Dutch one; "Næstved" is unambiguous and "Malmö C" is a local abbreviation.
- * The trips already carry the answer: viaduct.world records an IANA timezone per
- * station, so `Europe/Oslo` says Norway before any lookup happens.
+ * The hard part is not precision but *country*. "Bergen" is a Norwegian city, a
+ * Dutch one and the Dutch name for Mons; "Malmö C" is a local abbreviation.
+ *
+ * The trip's timezone does NOT answer that, although this file once assumed it
+ * did. viaduct.world's export writes one zone per UTC offset rule, not per
+ * station: Oslo S, Bergen, Göteborgs central, Praha hl.n. and every other CET
+ * station all arrive as `Europe/Paris`, and only the UK ones as `Europe/London`.
+ * Used as a country filter, that put Bergen in Picardy and Oslo S in Strasbourg
+ * (ADR 0065). So the zone is now only what it really is, an offset: a hit in a
+ * country whose clock disagrees with the leg's is rejected, and nothing more.
  *
  * Nominatim's usage policy allows one request a second and requires an
  * identifying User-Agent. Both are honoured here and in the job that drives it.
@@ -26,48 +32,86 @@ const FETCH_TIMEOUT_MS = 10_000
 const USER_AGENT = `activitypub-mcp/1.0 (+https://${config.APP_DOMAIN})`
 
 /**
- * IANA zone → ISO 3166-1 alpha-2, for the countries the trips actually reach.
+ * ISO 3166-1 alpha-2 → the IANA zone its clocks keep, for the countries a European
+ * rail archive reaches.
  *
- * Deliberately a lookup table rather than a library. `Intl` will not map a zone to
- * a country, the full IANA set is thousands of entries of which these are the ones
- * a European rail archive sees, and an unknown zone falls back to an unqualified
- * search rather than a wrong country — which is the failure that matters.
+ * This runs one way only, from a geocoded country to a zone, never back. A zone
+ * names a clock, and Viaduct uses one CET zone for all of central Europe, so
+ * reading a country out of it is the mistake ADR 0065 records. A table rather than
+ * a library: `Intl` will not map a country to a zone, and an unmapped country is
+ * simply left without one rather than given a wrong one.
  */
-const TZ_COUNTRY: Record<string, string> = {
-  'Europe/Oslo': 'no',
-  'Europe/Stockholm': 'se',
-  'Europe/Copenhagen': 'dk',
-  'Europe/Helsinki': 'fi',
-  'Europe/London': 'gb',
-  'Europe/Dublin': 'ie',
-  'Europe/Berlin': 'de',
-  'Europe/Amsterdam': 'nl',
-  'Europe/Brussels': 'be',
-  'Europe/Luxembourg': 'lu',
-  'Europe/Paris': 'fr',
-  'Europe/Madrid': 'es',
-  'Europe/Lisbon': 'pt',
-  'Europe/Rome': 'it',
-  'Europe/Zurich': 'ch',
-  'Europe/Vienna': 'at',
-  'Europe/Prague': 'cz',
-  'Europe/Warsaw': 'pl',
-  'Europe/Budapest': 'hu',
-  'Europe/Bratislava': 'sk',
-  'Europe/Ljubljana': 'si',
-  'Europe/Zagreb': 'hr',
+const COUNTRY_TZ: Record<string, string> = {
+  no: 'Europe/Oslo',
+  se: 'Europe/Stockholm',
+  dk: 'Europe/Copenhagen',
+  fi: 'Europe/Helsinki',
+  gb: 'Europe/London',
+  ie: 'Europe/Dublin',
+  de: 'Europe/Berlin',
+  nl: 'Europe/Amsterdam',
+  be: 'Europe/Brussels',
+  lu: 'Europe/Luxembourg',
+  fr: 'Europe/Paris',
+  es: 'Europe/Madrid',
+  pt: 'Europe/Lisbon',
+  it: 'Europe/Rome',
+  ch: 'Europe/Zurich',
+  li: 'Europe/Vaduz',
+  at: 'Europe/Vienna',
+  cz: 'Europe/Prague',
+  pl: 'Europe/Warsaw',
+  hu: 'Europe/Budapest',
+  sk: 'Europe/Bratislava',
+  si: 'Europe/Ljubljana',
+  hr: 'Europe/Zagreb',
+  rs: 'Europe/Belgrade',
+  ee: 'Europe/Tallinn',
+  lv: 'Europe/Riga',
+  lt: 'Europe/Vilnius',
+  ro: 'Europe/Bucharest',
+  bg: 'Europe/Sofia',
+  gr: 'Europe/Athens',
+}
+
+/** Every mapped (country, zone) pair, for SQL that needs the table as rows. */
+export const COUNTRY_ZONES: ReadonlyArray<readonly [string, string]> = Object.entries(COUNTRY_TZ)
+
+/** The zone a geocoded country keeps, or null when the country is not mapped. */
+export function timezoneForCountry(countryCode: string | null | undefined): string | null {
+  if (!countryCode) return null
+  return COUNTRY_TZ[countryCode.toLowerCase()] ?? null
+}
+
+/** A winter and a summer instant: two zones that agree on both keep the same clock. */
+const PROBE_INSTANTS = [new Date('2026-01-15T12:00:00Z'), new Date('2026-07-15T12:00:00Z')]
+
+function utcOffsets(zone: string): string[] | null {
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'longOffset' })
+    return PROBE_INSTANTS.map((d) => fmt.formatToParts(d).find((p) => p.type === 'timeZoneName')?.value ?? '')
+  } catch {
+    return null
+  }
 }
 
 /**
- * The country a timezone implies, or null.
+ * Whether a hit in `countryCode` is plausible for a leg recorded in `legZone`.
  *
- * 'UTC' is the parser's fallback when the CSV carried no zone (see
- * parse-trips-csv.ts), so it must not be treated as a country hint — it means
- * "unknown", and biasing a search on it would be inventing information.
+ * True unless both are known and their clocks disagree, winter or summer. 'UTC' is
+ * the CSV parser's fallback for a missing zone (parse-trips-csv.ts), so it means
+ * "unknown" here, never "the UK". This is a sanity check, not a country hint:
+ * `Europe/Paris` accepts Norway, Sweden and Czechia alike, which is exactly right,
+ * and refuses London, which is exactly what it is for.
  */
-export function countryForTimezone(tz: string | null | undefined): string | null {
-  if (!tz || tz === 'UTC') return null
-  return TZ_COUNTRY[tz] ?? null
+export function offsetAgrees(legZone: string | null | undefined, countryCode: string | null): boolean {
+  if (!legZone || legZone === 'UTC') return true
+  const countryZone = timezoneForCountry(countryCode)
+  if (!countryZone) return true
+  const a = utcOffsets(legZone)
+  const b = utcOffsets(countryZone)
+  if (!a || !b) return true
+  return a[0] === b[0] && a[1] === b[1]
 }
 
 export interface GeocodeHit {
@@ -76,17 +120,28 @@ export interface GeocodeHit {
   /** Nominatim's full matched name, stored so a wrong hit is auditable. */
   displayName: string
   countryCode: string | null
+  /** OSM tags this as a railway station or halt, not a town, a stop sign or a tram stop. */
+  isStation: boolean
+}
+
+/** The OSM `category`/`type` pairs that mean "a railway station", as jsonv2 reports them. */
+function isStationTag(category: unknown, type: unknown): boolean {
+  if (category === 'railway') return type === 'station' || type === 'halt' || type === 'stop'
+  if (category === 'building') return type === 'train_station'
+  if (category === 'public_transport') return type === 'station'
+  return false
 }
 
 /**
- * Parse a Nominatim `/search` response down to the first usable hit, or null.
+ * Parse a Nominatim `/search` response into every usable hit, in Nominatim's order.
  *
  * Pure, so the coordinate validation is testable without a network. Rejects
  * anything out of range, and — as elsewhere in this codebase — never lets an
  * absent value coerce to 0, which would silently tag Null Island.
  */
-export function parseNominatim(json: unknown): GeocodeHit | null {
+export function parseNominatimHits(json: unknown): GeocodeHit[] {
   const list = Array.isArray(json) ? json : []
+  const hits: GeocodeHit[] = []
   for (const raw of list) {
     if (!raw || typeof raw !== 'object') continue
     const r = raw as Record<string, unknown>
@@ -102,25 +157,61 @@ export function parseNominatim(json: unknown): GeocodeHit | null {
     const cc = typeof r.address === 'object' && r.address
       ? (r.address as Record<string, unknown>).country_code
       : undefined
-    return {
+    hits.push({
       latitude,
       longitude,
       displayName: typeof r.display_name === 'string' ? r.display_name : '',
       countryCode: typeof cc === 'string' ? cc.toLowerCase() : null,
-    }
+      isStation: isStationTag(r.category, r.type),
+    })
   }
-  return null
+  return hits
 }
 
-/** One Nominatim call, optionally restricted to a country. Never throws. */
-async function search(name: string, countryCode: string | null): Promise<GeocodeHit | null> {
+/** The first usable hit, or null. */
+export function parseNominatim(json: unknown): GeocodeHit | null {
+  return parseNominatimHits(json)[0] ?? null
+}
+
+/**
+ * Pick the station from the two searches. Pure; `geocodeStation` does the I/O.
+ *
+ * `plain` is the bare name, `station` the name with " station" appended, which
+ * is only asked when the bare name did not land on a station. Both are already
+ * filtered to hits whose clock agrees with the leg's.
+ *
+ * - The bare name's first hit, if it is a station, wins outright. Oslo S, Malmö C,
+ *   Göteborgs central and Praha hl.n. all land here.
+ * - Otherwise the bare name still says which *country* the place most likely is
+ *   ("Bergen" → Norway), and the first station in that country wins. That is what
+ *   stops "Bergen station" from resolving to Mons, whose Dutch name it is.
+ * - Failing that, the bare name's own hit: the right town is as good as the right
+ *   platform for weather (ADR 0028). "Paris Nord" is the case for the ordering —
+ *   bare, it is a hamlet in Haute-Garonne; as a station, it is Gare du Nord.
+ * - With no bare hit at all, the first station is the only lead left.
+ */
+export function chooseStationHit(plain: GeocodeHit[], station: GeocodeHit[]): GeocodeHit | null {
+  const top = plain[0]
+  if (top?.isStation) return top
+  const stations = station.filter((h) => h.isStation)
+  if (top) {
+    if (top.countryCode) {
+      const sameCountry = stations.find((h) => h.countryCode === top.countryCode)
+      if (sameCountry) return sameCountry
+    }
+    return top
+  }
+  return stations[0] ?? null
+}
+
+/** One unrestricted Nominatim call. Never throws; a failure is an empty list. */
+async function search(query: string): Promise<GeocodeHit[]> {
   const params = new URLSearchParams({
-    q: name,
+    q: query,
     format: 'jsonv2',
-    limit: '1',
+    limit: String(CANDIDATES),
     addressdetails: '1',
   })
-  if (countryCode) params.set('countrycodes', countryCode)
 
   try {
     const res = await fetch(`${NOMINATIM_URL}?${params}`, {
@@ -128,13 +219,13 @@ async function search(name: string, countryCode: string | null): Promise<Geocode
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     })
     if (!res.ok) {
-      logger.warn({ name, countryCode, status: res.status }, 'Nominatim lookup failed')
-      return null
+      logger.warn({ query, status: res.status }, 'Nominatim lookup failed')
+      return []
     }
-    return parseNominatim(await res.json())
+    return parseNominatimHits(await res.json())
   } catch (e) {
-    logger.warn({ name, countryCode, err: (e as Error).message }, 'Nominatim lookup errored')
-    return null
+    logger.warn({ query, err: (e as Error).message }, 'Nominatim lookup errored')
+    return []
   }
 }
 
@@ -143,41 +234,34 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 /**
  * Look one station up. Returns null on a miss or any failure — never throws.
  *
- * The country hint is a *bias*, not a filter, so a miss falls back to an
- * unqualified search. It has to: the timezone is the station's, not necessarily
- * its country's, and a leg recorded with the wrong zone — or with the parser's
- * 'UTC' fallback on one end only — would otherwise make a perfectly findable
- * station permanently unfindable. Verified against exactly that case: Åndalsnes
- * searched as Danish returns nothing, and is found on the retry.
+ * No country filter: the leg's zone is an offset, not a place (see the top of
+ * this file). It only removes hits whose clock is wrong for the leg, which keeps
+ * a CET leg out of London and a London leg out of Bergen.
  *
- * The second call only happens on a miss, and waits out Nominatim's one-a-second
- * rule first so the fallback cannot turn a slow backfill into an impolite one.
+ * The second call only happens when the bare name did not land on a station, and
+ * waits out Nominatim's one-a-second rule first so it cannot turn a slow backfill
+ * into an impolite one.
  */
 export async function geocodeStation(
   name: string,
   timezone: string | null,
 ): Promise<GeocodeHit | null> {
-  const countryCode = countryForTimezone(timezone)
+  const plausible = (hits: GeocodeHit[]) => hits.filter((h) => offsetAgrees(timezone, h.countryCode))
 
-  const biased = await search(name, countryCode)
-  if (biased) return biased
-  if (!countryCode) {
-    logger.warn({ name }, 'Nominatim returned no usable result')
-    return null
+  const plain = plausible(await search(name))
+  let station: GeocodeHit[] = []
+  if (!plain[0]?.isStation) {
+    await sleep(RETRY_SPACING_MS)
+    station = plausible(await search(`${name} station`))
   }
 
-  await sleep(RETRY_SPACING_MS)
-  const unbiased = await search(name, null)
-  if (!unbiased) {
-    logger.warn({ name, countryCode }, 'Nominatim returned no usable result, biased or not')
-  } else {
-    logger.info(
-      { name, countryCode, matched: unbiased.countryCode },
-      'Station found only without its timezone country hint',
-    )
-  }
-  return unbiased
+  const hit = chooseStationHit(plain, station)
+  if (!hit) logger.warn({ name, timezone }, 'Nominatim returned no usable result')
+  return hit
 }
 
-/** Honours the one-request-a-second policy between the biased and unbiased tries. */
+/** Candidates asked for per search: enough to find the station behind a town. */
+const CANDIDATES = 5
+
+/** Honours the one-request-a-second policy between the two searches. */
 const RETRY_SPACING_MS = 1_100

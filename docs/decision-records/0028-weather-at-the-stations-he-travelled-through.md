@@ -1,6 +1,6 @@
 # 0028 — The weather at the stations he travelled through
 
-- **Status:** Accepted
+- **Status:** Accepted; the timezone-as-country hint is superseded by [0065](0065-a-timezone-names-a-clock-not-a-country.md)
 - **Date:** 2026-08-05
 - **Contributors:** Markus (asked for the weather join, deferred through three earlier records, and chose to do it now) + Claude (proposed the two-table split, implemented the geocoding and the archive fetch)
 - **Affects:** `drizzle/0025_station_weather.sql`, `src/db/schema.ts`, `src/lib/geocode-station.ts`, `src/lib/fetch-weather.ts`, `src/lib/weather-code.ts`, `src/jobs/sync-stations.ts`, `src/jobs/sync-station-weather.ts`, `src/mcp/tools/trip-weather.ts`, `src/stream/query.ts`, `src/rest/table.ts`

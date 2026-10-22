@@ -6693,10 +6693,14 @@ components:
         tags: { type: [array, "null"], items: { type: string } }
         fromTz:
           type: [string, "null"]
-          description: IANA time zone the departure was recorded in, e.g. Europe/Oslo.
+          description: >-
+            IANA time zone of the origin station, e.g. Europe/Oslo, derived from the
+            country it geocoded to. Falls back to the zone viaduct.world recorded for
+            the leg, which is offset-correct but not a place (every CET station is
+            exported as Europe/Paris).
         toTz:
           type: [string, "null"]
-          description: IANA time zone the arrival was recorded in.
+          description: IANA time zone of the destination station, with the same fallback as fromTz.
         fromLat:
           type: [number, "null"]
           description: Origin station latitude (WGS84); null when not geocoded.

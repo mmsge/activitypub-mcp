@@ -104,8 +104,11 @@ export function buildTrainTripsQuery(input: z.infer<typeof getTrainTripsSchema>)
       night: trainTrips.night,
       status: trainTrips.status,
       tags: trainTrips.tags,
-      fromTz: trainTrips.fromTz,
-      toTz: trainTrips.toTz,
+      // The station's own zone where it is known, else the leg's. Viaduct writes
+      // Europe/Paris for every CET station, so the leg's zone names a clock, not a
+      // place; the station's is derived from the country it geocoded to (ADR 0065).
+      fromTz: sql<string | null>`coalesce(${fromStation.timezone}, ${trainTrips.fromTz})`,
+      toTz: sql<string | null>`coalesce(${toStation.timezone}, ${trainTrips.toTz})`,
       fromLat: fromStation.latitude,
       fromLon: fromStation.longitude,
       toLat: toStation.latitude,

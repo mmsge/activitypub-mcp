@@ -400,3 +400,19 @@ Hono + TypeScript, PostgreSQL. The `db` service (postgres) is internal-only and 
 
 Requires `.env` on the server at `/srv/bot/.env`.
 Never commit `.env` to git.
+
+## Station geocoding: a timezone is not a country
+
+viaduct.world exports **`Europe/Paris` for every CET station** (Oslo S, Bergen, Göteborgs
+central, Praha hl.n. …) and `Europe/London` for the UK ones: one zone per offset rule, not
+per station. Read as a country, that put Bergen in Picardy. See ADR 0065.
+
+Rules not to "simplify" back:
+
+- **Never derive a country from `train_trips.from_tz`/`to_tz`.** The geocoder uses the leg's
+  zone only to refuse hits whose clock disagrees with it.
+- **`train_trips.from_tz`/`to_tz` stay verbatim.** `departure_at` is computed from them and
+  the next import writes them back. The station's real zone is `stations.timezone`, derived
+  from its geocoded country, and the trip API prefers it.
+- **`source = 'manual'` rows are never re-geocoded**, by the scheduler or by
+  `npm run regeocode-stations`. Pinning a row is the fix for a station Nominatim gets wrong.

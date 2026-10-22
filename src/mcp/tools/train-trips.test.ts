@@ -79,10 +79,12 @@ describe('buildTrainTripsQuery', () => {
     expect(q).not.toMatch(/\binner join\b/)
   })
 
-  it('reads the zones off the trip and the coordinates off each end', () => {
+  it('prefers each station\'s own zone over the leg\'s, and reads the coordinates off each end', () => {
+    // Viaduct writes Europe/Paris for every CET station; the station's zone comes
+    // from the country it geocoded to (ADR 0065). The leg's zone is the fallback.
     const q = render()
-    expect(q).toContain('"train_trips"."from_tz"')
-    expect(q).toContain('"train_trips"."to_tz"')
+    expect(q).toContain('coalesce("from_station_geo"."timezone", "train_trips"."from_tz")')
+    expect(q).toContain('coalesce("to_station_geo"."timezone", "train_trips"."to_tz")')
     expect(q).toContain('"from_station_geo"."latitude"')
     expect(q).toContain('"from_station_geo"."longitude"')
     expect(q).toContain('"to_station_geo"."latitude"')
