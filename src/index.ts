@@ -4,6 +4,7 @@ import { config } from './config.js'
 import { logger } from './lib/logger.js'
 import { ensureKeys } from './crypto/keys.js'
 import { activityPubRouter } from './activitypub/router.js'
+import { archiveMediaRouter } from './activitypub/archive-media.js'
 import { webfingerRouter } from './activitypub/webfinger.js'
 import { nodeinfoRouter } from './activitypub/nodeinfo.js'
 import { hostMetaRouter } from './activitypub/host-meta.js'
@@ -56,6 +57,9 @@ app.route('', nodeinfoRouter)
 
 // ActivityPub
 app.route('', activityPubRouter)
+
+// Files of imported archives (Twitter photos/videos), served read-only. See ADR 0067.
+app.route('', archiveMediaRouter)
 
 // MCP + its OAuth authorization server
 app.route('', mcpRouter)

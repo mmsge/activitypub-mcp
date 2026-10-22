@@ -26,6 +26,7 @@
     "import-youtube-watches": "tsx scripts/import-youtube-watches.ts",
     "youtube-import-verify": "tsx scripts/youtube-import-verify.ts",
     "classify-youtube-shorts": "tsx scripts/classify-youtube-shorts.ts",
+    "import-twitter-archive": "tsx scripts/import-twitter-archive.ts",
     "post-breakouts": "tsx scripts/post-breakouts.ts",
     "walk-threads": "tsx scripts/walk-threads.ts",
     "lint:openapi": "redocly lint docs/openapi.yaml",
