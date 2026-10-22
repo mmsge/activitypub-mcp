@@ -1,7 +1,7 @@
 import { sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { logger } from '../lib/logger.js'
-import { geocodeStation } from '../lib/geocode-station.js'
+import { geocodeStation, timezoneForCountry, type GeocodeHit } from '../lib/geocode-station.js'
 
 /**
  * Give every station in the trip history a coordinate.
@@ -37,13 +37,42 @@ export interface SyncStationsResult {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+/**
+ * The zone the trips recorded for station `s`, as a correlated subquery. Where the
+ * two ends of the legs disagree, the most common one wins, then the alphabetically
+ * first for stability.
+ *
+ * This is Viaduct's zone, which is an offset rule and not a place (ADR 0065): the
+ * geocoder uses it only to refuse hits whose clock is wrong.
+ */
+export const LEG_ZONE = sql`(
+  SELECT tz FROM (
+    SELECT from_tz AS tz FROM train_trips WHERE from_station = s.name AND from_tz IS NOT NULL
+    UNION ALL
+    SELECT to_tz AS tz FROM train_trips WHERE to_station = s.name AND to_tz IS NOT NULL
+  ) z
+  GROUP BY tz
+  ORDER BY count(*) DESC, tz ASC
+  LIMIT 1
+)`
+
+/** Write a geocode hit onto a station, with the zone its country keeps. */
+export async function storeHit(stationId: string, hit: GeocodeHit): Promise<void> {
+  await getDb().execute(sql`
+    UPDATE stations
+    SET latitude = ${hit.latitude}, longitude = ${hit.longitude},
+        display_name = ${hit.displayName}, country_code = ${hit.countryCode},
+        timezone = ${timezoneForCountry(hit.countryCode)},
+        geocoded_at = now(), last_attempt_at = now(),
+        attempts = attempts + 1, updated_at = now()
+    WHERE id = ${stationId}`)
+}
+
 export async function syncStations(): Promise<SyncStationsResult> {
   const db = getDb()
 
-  // Every distinct station name across both ends of every trip, with the timezone
-  // recorded for it — the country hint the geocoder uses. A station that appears as
-  // both an origin and a destination yields one row; where the two disagree on a
-  // timezone, the most common one wins, then the alphabetically first for stability.
+  // Every distinct station name across both ends of every trip. A station that
+  // appears as both an origin and a destination yields one row.
   const registered = await db.execute(sql`
     INSERT INTO stations (name, country_code)
     SELECT s.name, NULL
@@ -56,16 +85,7 @@ export async function syncStations(): Promise<SyncStationsResult> {
     RETURNING id`)
 
   const pendingRows = (await db.execute(sql`
-    SELECT s.id::text AS id, s.name, (
-      SELECT tz FROM (
-        SELECT from_tz AS tz FROM train_trips WHERE from_station = s.name AND from_tz IS NOT NULL
-        UNION ALL
-        SELECT to_tz AS tz FROM train_trips WHERE to_station = s.name AND to_tz IS NOT NULL
-      ) z
-      GROUP BY tz
-      ORDER BY count(*) DESC, tz ASC
-      LIMIT 1
-    ) AS timezone
+    SELECT s.id::text AS id, s.name, ${LEG_ZONE} AS timezone
     FROM stations s
     WHERE s.latitude IS NULL
       AND s.source <> 'manual'
@@ -82,13 +102,7 @@ export async function syncStations(): Promise<SyncStationsResult> {
 
     const hit = await geocodeStation(station.name, station.timezone)
     if (hit) {
-      await db.execute(sql`
-        UPDATE stations
-        SET latitude = ${hit.latitude}, longitude = ${hit.longitude},
-            display_name = ${hit.displayName}, country_code = ${hit.countryCode},
-            geocoded_at = now(), last_attempt_at = now(),
-            attempts = attempts + 1, updated_at = now()
-        WHERE id = ${station.id}`)
+      await storeHit(station.id, hit)
       geocoded++
     } else {
       await db.execute(sql`

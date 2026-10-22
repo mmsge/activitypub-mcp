@@ -1143,6 +1143,12 @@ export const stations = pgTable('stations', {
   /** What the geocoder actually matched — so a wrong hit is visible, not silent. */
   displayName: text('display_name'),
   countryCode: text('country_code'),
+  /**
+   * The IANA zone the station's country keeps, derived from `country_code`. Not the
+   * trip's `from_tz`/`to_tz`: Viaduct writes Europe/Paris for every CET station.
+   * See ADR 0065.
+   */
+  timezone: text('timezone'),
   /** 'nominatim' | 'manual'. A manual row is never re-geocoded. */
   source: text('source').notNull().default('nominatim'),
   geocodedAt: timestamp('geocoded_at', { withTimezone: true }),

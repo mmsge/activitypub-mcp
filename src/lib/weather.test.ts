@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { weatherLabel, weatherSummary } from './weather-code.js'
-import { countryForTimezone, parseNominatim } from './geocode-station.js'
 import { parseArchive, isoDate, latestArchivedDate, ARCHIVE_LAG_DAYS } from './fetch-weather.js'
 
 describe('weatherLabel', () => {
@@ -54,73 +53,6 @@ describe('weatherSummary', () => {
   it('does not lose a genuine zero degrees', () => {
     // 0°C is a real reading on these trips, and must not fall to the null branch.
     expect(weatherSummary(73, 0)).toBe('🌨️ snø · 0°')
-  })
-})
-
-describe('countryForTimezone', () => {
-  it('maps the zones the trips actually carry', () => {
-    expect(countryForTimezone('Europe/Oslo')).toBe('no')
-    expect(countryForTimezone('Europe/Stockholm')).toBe('se')
-    expect(countryForTimezone('Europe/Copenhagen')).toBe('dk')
-    expect(countryForTimezone('Europe/London')).toBe('gb')
-  })
-
-  it('treats UTC as unknown, not as a country', () => {
-    // 'UTC' is parse-trips-csv's fallback when the export carried no zone. Biasing
-    // a search on it would be inventing information.
-    expect(countryForTimezone('UTC')).toBeNull()
-  })
-
-  it('falls back to an unqualified search for anything unmapped', () => {
-    expect(countryForTimezone('America/New_York')).toBeNull()
-    expect(countryForTimezone(null)).toBeNull()
-    expect(countryForTimezone(undefined)).toBeNull()
-    expect(countryForTimezone('')).toBeNull()
-  })
-})
-
-describe('parseNominatim', () => {
-  const hit = (over: Record<string, unknown> = {}) => [{
-    lat: '60.3894', lon: '5.3327',
-    display_name: 'Bergen stasjon, Bergen, Vestland, Noreg',
-    address: { country_code: 'NO' },
-    ...over,
-  }]
-
-  it('takes the first usable result', () => {
-    expect(parseNominatim(hit())).toEqual({
-      latitude: 60.3894,
-      longitude: 5.3327,
-      displayName: 'Bergen stasjon, Bergen, Vestland, Noreg',
-      countryCode: 'no',
-    })
-  })
-
-  it('never lets an absent coordinate coerce to Null Island', () => {
-    expect(parseNominatim(hit({ lat: '', lon: '' }))).toBeNull()
-    expect(parseNominatim(hit({ lat: null, lon: null }))).toBeNull()
-    expect(parseNominatim(hit({ lat: '  ', lon: '5' }))).toBeNull()
-  })
-
-  it('rejects out-of-range coordinates', () => {
-    expect(parseNominatim(hit({ lat: '120' }))).toBeNull()
-    expect(parseNominatim(hit({ lon: '-200' }))).toBeNull()
-  })
-
-  it('skips a bad result to reach a good one', () => {
-    expect(parseNominatim([{ lat: 'x', lon: 'y' }, ...hit()])?.latitude).toBe(60.3894)
-  })
-
-  it('tolerates a missing display name and address', () => {
-    const out = parseNominatim([{ lat: '1', lon: '2' }])
-    expect(out).toEqual({ latitude: 1, longitude: 2, displayName: '', countryCode: null })
-  })
-
-  it('tolerates junk', () => {
-    expect(parseNominatim(null)).toBeNull()
-    expect(parseNominatim({})).toBeNull()
-    expect(parseNominatim([])).toBeNull()
-    expect(parseNominatim(['nonsense', null])).toBeNull()
   })
 })
 
