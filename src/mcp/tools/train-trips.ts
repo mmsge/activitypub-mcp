@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
-import { trainTrips } from '../../db/schema.js'
+import { trainTrips, stations } from '../../db/schema.js'
 import { and, or, eq, gte, lt, lte, ilike, count, sql, type SQL } from 'drizzle-orm'
-import { type PgColumn } from 'drizzle-orm/pg-core'
+import { type PgColumn, alias } from 'drizzle-orm/pg-core'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
 
 // ---- shared filter handling ------------------------------------------------
@@ -70,7 +70,13 @@ export const getTrainTripsSchema = z.object({
     .describe('Opaque pagination cursor from a previous response\'s next_cursor. When set, page/offset is ignored and traversal continues from where the last page ended.'),
 })
 
-export async function getTrainTrips(input: z.infer<typeof getTrainTripsSchema>) {
+// The two ends of a leg, joined by name to the geocoded `stations` table. LEFT
+// joins: a trip whose station has not been geocoded yet still comes back, with
+// null coordinates. `stations.name` is unique, so a join never multiplies a trip.
+const fromStation = alias(stations, 'from_station_geo')
+const toStation = alias(stations, 'to_station_geo')
+
+export function buildTrainTripsQuery(input: z.infer<typeof getTrainTripsSchema>) {
   const db = getDb()
   const conditions = buildConditions(input)
 
@@ -81,7 +87,7 @@ export async function getTrainTrips(input: z.infer<typeof getTrainTripsSchema>) 
   const where = conditions.length ? and(...conditions) : undefined
   const orderBy = keysetOrderBy(trainTrips.departureAt, trainTrips.id, input.sort_order)
 
-  const baseQuery = db
+  return db
     .select({
       id: trainTrips.id,
       departureAt: trainTrips.departureAt,
@@ -98,11 +104,44 @@ export async function getTrainTrips(input: z.infer<typeof getTrainTripsSchema>) 
       night: trainTrips.night,
       status: trainTrips.status,
       tags: trainTrips.tags,
+      fromTz: trainTrips.fromTz,
+      toTz: trainTrips.toTz,
+      fromLat: fromStation.latitude,
+      fromLon: fromStation.longitude,
+      toLat: toStation.latitude,
+      toLon: toStation.longitude,
     })
     .from(trainTrips)
+    .leftJoin(fromStation, eq(fromStation.name, trainTrips.fromStation))
+    .leftJoin(toStation, eq(toStation.name, trainTrips.toStation))
     .where(where)
     .orderBy(orderBy)
     .limit(input.limit)
+}
+
+type TripQueryRow = Awaited<ReturnType<typeof buildTrainTripsQuery>>[number]
+
+// Postgres numeric comes back as a string; the API speaks numbers, or null when
+// the station has not been geocoded.
+const coord = (v: string | null): number | null => {
+  if (v == null) return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+/** One API row: the internal id dropped, coordinates as numbers. */
+export function shapeTripRow({ id: _id, fromLat, fromLon, toLat, toLon, ...rest }: TripQueryRow) {
+  return {
+    ...rest,
+    fromLat: coord(fromLat),
+    fromLon: coord(fromLon),
+    toLat: coord(toLat),
+    toLon: coord(toLon),
+  }
+}
+
+export async function getTrainTrips(input: z.infer<typeof getTrainTripsSchema>) {
+  const baseQuery = buildTrainTripsQuery(input)
 
   const rows = input.cursor
     ? await baseQuery
@@ -113,7 +152,7 @@ export async function getTrainTrips(input: z.infer<typeof getTrainTripsSchema>) 
     ? encodeCursor(last.departureAt, last.id)
     : null
 
-  const tripRows = rows.map(({ id: _id, ...rest }) => rest)
+  const tripRows = rows.map(shapeTripRow)
 
   return {
     count: tripRows.length,
