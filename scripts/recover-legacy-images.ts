@@ -14,14 +14,15 @@
 //     --retry-missing    look up links the last run recorded as missing
 //
 // Writes, under <out>:
-//   <username>/<tweet date>_<tweet id>_<host>-<photo id>.<ext>   one file per tweet
+//   <username>/<username>_<tweet date>_<tweet id>_<host>-<photo id>.<ext>   one per tweet
+//                 (files from runs before the username prefix are renamed on the next run)
 //   index.csv     every link found, with tweet, status, file and where it came from
 //                 (the live Twitpic page, or the Wayback capture)
 //   state.json    what each link resolved to, so a re-run only looks up what is new
 //
 // Needs no database and no app config: it reads the archive folders and talks to
 // web.archive.org, nothing else. Safe to stop and restart at any point.
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadArchive } from '../src/lib/load-twitter-archive.js'
 import { parseTwitterDate } from '../src/lib/parse-twitter-archive.js'
@@ -116,8 +117,27 @@ const state: Record<string, StateEntry> = existsSync(statePath) ? JSON.parse(rea
 const saveState = () => writeFileSync(statePath, JSON.stringify(state, null, 2))
 
 const safe = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, '_')
-const fileFor = (u: Use, link: LegacyImageLink, ext: string) =>
-  join(safe(u.username), `${u.date?.slice(0, 10) ?? 'unknown'}_${u.tweetId}_${link.host}-${safe(link.id)}.${ext}`)
+const stem = (u: Use, link: LegacyImageLink) => `${u.date?.slice(0, 10) ?? 'unknown'}_${u.tweetId}_${link.host}-${safe(link.id)}`
+const fileFor = (u: Use, link: LegacyImageLink, ext: string) => join(safe(u.username), `${safe(u.username)}_${stem(u, link)}.${ext}`)
+/** The name the first version of this script used, without the username prefix. */
+const oldFileFor = (u: Use, link: LegacyImageLink, ext: string) => join(safe(u.username), `${stem(u, link)}.${ext}`)
+
+/** Rename a file saved under the old name, so earlier runs line up with the index. */
+const migrate = (u: Use, link: LegacyImageLink, ext: string): void => {
+  const from = join(out, oldFileFor(u, link, ext))
+  const to = join(out, fileFor(u, link, ext))
+  if (existsSync(from) && !existsSync(to)) renameSync(from, to)
+}
+
+// Bring files from earlier runs onto the current naming before deciding what is done.
+for (const { link, uses } of links.values()) {
+  const s = state[link.url]
+  if (s?.status !== 'found' || !s.file) continue
+  const ext = s.file.split('.').pop() ?? 'bin'
+  for (const u of uses) migrate(u, link, ext)
+  s.file = fileFor(uses[0], link, ext)
+}
+saveState()
 
 const client = new WaybackClient({ delayMs })
 let looked = 0
