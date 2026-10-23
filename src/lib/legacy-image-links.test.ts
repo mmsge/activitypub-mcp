@@ -9,7 +9,7 @@ describe('findLegacyLinks', () => {
 
   it('finds every host, in order of appearance', () => {
     const links = findLegacyLinks(
-      'a yfrog.com/abc123 b http://twitgoo.com/xyz c http://lockerz.com/s/12345 d http://instagr.am/p/Ab_C-d/ e twitpic.com/zz',
+      'a yfrog.com/abc123 b http://twitgoo.com/xyz c http://lockerz.com/s/12345 d http://instagr.am/p/Ab_C-d/ e twitpic.com/426yk',
     )
     expect(links.map((l) => l.host)).toEqual(['yfrog', 'twitgoo', 'plixi', 'instagram', 'twitpic'])
   })
@@ -20,7 +20,7 @@ describe('findLegacyLinks', () => {
   })
 
   it('treats case-different twitpic ids as one photo', () => {
-    expect(findLegacyLinks('twitpic.com/ABC twitpic.com/abc')).toHaveLength(1)
+    expect(findLegacyLinks('twitpic.com/426YK twitpic.com/426yk')).toHaveLength(1)
   })
 
   it('ignores twitpic storage and profile paths that are not a photo link', () => {
