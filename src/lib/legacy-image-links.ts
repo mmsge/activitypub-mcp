@@ -58,12 +58,32 @@ const RULES: HostRule[] = [
   { host: 'instagram', pattern: /(?:https?:\/\/)?(?:www\.)?(?:instagr\.am|instagram\.com)\/p\/([a-z0-9_-]+)/gi, normalise: (id) => `https://instagram.com/p/${id}/` },
 ]
 
+/**
+ * A link Twitter cut short when it truncated a long retweet to fit 140 characters: `http://twitpic.com/2 ...`
+ * or `…/3…`. The id is a fragment of a real one, and looking it up finds a stranger's
+ * photo, so it is dropped.
+ */
+function isTruncated(text: string, end: number): boolean {
+  // Only retweets were cut short; in his own tweet a link followed by "..." is whole.
+  if (!/^RT\s/.test(text)) return false
+  const after = text.slice(end, end + 4)
+  return /^\s?(?:\.\.\.|…)/.test(after)
+}
+
+/**
+ * Twitpic's ids were already four base-36 characters by its launch in 2008, so a shorter
+ * one is a fragment, not a photo.
+ */
+const MIN_ID_LENGTH: Partial<Record<LegacyHost, number>> = { twitpic: 4 }
+
 /** Every legacy photo link in one string, in order of appearance, without repeats. */
 export function findLegacyLinks(text: string): LegacyImageLink[] {
   const found: Array<LegacyImageLink & { at: number }> = []
   for (const rule of RULES) {
     for (const m of text.matchAll(rule.pattern)) {
       const id = m[1]
+      if (isTruncated(text, (m.index ?? 0) + m[0].length)) continue
+      if (id.length < (MIN_ID_LENGTH[rule.host] ?? 1)) continue
       found.push({ host: rule.host, id, url: rule.normalise(id), at: m.index ?? 0 })
     }
   }

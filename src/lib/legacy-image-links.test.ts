@@ -27,6 +27,24 @@ describe('findLegacyLinks', () => {
     expect(findLegacyLinks('http://twitpic.com/show/full/abc http://twitpic.com/photos/someone')).toEqual([])
   })
 
+  it('drops a link Twitter cut short in a truncated retweet', () => {
+    expect(findLegacyLinks('RT @SYFY: … by 5pm PT on 7/9 - http://twitpic.com/2 ...')).toEqual([])
+    expect(findLegacyLinks('RT @x: look http://twitpic.com/3zy…')).toEqual([])
+    expect(findLegacyLinks('RT @x: look http://yfrog.com/abc...')).toEqual([])
+  })
+
+  it('keeps a link followed by "..." in a tweet that is not a retweet', () => {
+    expect(findLegacyLinks('Guess where I am http://twitpic.com/517yh ...')).toHaveLength(1)
+  })
+
+  it('keeps a whole link at the end of a sentence', () => {
+    expect(findLegacyLinks('Look at this http://twitpic.com/517yh. Nice.')).toHaveLength(1)
+  })
+
+  it('drops a twitpic id too short to be real', () => {
+    expect(findLegacyLinks('http://twitpic.com/1 http://twitpic.com/abc')).toEqual([])
+  })
+
   it('ignores ordinary links', () => {
     expect(findLegacyLinks('http://www.vg.no https://youtu.be/VS2Cnx_eL6s')).toEqual([])
   })
