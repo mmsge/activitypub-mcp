@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { candidatesFor, extensionFor, findLegacyLinks, imageUrlFromPage, legacyLinksInTweet, twitpicNumber } from './legacy-image-links.js'
+import { candidatesFor, extensionFor, findLegacyLinks, imageUrlFromPage, legacyLinksInTweet, livePageFor, twitpicNumber } from './legacy-image-links.js'
 
 describe('findLegacyLinks', () => {
   it('finds a twitpic link in 2009 tweet text, without the trailing punctuation', () => {
@@ -56,6 +56,11 @@ describe('twitpicNumber', () => {
     expect(twitpicNumber('517yh')).toBe(String(5 * 36 ** 4 + 1 * 36 ** 3 + 7 * 36 ** 2 + 34 * 36 + 17))
   })
 
+  it('matches the number in the live twitpic image link', () => {
+    // twitpic.com/426yk serves dn3pm25xmtlyu.cloudfront.net/photos/large/6820796.jpg
+    expect(twitpicNumber('426yk')).toBe('6820796')
+  })
+
   it('is null for an id that is not base 36', () => {
     expect(twitpicNumber('ab_c')).toBeNull()
   })
@@ -92,8 +97,23 @@ describe('imageUrlFromPage', () => {
     expect(imageUrlFromPage('<link rel="image_src" href="http://a.com/i?x=1&amp;y=2">', 'http://a.com/')).toBe('http://a.com/i?x=1&y=2')
   })
 
+  it('takes the first image only when asked to, for a page that is just the photo', () => {
+    const html = '<html><img src="https://dn3pm25xmtlyu.cloudfront.net/photos/large/6820796.jpg?Expires=1&amp;Signature=s"></html>'
+    expect(imageUrlFromPage(html, 'https://twitpic.com/426yk')).toBeNull()
+    expect(imageUrlFromPage(html, 'https://twitpic.com/426yk', { anyImg: true })).toBe(
+      'https://dn3pm25xmtlyu.cloudfront.net/photos/large/6820796.jpg?Expires=1&Signature=s',
+    )
+  })
+
   it('is null for a page naming no image', () => {
     expect(imageUrlFromPage('<html><body>gone</body></html>', 'twitpic.com/1')).toBeNull()
+  })
+})
+
+describe('livePageFor', () => {
+  it('has a live page only for twitpic', () => {
+    expect(livePageFor({ host: 'twitpic', id: '426yk', url: '' })).toBe('https://twitpic.com/426yk')
+    expect(livePageFor({ host: 'yfrog', id: 'abc', url: '' })).toBeNull()
   })
 })
 

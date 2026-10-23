@@ -1,5 +1,6 @@
 // Recover the photos behind pre-2011 photo links (Twitpic, yfrog, Twitgoo, Plixi/Lockerz,
-// early Instagram) in Twitter archive exports, from the Wayback Machine. See ADR 0068.
+// early Instagram) in Twitter archive exports: from twitpic.com itself, which still serves
+// them, and otherwise from the Wayback Machine. See ADR 0068.
 //
 //   npm run recover-legacy-images -- <archive-dir> [<archive-dir> …] [options]
 //
@@ -14,7 +15,8 @@
 //
 // Writes, under <out>:
 //   <username>/<tweet date>_<tweet id>_<host>-<photo id>.<ext>   one file per tweet
-//   index.csv     every link found, with tweet, status, file and the capture it came from
+//   index.csv     every link found, with tweet, status, file and where it came from
+//                 (the live Twitpic page, or the Wayback capture)
 //   state.json    what each link resolved to, so a re-run only looks up what is new
 //
 // Needs no database and no app config: it reads the archive folders and talks to
@@ -166,7 +168,7 @@ for (const { link, uses } of links.values()) {
 
 // 3. The index covers every link found, including ones not looked up yet this run.
 const csv = (v: string | null | undefined) => `"${String(v ?? '').replace(/"/g, '""')}"`
-const rows = ['username,tweet_id,tweet_date,tweet_url,host,photo_id,link,status,file,wayback_url']
+const rows = ['username,tweet_id,tweet_date,tweet_url,host,photo_id,link,status,file,source_url']
 for (const { link, uses } of links.values()) {
   const s = state[link.url]
   for (const u of uses) {

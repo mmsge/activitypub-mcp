@@ -23,6 +23,15 @@ export interface LegacyImageLink {
   url: string
 }
 
+/**
+ * The live page for a link, on hosts still serving their photos. Twitpic went read-only
+ * rather than dark in 2014 and still serves each photo page, with a signed, expiring
+ * image link, so the page is read fresh every time. Null for hosts that are gone.
+ */
+export function livePageFor(link: LegacyImageLink): string | null {
+  return link.host === 'twitpic' ? `https://twitpic.com/${link.id}` : null
+}
+
 /** A URL that may have held the photo, and how to look it up in the Wayback index. */
 export interface Candidate {
   url: string
@@ -104,7 +113,8 @@ export function twitpicNumber(id: string): string | null {
  * Image URLs come first because a hit there is the file itself. The page comes last: it
  * is the most likely to have been captured, but it costs a second lookup for the image
  * it points at. The storage paths for Twitpic are the ones ArchiveTeam's 2014 rescue
- * crawled; they are tried as prefixes because the file extension is not known.
+ * crawled, on the CloudFront host the live site still serves from; they are tried as
+ * prefixes because the file extension is not known.
  */
 export function candidatesFor(link: LegacyImageLink): Candidate[] {
   const { host, id } = link
@@ -115,8 +125,8 @@ export function candidatesFor(link: LegacyImageLink): Candidate[] {
       const num = twitpicNumber(id)
       const stored = num
         ? [
-            img(`d3j5vwomefv46c.cloudfront.net/photos/full/${num}.`, 'prefix'),
-            img(`d3j5vwomefv46c.cloudfront.net/photos/large/${num}.`, 'prefix'),
+            img(`dn3pm25xmtlyu.cloudfront.net/photos/full/${num}.`, 'prefix'),
+            img(`dn3pm25xmtlyu.cloudfront.net/photos/large/${num}.`, 'prefix'),
             img(`s3.amazonaws.com/twitpic/photos/full/${num}.`, 'prefix'),
             img(`s3.amazonaws.com/twitpic/photos/large/${num}.`, 'prefix'),
           ]
@@ -136,10 +146,10 @@ export function candidatesFor(link: LegacyImageLink): Candidate[] {
 
 /**
  * The image a photo page points at: `og:image`, `twitter:image`, `image_src`, or the
- * main photo element on the hosts that had one. Relative links are resolved against the
- * page. Null when the page names no image.
+ * main photo element on the hosts that had one, or with `anyImg` the first image on the
+ * page. Relative links are resolved against the page. Null when the page names no image.
  */
-export function imageUrlFromPage(html: string, pageUrl: string): string | null {
+export function imageUrlFromPage(html: string, pageUrl: string, opts: { anyImg?: boolean } = {}): string | null {
   const patterns = [
     /<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i,
     /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i,
@@ -147,6 +157,9 @@ export function imageUrlFromPage(html: string, pageUrl: string): string | null {
     /<link[^>]+rel=["']image_src["'][^>]+href=["']([^"']+)["']/i,
     /<img[^>]+id=["'](?:photo-display|main_image|photo)["'][^>]+src=["']([^"']+)["']/i,
     /<img[^>]+src=["']([^"']+)["'][^>]+id=["'](?:photo-display|main_image|photo)["']/i,
+    // Twitpic today serves a bare page with one unlabelled <img>, so for a page known to
+    // be a single photo the first image is the photo.
+    ...(opts.anyImg ? [/<img[^>]+src=["']([^"']+)["']/i] : []),
   ]
   for (const p of patterns) {
     const m = html.match(p)

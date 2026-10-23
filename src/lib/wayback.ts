@@ -1,7 +1,8 @@
-import { candidatesFor, imageUrlFromPage, type Candidate, type LegacyImageLink } from './legacy-image-links.js'
+import { candidatesFor, imageUrlFromPage, livePageFor, type Candidate, type LegacyImageLink } from './legacy-image-links.js'
 
 /**
- * Recover a legacy photo from the Wayback Machine. See ADR 0068.
+ * Recover a legacy photo: from the host itself where it still serves them (Twitpic),
+ * otherwise from the Wayback Machine. See ADR 0068.
  *
  * Two endpoints, both public and keyless:
  *   - the CDX index, to find which captures of a URL exist, and
@@ -9,7 +10,8 @@ import { candidatesFor, imageUrlFromPage, type Candidate, type LegacyImageLink }
  *     Wayback toolbar or rewriting.
  *
  * `fetch` and `sleep` are injected, so the whole lookup runs in tests without a network.
- * archive.org is a non-profit on donated bandwidth: every request goes through `polite`,
+ * archive.org is a non-profit on donated bandwidth, and Twitpic a read-only leftover
+ * nobody is paid to keep up: every request goes through `polite`,
  * which waits between requests and backs off on 429 and 5xx rather than retrying hot.
  */
 
@@ -42,9 +44,9 @@ export type Recovered =
       status: 'found'
       bytes: Uint8Array
       contentType: string
-      /** The capture the bytes came from, for the index and for checking by hand. */
+      /** Where the bytes came from (a Wayback capture, or the live page), for the index. */
       waybackUrl: string
-      /** Which candidate URL found it. */
+      /** Which candidate URL found it, or `live`. */
       via: string
     }
   | { status: 'missing'; tried: string[] }
@@ -113,6 +115,13 @@ export class WaybackClient {
   async recover(link: LegacyImageLink): Promise<Recovered> {
     const tried: string[] = []
     try {
+      const live = livePageFor(link)
+      if (live) {
+        tried.push(live)
+        // A live failure of any kind falls through to Wayback rather than failing the link.
+        const hit = await this.fromLivePage(live).catch(() => null)
+        if (hit) return hit
+      }
       for (const cand of candidatesFor(link)) {
         tried.push(cand.url)
         const caps = await this.captures(cand.url, cand.match)
@@ -139,6 +148,24 @@ export class WaybackClient {
     } catch (e) {
       return { status: 'error', tried, error: e instanceof Error ? e.message : String(e) }
     }
+  }
+
+  /**
+   * The photo from a host's own page, today. The image link on it is signed and expires,
+   * so it is fetched straight after the page and never stored; the index records the
+   * page instead.
+   */
+  private async fromLivePage(pageUrl: string): Promise<Recovered | null> {
+    const page = await this.polite(pageUrl)
+    if (!page.ok) return null
+    const imageUrl = imageUrlFromPage(await page.text(), pageUrl, { anyImg: true })
+    if (!imageUrl) return null
+    const res = await this.polite(imageUrl)
+    if (!res.ok) return null
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    const sniffed = sniffImage(bytes)
+    if (!sniffed) return null
+    return { status: 'found', bytes, contentType: sniffed, waybackUrl: pageUrl, via: 'live' }
   }
 
   private async firstImage(caps: Capture[], via: string): Promise<Recovered | null> {

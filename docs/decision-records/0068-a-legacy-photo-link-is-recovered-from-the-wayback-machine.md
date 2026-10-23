@@ -16,13 +16,14 @@ separate host: Twitpic, yfrog, Twitgoo, TweetPhoto (later Plixi, later Lockerz),
 early Instagram. `@MThorr` alone has hundreds of them between 2009 and 2014. ADR 0067
 imports the archive's own media, but for these tweets the archive holds only the link.
 
-Every one of those hosts is gone. Twitpic closed in 2014, after ArchiveTeam crawled it
-into the Wayback Machine; the others closed earlier with patchier coverage. Wayback is
-the one place the files might be.
+Twitpic is the exception: it stopped taking uploads in 2014 but still serves every photo
+page, with the image on CloudFront behind a signed, expiring link. The others are gone,
+and for them the Wayback Machine is the one place the files might be.
 
 ## Decision
 
-**A script reads the archive exports and asks the Wayback Machine for each photo.** It
+**A script reads the archive exports and fetches each photo from twitpic.com where it
+still lives, and otherwise from the Wayback Machine.** It
 writes to a local folder, one file per tweet, with an `index.csv` and a resumable
 `state.json`. It does not write to the database or the archive media store; whether to
 attach the recovered pictures to their posts is a later decision, made once it is clear
@@ -34,14 +35,17 @@ how many come back.
 2. **One photo is one lookup.** Links are normalised (TweetPhoto, Plixi and Lockerz ids
    are the same photo; Twitpic ids are case-insensitive), so a photo linked from two
    tweets is fetched once and copied to both.
-3. **Image URLs are tried before the page.** Each host has a list of candidate URLs, best
+3. **The live Twitpic page comes first.** Its image link is signed and expires, so the
+   page is read fresh each time and the image fetched straight after; the index records
+   the page, not the expiring link. Any failure there falls through to Wayback.
+4. **In Wayback, image URLs are tried before the page.** Each host has a list of candidate URLs, best
    first: the direct image endpoints (`twitpic.com/show/full/<id>`, `yfrog.com/<id>:medium`
    and so on), Twitpic's storage paths by photo number (the short id is the number in base
    36), and last the photo page, whose `og:image` or photo element names the file.
-4. **The bytes decide, not the label.** A capture is saved only when its first bytes are a
+5. **The bytes decide, not the label.** A capture is saved only when its first bytes are a
    JPEG, PNG, GIF, WebP or BMP. Wayback sometimes serves an error page under an image
    capture, and saving that as `.jpg` would hide a miss.
-5. **archive.org is treated as somebody else's machine.** One request at a time, 1.5 s
+6. **archive.org and Twitpic are treated as somebody else's machines.** One request at a time, 1.5 s
    apart by default, with `Retry-After` honoured and exponential back-off on 429 and 5xx.
    A missing photo is recorded and not asked about again unless `--retry-missing`.
 
@@ -52,8 +56,10 @@ how many come back.
   the database client, into `src/lib/load-twitter-archive.ts`. The job re-exports it.
 - Some photos will not come back. `index.csv` says which, so the gaps are visible rather
   than silent.
-- Twitpic's storage hostnames are the ones ArchiveTeam's rescue is known to have crawled,
-  tried as prefixes because the file extension is unknown. If they turn out not to be in
-  the index they cost one empty lookup each and the page route still applies.
+- Twitpic's storage path is `dn3pm25xmtlyu.cloudfront.net/photos/<size>/<number>.jpg`,
+  where the number is the short id in base 36 (checked on `426yk` → `6820796`). Wayback
+  tries it as a prefix because the extension is not known.
+- If twitpic.com goes dark one day, the live step finds nothing and every Twitpic photo
+  falls back to Wayback with no change needed.
 - Instagram is looked up in Wayback only, not live, because Instagram's media endpoints
   now require a login.

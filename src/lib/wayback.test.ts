@@ -48,6 +48,42 @@ describe('sniffImage', () => {
 })
 
 describe('WaybackClient.recover', () => {
+  it('takes a twitpic photo from the live page first, without asking Wayback', async () => {
+    const signed = 'https://dn3pm25xmtlyu.cloudfront.net/photos/large/6820796.jpg?Expires=1&amp;Signature=x&amp;Key-Pair-Id=y'
+    const { fetch, calls } = fakeFetch([
+      ['dn3pm25xmtlyu.cloudfront.net/photos/large/6820796.jpg?Expires=1&Signature=x', { body: JPEG }],
+      ['https://twitpic.com/426yk', { body: `<html><title>Twitpic</title><img src="${signed}"></html>` }],
+    ])
+    const r = await new WaybackClient({ fetch, ...noDelay }).recover({ host: 'twitpic', id: '426yk', url: 'https://twitpic.com/426yk' })
+    expect(r.status).toBe('found')
+    if (r.status === 'found') {
+      expect(r.via).toBe('live')
+      expect(r.waybackUrl).toBe('https://twitpic.com/426yk')
+    }
+    expect(calls.some((c) => c.includes('web.archive.org'))).toBe(false)
+  })
+
+  it('falls back to Wayback when the live request throws', async () => {
+    const { fetch: base } = fakeFetch([
+      ['cdx/search/cdx?url=twitpic.com%2Fshow%2Ffull%2F517yh', { body: cdx(['20120101000000', 'http://twitpic.com/show/full/517yh', 'image/jpeg']) }],
+      ['web/20120101000000id_/http://twitpic.com/show/full/517yh', { body: JPEG }],
+    ])
+    const fetch: FetchLike = (url, init) => (url.startsWith('https://twitpic.com/') ? Promise.reject(new Error('ECONNRESET')) : base(url, init))
+    const r = await new WaybackClient({ fetch, ...noDelay }).recover(LINK)
+    expect(r.status).toBe('found')
+  })
+
+  it('falls back to Wayback when the live page has no image', async () => {
+    const { fetch } = fakeFetch([
+      ['https://twitpic.com/517yh', { body: '<html>This photo was removed</html>' }],
+      ['cdx/search/cdx?url=twitpic.com%2Fshow%2Ffull%2F517yh', { body: cdx(['20120101000000', 'http://twitpic.com/show/full/517yh', 'image/jpeg']) }],
+      ['web/20120101000000id_/http://twitpic.com/show/full/517yh', { body: JPEG }],
+    ])
+    const r = await new WaybackClient({ fetch, ...noDelay }).recover(LINK)
+    expect(r.status).toBe('found')
+    if (r.status === 'found') expect(r.via).toBe('twitpic.com/show/full/517yh')
+  })
+
   it('returns the image straight from a direct image capture', async () => {
     const { fetch } = fakeFetch([
       ['cdx/search/cdx?url=twitpic.com%2Fshow%2Ffull%2F517yh', { body: cdx(['20120101000000', 'http://twitpic.com/show/full/517yh', 'image/jpeg']) }],
