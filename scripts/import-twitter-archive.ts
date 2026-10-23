@@ -10,6 +10,9 @@
 //     --media-dir=<dir>  where the files go (default: ARCHIVE_MEDIA_DIR, /data/archive).
 //                        They are served from there at /archive/media/twitter/…
 //     --base-url=<url>   the public origin attachments point at (default https://APP_DOMAIN)
+//     --legacy-images=<dir>  photos recovered by recover-legacy-images (the folder holding
+//                        one subfolder per account). Each is attached to its tweet and the
+//                        photo link leaves the text. See ADR 0069.
 //     --batch=<n>        rows per INSERT (default 500)
 //     --examples=<n>     problem examples to print (default 5)
 //
@@ -30,7 +33,7 @@
 // cannot look like a clean one.
 import { config } from '../src/config.js'
 import { closeDb } from '../src/db/client.js'
-import { importPlanned, loadArchive, planArchives } from '../src/jobs/import-twitter-archive.js'
+import { importPlanned, loadArchive, loadRecoveredImages, planArchives } from '../src/jobs/import-twitter-archive.js'
 
 const argv = process.argv.slice(2)
 const flag = (name: string): string | undefined =>
@@ -62,7 +65,23 @@ try {
     console.log(`Reading ${d}`)
     return loadArchive(d)
   })
-  const plans = planArchives(archives, baseUrl)
+  const legacyDir = flag('legacy-images')
+  const recovered = legacyDir ? loadRecoveredImages(legacyDir) : new Map()
+  if (legacyDir) {
+    const files = [...recovered.values()].reduce((acc, l) => acc + l.length, 0)
+    console.log(`Reading ${legacyDir}: ${n(files)} recovered photos for ${n(recovered.size)} tweets`)
+  }
+  const plans = planArchives(archives, baseUrl, recovered)
+  if (legacyDir) {
+    // A file no tweet claimed is a sign something does not line up (a renamed account, a
+    // tweet missing from this export); report it rather than drop it quietly.
+    const attached = new Set(plans.flatMap((p) => p.recoveredFiles.map((f) => f.path)))
+    const unclaimed = [...recovered.values()].flat().filter((f) => !attached.has(f.path))
+    if (unclaimed.length) {
+      console.log(`  ${n(unclaimed.length)} recovered photos matched no tweet:`)
+      for (const f of unclaimed.slice(0, examples)) console.log(`    ${f.path}`)
+    }
+  }
 
   for (const plan of plans) {
     const s = plan.stats
@@ -70,6 +89,7 @@ try {
     console.log(`  ${n(s.tweets)} tweets  ${s.first?.slice(0, 10)} → ${s.last?.slice(0, 10)}`)
     console.log(`  ${n(s.notes)} own  ${n(s.retweets)} retweets  ${n(s.replies)} replies`)
     console.log(`  ${n(s.withMedia)} with media: ${n(s.mediaFiles)} files in the archive, ${n(s.mediaMissing)} not in it`)
+    if (legacyDir) console.log(`  ${n(s.recovered)} recovered photos attached`)
     if (s.entityMismatches > 0) console.log(`  ${n(s.entityMismatches)} entities did not match their text and were left as plain text`)
     if (plan.archive.account.screenNameChanges.length > 0) {
       const names = plan.archive.account.screenNameChanges.map((c) => `${c.changedFrom}→${c.changedTo}`).join(', ')

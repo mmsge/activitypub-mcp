@@ -208,3 +208,57 @@ export function extensionFor(contentType: string | null): string {
   }
   return map[t] ?? 'bin'
 }
+
+// ---------------------------------------------------------------------------
+// Recovered files → archive attachments (ADR 0069)
+// ---------------------------------------------------------------------------
+
+/** One photo scripts/recover-legacy-images.ts saved, as the import reads it back. */
+export interface RecoveredFile {
+  tweetId: string
+  host: LegacyHost
+  /** The photo id as it appears in the file name. */
+  id: string
+  ext: string
+  /** Where the file is now, for copying. */
+  path: string
+}
+
+// `<username>_<yyyy-mm-dd|unknown>_<tweet id>_<host>-<photo id>.<ext>`, as the recovery
+// script writes it. Only the extensions the archive media route serves are accepted.
+const RECOVERED_NAME =
+  /^[A-Za-z0-9_-]+?_(?:\d{4}-\d{2}-\d{2}|unknown)_(\d+)_(twitpic|yfrog|twitgoo|plixi|instagram)-([A-Za-z0-9_-]+)\.(jpg|png|gif|webp)$/
+
+/** The parts of a recovered file's name, or null for any other file. */
+export function parseRecoveredName(name: string): Omit<RecoveredFile, 'path'> | null {
+  const m = name.match(RECOVERED_NAME)
+  if (!m) return null
+  return { tweetId: m[1], host: m[2] as LegacyHost, id: m[3], ext: m[4] }
+}
+
+/** The name a recovered photo is stored under in the archive media volume. */
+export function archiveNameFor(r: Pick<RecoveredFile, 'tweetId' | 'host' | 'id' | 'ext'>): string {
+  return `${r.tweetId}-${r.host}-${r.id}.${r.ext}`
+}
+
+/** Whether a recovered file is the photo behind a link. Twitpic ids ignore case. */
+export function isFileFor(link: LegacyImageLink, file: Pick<RecoveredFile, 'host' | 'id'>): boolean {
+  if (link.host !== file.host) return false
+  return link.host === 'twitpic' ? link.id.toLowerCase() === file.id.toLowerCase() : link.id === file.id
+}
+
+/**
+ * Remove the photo links whose photo is now an attachment from plain text, the way
+ * native photo links are removed. A Twitpic-style " - " separator straight after the
+ * link goes with it, so "@x http://twitpic.com/abcd - Meanwhile" reads "@x Meanwhile".
+ */
+export function stripLegacyLinks(text: string, urls: ReadonlySet<string>): string {
+  if (urls.size === 0) return text
+  let out = text
+  for (const rule of RULES) {
+    // The spaces before the link go too, so no double space is left where it was.
+    const pattern = new RegExp(`[ \\t]*${rule.pattern.source}(?:[ \\t]+-(?=[ \\t]))?`, 'gi')
+    out = out.replace(pattern, (whole, id: string) => (urls.has(rule.normalise(id)) ? '' : whole))
+  }
+  return out
+}

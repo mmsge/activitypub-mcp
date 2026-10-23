@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { stripHtml } from './strip-html.js'
+import type { RecoveredFile } from './legacy-image-links.js'
 import {
   buildActor,
   isRetweet,
@@ -471,5 +472,67 @@ describe('profileMediaFile / mediaUrl', () => {
 
   it('lowercases the account in the URL and tolerates a trailing slash on the base', () => {
     expect(mediaUrl('https://bot.example/', 'MThorr', 'f.jpg')).toBe('https://bot.example/archive/media/twitter/mthorr/f.jpg')
+  })
+})
+
+describe('recovered legacy photos (ADR 0069)', () => {
+  const rec = (over: Partial<RecoveredFile> = {}): RecoveredFile => ({
+    tweetId: '100',
+    host: 'twitpic',
+    id: '426yk',
+    ext: 'jpg',
+    path: '/import/legacy-images/mvrkws/x.jpg',
+    ...over,
+  })
+  const withRecovered = (files: RecoveredFile[]) => ctx({ recovered: (id) => files.filter((f) => f.tweetId === id) })
+
+  it('attaches the photo and drops a bare 2009 link from the text, " - " and all', () => {
+    const t = tweetToObject(tweet({ full_text: 'Look at this http://twitpic.com/426yk - pretty' }), withRecovered([rec()]))
+    expect(t.object.content).toBe('<p>Look at this pretty</p>')
+    expect(t.object.attachment).toEqual([
+      {
+        type: 'Document',
+        mediaType: 'image/jpeg',
+        url: 'https://bot.example/archive/media/twitter/mvrkws/100-twitpic-426yk.jpg',
+        name: null,
+        width: null,
+        height: null,
+        sourceUrl: 'https://twitpic.com/426yk',
+        archived: true,
+        recoveredFrom: 'twitpic',
+      },
+    ])
+    expect(t.recoveredFiles).toEqual([rec()])
+  })
+
+  it('drops the link when it is a url entity, closing up the words around it', () => {
+    const t = tweetToObject(
+      tweet({
+        full_text: '@x https://t.co/abc - Meanwhile, in Canada.',
+        entities: { hashtags: [], user_mentions: [], urls: [{ url: 'https://t.co/abc', expanded_url: 'http://twitpic.com/3zykq9', indices: ['3', '19'] }] },
+      }),
+      withRecovered([rec({ id: '3zykq9' })]),
+    )
+    expect(t.object.content).toBe('<p>@x Meanwhile, in Canada.</p>')
+  })
+
+  it('matches a twitpic file regardless of the case of the id in the tweet', () => {
+    const t = tweetToObject(tweet({ full_text: 'see http://twitpic.com/426YK' }), withRecovered([rec()]))
+    expect(t.object.content).toBe('<p>see</p>')
+    expect(t.recoveredFiles).toHaveLength(1)
+  })
+
+  it('keeps the link and adds nothing when its photo was not recovered', () => {
+    const t = tweetToObject(tweet({ full_text: 'see http://twitpic.com/426yk and http://yfrog.com/abc12' }), withRecovered([rec()]))
+    expect(t.object.content).toContain('yfrog.com/abc12')
+    expect(t.object.content).not.toContain('twitpic')
+    expect(t.recoveredFiles).toHaveLength(1)
+  })
+
+  it('maps a tweet exactly as before when nothing was recovered', () => {
+    const plain = tweetToObject(tweet({ full_text: 'see http://twitpic.com/426yk' }), ctx())
+    expect(plain.object.content).toBe('<p>see http://twitpic.com/426yk</p>')
+    expect(plain.object.attachment).toBeUndefined()
+    expect(plain.recoveredFiles).toEqual([])
   })
 })

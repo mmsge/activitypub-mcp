@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { parseAccount, parseYtd, type TwitterAccount } from './parse-twitter-archive.js'
+import { parseRecoveredName, type RecoveredFile } from './legacy-image-links.js'
 
 /**
  * Read an unzipped Twitter archive from disk: the account and every tweet.
@@ -75,3 +76,27 @@ export function loadArchive(dir: string): LoadedArchive {
   }
 }
 
+
+/**
+ * The photos scripts/recover-legacy-images.ts saved, by tweet id (ADR 0069).
+ *
+ * Reads `<dir>/<username>/` for every account folder. Folders starting with `_` are not
+ * accounts (`_retweets/` holds photos deliberately left out), and a file whose name is
+ * not the recovery script's pattern is ignored, so a stray `.DS_Store` or a note next to
+ * the photos does no harm.
+ */
+export function loadRecoveredImages(dir: string): Map<string, RecoveredFile[]> {
+  if (!existsSync(dir)) throw new Error(`${dir} does not exist`)
+  const byTweet = new Map<string, RecoveredFile[]>()
+  for (const account of readdirSync(dir, { withFileTypes: true })) {
+    if (!account.isDirectory() || account.name.startsWith('_') || account.name.startsWith('.')) continue
+    for (const name of readdirSync(join(dir, account.name))) {
+      const parsed = parseRecoveredName(name)
+      if (!parsed) continue
+      const list = byTweet.get(parsed.tweetId) ?? []
+      list.push({ ...parsed, path: join(dir, account.name, name) })
+      byTweet.set(parsed.tweetId, list)
+    }
+  }
+  return byTweet
+}

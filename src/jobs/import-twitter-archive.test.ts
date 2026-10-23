@@ -4,7 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   copyMedia,
+  copyRecovered,
   loadArchive,
+  loadRecoveredImages,
   objectRow,
   planArchives,
   tweetFileNames,
@@ -182,5 +184,48 @@ describe('copyMedia', () => {
     writeFileSync(join(from, '1-a.jpg'), 'aaaaaa')
     expect(copyMedia(from, to, ['1-a.jpg'])).toMatchObject({ copied: 1 })
     expect(readFileSync(join(to, '1-a.jpg'), 'utf8')).toBe('aaaaaa')
+  })
+})
+
+describe('recovered legacy photos (ADR 0069)', () => {
+  const writeRecovered = (base: string, user: string, names: string[]) => {
+    mkdirSync(join(base, user), { recursive: true })
+    for (const n of names) writeFileSync(join(base, user, n), `img:${n}`)
+  }
+
+  it('loads the recovery folder by tweet id, skipping _retweets and stray files', () => {
+    const base = join(root, 'legacy-load')
+    writeRecovered(base, 'gamma', ['gamma_2009-04-27_30_twitpic-426yk.jpg', 'gamma_2009-04-27_31_yfrog-abc12.png', 'notes.txt'])
+    writeRecovered(base, '_retweets/gamma', ['gamma_2009-04-27_32_twitpic-zzzzz.jpg'])
+    const byTweet = loadRecoveredImages(base)
+    expect([...byTweet.keys()].sort()).toEqual(['30', '31'])
+    expect(byTweet.get('30')).toEqual([{ tweetId: '30', host: 'twitpic', id: '426yk', ext: 'jpg', path: join(base, 'gamma', 'gamma_2009-04-27_30_twitpic-426yk.jpg') }])
+  })
+
+  it('says so when the folder does not exist', () => {
+    expect(() => loadRecoveredImages(join(root, 'nowhere'))).toThrow(/does not exist/)
+  })
+
+  it('plans the attachment and the copy, and copies under the archive name once', () => {
+    const base = join(root, 'legacy-plan')
+    writeRecovered(base, 'delta', ['delta_2009-04-27_40_twitpic-426yk.jpg'])
+    const dir = writeArchive(root, { username: 'delta', accountId: '40', tweets: [tweet('40', { full_text: 'look http://twitpic.com/426yk' }), tweet('41')] })
+    const [plan] = planArchives([loadArchive(dir)], 'https://bot.example', loadRecoveredImages(base))
+    expect(plan.stats.recovered).toBe(1)
+    expect(plan.recoveredFiles.map((f) => f.tweetId)).toEqual(['40'])
+    const t = plan.tweets.find((x) => x.apId.endsWith('/40'))!
+    expect(t.object.content).toBe('<p>look</p>')
+
+    const to = join(root, 'legacy-media', 'twitter', 'delta')
+    expect(copyRecovered(to, plan.recoveredFiles)).toEqual({ copied: 1, alreadyThere: 0, missing: [] })
+    expect(readFileSync(join(to, '40-twitpic-426yk.jpg'), 'utf8')).toBe('img:delta_2009-04-27_40_twitpic-426yk.jpg')
+    expect(copyRecovered(to, plan.recoveredFiles)).toEqual({ copied: 0, alreadyThere: 1, missing: [] })
+  })
+
+  it('plans exactly as before without a recovery folder', () => {
+    const dir = writeArchive(root, { username: 'epsilon', accountId: '50', tweets: [tweet('50', { full_text: 'look http://twitpic.com/426yk' })] })
+    const [plan] = planArchives([loadArchive(dir)], 'https://bot.example')
+    expect(plan.stats.recovered).toBe(0)
+    expect(plan.tweets[0].object.content).toContain('twitpic.com/426yk')
   })
 })

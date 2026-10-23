@@ -20,6 +20,7 @@ import {
   type BuiltTweet,
   type TwitterAccount,
 } from '../lib/parse-twitter-archive.js'
+import { archiveNameFor, type RecoveredFile } from '../lib/legacy-image-links.js'
 
 /**
  * Import Twitter archives as actors and posts.
@@ -49,7 +50,7 @@ const DEFAULT_BATCH_SIZE = 500
 // Reading an archive from disk
 // ---------------------------------------------------------------------------
 
-export { loadArchive, tweetFileNames, type LoadedArchive } from '../lib/load-twitter-archive.js'
+export { loadArchive, loadRecoveredImages, tweetFileNames, type LoadedArchive } from '../lib/load-twitter-archive.js'
 import type { LoadedArchive } from '../lib/load-twitter-archive.js'
 
 // ---------------------------------------------------------------------------
@@ -69,6 +70,8 @@ export interface PlannedAccount {
   /** Distinct files to copy: tweet media, then profile images. */
   mediaFiles: string[]
   profileFiles: string[]
+  /** Recovered pre-2011 photos attached to a tweet, to copy in (ADR 0069). */
+  recoveredFiles: RecoveredFile[]
   stats: {
     tweets: number
     notes: number
@@ -77,13 +80,20 @@ export interface PlannedAccount {
     withMedia: number
     mediaFiles: number
     mediaMissing: number
+    /** Recovered photos attached, and recovered files no tweet in this archive claimed. */
+    recovered: number
     entityMismatches: number
     first: string | null
     last: string | null
   }
 }
 
-export function planArchives(archives: LoadedArchive[], baseUrl: string): PlannedAccount[] {
+export function planArchives(
+  archives: LoadedArchive[],
+  baseUrl: string,
+  /** From loadRecoveredImages; without it the import maps exactly as before. */
+  recovered: ReadonlyMap<string, readonly RecoveredFile[]> = new Map(),
+): PlannedAccount[] {
   // Both accounts are Markus', and one replies to the other. Knowing every account id up
   // front is what lets that reply point at a tweet that is actually in the database.
   const knownAccounts = new Map(archives.map((a) => [a.account.accountId, a.account.username]))
@@ -101,13 +111,22 @@ export function planArchives(archives: LoadedArchive[], baseUrl: string): Planne
     const problems: Problem[] = []
     for (const tweet of archive.tweets) {
       try {
-        built.push(tweetToObject(tweet, { account, baseUrl, knownAccounts, hasMedia: (f) => archive.tweetMedia.has(f) }))
+        built.push(
+          tweetToObject(tweet, {
+            account,
+            baseUrl,
+            knownAccounts,
+            hasMedia: (f) => archive.tweetMedia.has(f),
+            recovered: (id) => recovered.get(id) ?? [],
+          }),
+        )
       } catch (e) {
         problems.push({ tweetId: String(tweet.id_str ?? '?'), reason: e instanceof Error ? e.message : String(e) })
       }
     }
 
     const mediaFiles = [...new Set(built.flatMap((t) => t.mediaFiles))]
+    const recoveredFiles = built.flatMap((t) => t.recoveredFiles)
     const profileFiles = [actor.profileFiles.avatar, actor.profileFiles.header].filter((f): f is string => !!f)
     const dates = built.map((t) => t.object.published as string).sort()
 
@@ -118,6 +137,7 @@ export function planArchives(archives: LoadedArchive[], baseUrl: string): Planne
       problems,
       mediaFiles,
       profileFiles,
+      recoveredFiles,
       stats: {
         tweets: built.length,
         notes: built.filter((t) => t.type === 'Note').length,
@@ -126,6 +146,7 @@ export function planArchives(archives: LoadedArchive[], baseUrl: string): Planne
         withMedia: built.filter((t) => t.mediaFiles.length + t.missingMedia.length > 0).length,
         mediaFiles: mediaFiles.length,
         mediaMissing: built.reduce((n, t) => n + t.missingMedia.length, 0),
+        recovered: recoveredFiles.length,
         entityMismatches: built.reduce((n, t) => n + t.mismatches.length, 0),
         first: dates[0] ?? null,
         last: dates[dates.length - 1] ?? null,
@@ -168,6 +189,30 @@ export function copyMedia(
       continue
     }
     copyFileSync(from, to)
+    out.copied++
+  }
+  return out
+}
+
+/**
+ * Copy recovered photos into the account's media folder under their archive names. Same
+ * rules as copyMedia: a file already there at the same size is left alone, and files go
+ * before rows.
+ */
+export function copyRecovered(toDir: string, files: readonly RecoveredFile[]): MediaCopyResult {
+  mkdirSync(toDir, { recursive: true })
+  const out: MediaCopyResult = { copied: 0, alreadyThere: 0, missing: [] }
+  for (const f of files) {
+    const to = join(toDir, archiveNameFor(f))
+    if (!existsSync(f.path)) {
+      out.missing.push(f.path)
+      continue
+    }
+    if (existsSync(to) && statSync(to).size === statSync(f.path).size) {
+      out.alreadyThere++
+      continue
+    }
+    copyFileSync(f.path, to)
     out.copied++
   }
   return out
@@ -299,10 +344,11 @@ export async function importPlanned(plan: PlannedAccount, opts: ImportOptions = 
     const toDir = join(opts.mediaRoot, 'twitter', mediaDirFor(actor.username))
     const a = copyMedia(join(plan.archive.dir, 'data', 'tweet_media'), toDir, plan.mediaFiles)
     const p = copyMedia(join(plan.archive.dir, 'data', 'profile_media'), toDir, plan.profileFiles)
+    const r = copyRecovered(toDir, plan.recoveredFiles)
     report.media = {
-      copied: a.copied + p.copied,
-      alreadyThere: a.alreadyThere + p.alreadyThere,
-      missing: [...a.missing, ...p.missing],
+      copied: a.copied + p.copied + r.copied,
+      alreadyThere: a.alreadyThere + p.alreadyThere + r.alreadyThere,
+      missing: [...a.missing, ...p.missing, ...r.missing],
     }
   }
 

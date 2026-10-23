@@ -1,5 +1,16 @@
 import { describe, it, expect } from 'vitest'
-import { candidatesFor, extensionFor, findLegacyLinks, imageUrlFromPage, legacyLinksInTweet, livePageFor, twitpicNumber } from './legacy-image-links.js'
+import {
+  archiveNameFor,
+  candidatesFor,
+  extensionFor,
+  findLegacyLinks,
+  imageUrlFromPage,
+  legacyLinksInTweet,
+  livePageFor,
+  parseRecoveredName,
+  stripLegacyLinks,
+  twitpicNumber,
+} from './legacy-image-links.js'
 
 describe('findLegacyLinks', () => {
   it('finds a twitpic link in 2009 tweet text, without the trailing punctuation', () => {
@@ -141,5 +152,43 @@ describe('extensionFor', () => {
     expect(extensionFor('image/png')).toBe('png')
     expect(extensionFor('text/html')).toBe('bin')
     expect(extensionFor(null)).toBe('bin')
+  })
+})
+
+describe('parseRecoveredName', () => {
+  it('reads the name the recovery script writes, underscores in the username and all', () => {
+    expect(parseRecoveredName('MThorr_2009-04-27_1626691604_twitpic-426yk.jpg')).toEqual({ tweetId: '1626691604', host: 'twitpic', id: '426yk', ext: 'jpg' })
+    expect(parseRecoveredName('some_user_unknown_42_instagram-Ab_C-d.png')).toEqual({ tweetId: '42', host: 'instagram', id: 'Ab_C-d', ext: 'png' })
+  })
+
+  it('ignores the names from before the username prefix, other files, and types the archive cannot serve', () => {
+    expect(parseRecoveredName('2009-04-27_1626691604_twitpic-426yk.jpg')).toBeNull()
+    expect(parseRecoveredName('.DS_Store')).toBeNull()
+    expect(parseRecoveredName('MThorr_2009-04-27_1626691604_twitpic-426yk.bmp')).toBeNull()
+  })
+})
+
+describe('archiveNameFor', () => {
+  it('is the tweet id, host and photo id, which the media route accepts', () => {
+    const name = archiveNameFor({ tweetId: '1626691604', host: 'twitpic', id: '426yk', ext: 'jpg' })
+    expect(name).toBe('1626691604-twitpic-426yk.jpg')
+    expect(name).toMatch(/^[A-Za-z0-9][A-Za-z0-9._-]{0,200}$/)
+  })
+})
+
+describe('stripLegacyLinks', () => {
+  const drop = new Set(['https://twitpic.com/426yk'])
+  it('removes only the listed links, with the space before and a " - " after', () => {
+    expect(stripLegacyLinks('Nice http://twitpic.com/426yk - here', drop)).toBe('Nice here')
+    expect(stripLegacyLinks('Nice http://twitpic.com/426yk', drop)).toBe('Nice')
+    expect(stripLegacyLinks('Nice http://twitpic.com/zzzzz', drop)).toBe('Nice http://twitpic.com/zzzzz')
+  })
+
+  it('leaves a hyphenated word after the link alone', () => {
+    expect(stripLegacyLinks('http://twitpic.com/426yk well-known', drop)).toBe(' well-known')
+  })
+
+  it('is a no-op for an empty set', () => {
+    expect(stripLegacyLinks('a http://twitpic.com/426yk - b', new Set())).toBe('a http://twitpic.com/426yk - b')
   })
 })
