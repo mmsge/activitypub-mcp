@@ -12,6 +12,9 @@
 //     --limit=<n>        stop after looking up n links (handy for a first test run)
 //     --delay=<ms>       wait between requests to archive.org (default 1500)
 //     --retry-missing    look up links the last run recorded as missing
+//     --include-retweets also fetch photos from retweets (other people's photos; skipped
+//                        by default, and files earlier runs saved for them are moved
+//                        to <out>/_retweets/ for you to check and delete)
 //
 // Writes, under <out>:
 //   <username>/<username>_<tweet date>_<tweet id>_<host>-<photo id>.<ext>   one per tweet
@@ -21,11 +24,11 @@
 //   state.json    what each link resolved to, so a re-run only looks up what is new
 //
 // Needs no database and no app config: it reads the archive folders and talks to
-// web.archive.org, nothing else. Safe to stop and restart at any point.
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+// twitpic.com and web.archive.org, nothing else. Safe to stop and restart at any point.
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadArchive } from '../src/lib/load-twitter-archive.js'
-import { parseTwitterDate } from '../src/lib/parse-twitter-archive.js'
+import { isRetweet, parseTwitterDate } from '../src/lib/parse-twitter-archive.js'
 import { extensionFor, legacyLinksInTweet, type LegacyHost, type LegacyImageLink } from '../src/lib/legacy-image-links.js'
 import { WaybackClient } from '../src/lib/wayback.js'
 
@@ -51,6 +54,7 @@ for (const h of hosts) {
 const out = flag('out') ?? './legacy-images'
 const dryRun = has('dry-run')
 const retryMissing = has('retry-missing')
+const includeRetweets = has('include-retweets')
 const limit = flag('limit') ? Number(flag('limit')) : Infinity
 const delayMs = Number(flag('delay') ?? '1500')
 
@@ -75,13 +79,24 @@ interface StateEntry {
 }
 
 // 1. Collect every link, keyed by its normalised URL so a photo linked twice is fetched once.
+// Retweets are skipped: their photos are other people's (the same call as Kvitra makes).
 const links = new Map<string, Found>()
+/** Tweet ids of every retweet, per username, to sweep files earlier runs saved for them. */
+const retweetIds = new Map<string, Set<string>>()
 for (const dir of dirs) {
   const archive = loadArchive(dir)
   const username = archive.account.username
+  const rts = new Set<string>()
+  retweetIds.set(username, rts)
   let count = 0
+  let skippedRetweets = 0
   for (const tweet of archive.tweets) {
     const id = typeof tweet.id_str === 'string' ? tweet.id_str : String(tweet.id ?? '')
+    if (!includeRetweets && isRetweet(tweet)) {
+      rts.add(id)
+      if (legacyLinksInTweet(tweet).length > 0) skippedRetweets++
+      continue
+    }
     for (const link of legacyLinksInTweet(tweet)) {
       if (!hosts.has(link.host)) continue
       count++
@@ -96,7 +111,10 @@ for (const dir of dirs) {
       links.set(link.url, entry)
     }
   }
-  console.log(`@${username}: ${count} legacy photo links in ${archive.tweets.length} tweets`)
+  console.log(
+    `@${username}: ${count} legacy photo links in ${archive.tweets.length} tweets` +
+      (skippedRetweets ? ` (${skippedRetweets} retweets with photo links skipped)` : ''),
+  )
 }
 
 const byHost = new Map<string, number>()
@@ -127,6 +145,26 @@ const migrate = (u: Use, link: LegacyImageLink, ext: string): void => {
   const from = join(out, oldFileFor(u, link, ext))
   const to = join(out, fileFor(u, link, ext))
   if (existsSync(from) && !existsSync(to)) renameSync(from, to)
+}
+
+// Move photos earlier runs saved for retweets out of the way. Moved, never deleted: the
+// person decides what goes. The tweet id is in every file name, so this also catches
+// files for links no longer recognised at all (a truncated retweet link, say).
+if (!includeRetweets) {
+  let moved = 0
+  for (const [username, ids] of retweetIds) {
+    const dir = join(out, safe(username))
+    if (!existsSync(dir)) continue
+    for (const name of readdirSync(dir)) {
+      const tweetId = name.match(/_(\d+)_[a-z]+-/)?.[1]
+      if (!tweetId || !ids.has(tweetId)) continue
+      const dest = join(out, '_retweets', safe(username))
+      mkdirSync(dest, { recursive: true })
+      if (!existsSync(join(dest, name))) renameSync(join(dir, name), join(dest, name))
+      moved++
+    }
+  }
+  if (moved) console.log(`moved ${moved} photos from retweets to ${join(out, '_retweets')}`)
 }
 
 // Bring files from earlier runs onto the current naming before deciding what is done.

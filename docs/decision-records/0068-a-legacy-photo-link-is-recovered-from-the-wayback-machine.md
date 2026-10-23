@@ -32,20 +32,25 @@ how many come back.
 1. **Links are found in both the text and the expanded URLs.** A 2009 tweet has the
    twitpic link in its text; a 2012 one has a t.co link there and the twitpic link only
    in `entities.urls[].expanded_url`.
-2. **One photo is one lookup.** Links are normalised (TweetPhoto, Plixi and Lockerz ids
+2. **Retweets are skipped.** Their photos are other people's, the same reasoning by which
+   Kvitra drops retweets. `--include-retweets` brings them back; files an earlier run
+   saved for retweets are moved to `_retweets/`, never deleted. Long retweets were also
+   truncated to fit 140 characters, sometimes mid-link (`http://twitpic.com/2 ...`), and
+   such a fragment is dropped in any case, along with any Twitpic id under four characters.
+3. **One photo is one lookup.** Links are normalised (TweetPhoto, Plixi and Lockerz ids
    are the same photo; Twitpic ids are case-insensitive), so a photo linked from two
    tweets is fetched once and copied to both.
-3. **The live Twitpic page comes first.** Its image link is signed and expires, so the
+4. **The live Twitpic page comes first.** Its image link is signed and expires, so the
    page is read fresh each time and the image fetched straight after; the index records
    the page, not the expiring link. Any failure there falls through to Wayback.
-4. **In Wayback, image URLs are tried before the page.** Each host has a list of candidate URLs, best
+5. **In Wayback, image URLs are tried before the page.** Each host has a list of candidate URLs, best
    first: the direct image endpoints (`twitpic.com/show/full/<id>`, `yfrog.com/<id>:medium`
    and so on), Twitpic's storage paths by photo number (the short id is the number in base
    36), and last the photo page, whose `og:image` or photo element names the file.
-5. **The bytes decide, not the label.** A capture is saved only when its first bytes are a
+6. **The bytes decide, not the label.** A capture is saved only when its first bytes are a
    JPEG, PNG, GIF, WebP or BMP. Wayback sometimes serves an error page under an image
    capture, and saving that as `.jpg` would hide a miss.
-6. **archive.org and Twitpic are treated as somebody else's machines.** One request at a time, 1.5 s
+7. **archive.org and Twitpic are treated as somebody else's machines.** One request at a time, 1.5 s
    apart by default, with `Retry-After` honoured and exponential back-off on 429 and 5xx.
    A missing photo is recorded and not asked about again unless `--retry-missing`.
 
