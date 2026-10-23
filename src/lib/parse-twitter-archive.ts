@@ -1,5 +1,6 @@
 import { basename, extname } from 'node:path'
 import { escapeHtml } from './html.js'
+import { archiveNameFor, findLegacyLinks, isFileFor, legacyLinksInTweet, stripLegacyLinks, type RecoveredFile } from './legacy-image-links.js'
 
 /**
  * Turn a Twitter "Download an archive of your data" export into the same shapes the
@@ -271,6 +272,35 @@ function partsFor(fullText: string, entities: AnyObject, mismatches: string[]): 
   return parts
 }
 
+/**
+ * Drop the photo links whose photo is now an attachment, as a linked entity or as bare
+ * text in a 2009 tweet that has no entity for it. The space before a dropped entity and a
+ * Twitpic-style " - " after it go too, so the words close up as if the link was never
+ * typed.
+ */
+function withoutLegacyLinks(parts: Part[], drop: ReadonlySet<string>): Part[] {
+  if (drop.size === 0) return parts
+  const out: Part[] = []
+  let dropped = false
+  for (const p of parts) {
+    if (p.kind === 'link' && findLegacyLinks(p.href).some((l) => drop.has(l.url))) {
+      const prev = out[out.length - 1]
+      if (prev?.kind === 'text') prev.value = prev.value.replace(/[ \t]+$/, '')
+      dropped = true
+      continue
+    }
+    if (p.kind === 'text') {
+      let value = stripLegacyLinks(p.value, drop)
+      if (dropped) value = value.replace(/^[ \t]+-(?=[ \t])/, '')
+      out.push({ kind: 'text', value })
+    } else {
+      out.push(p)
+    }
+    dropped = false
+  }
+  return out
+}
+
 /** `https://www.example.com/a` → the part Mastodon shows, with the scheme kept hidden. */
 function linkHtml(href: string): string {
   const m = href.match(/^(https?:\/\/)(.*)$/i)
@@ -295,8 +325,14 @@ function linkHtml(href: string): string {
  * What it leaves behind is trimmed, so a picture tweet with no words has empty content
  * instead of a trailing space.
  */
-export function renderTweetHtml(fullText: string, entities: AnyObject, mismatches: string[] = []): string {
-  const inline = partsFor(fullText, entities, mismatches)
+export function renderTweetHtml(
+  fullText: string,
+  entities: AnyObject,
+  mismatches: string[] = [],
+  /** Photo links whose photo is now an attachment, normalised (ADR 0069). */
+  dropLegacy: ReadonlySet<string> = new Set(),
+): string {
+  const inline = withoutLegacyLinks(partsFor(fullText, entities, mismatches), dropLegacy)
     .map((p) => {
       switch (p.kind) {
         case 'text':
@@ -341,6 +377,8 @@ export interface TweetContext {
   knownAccounts: ReadonlyMap<string, string>
   /** Whether `data/tweet_media/<file>` exists in the archive. */
   hasMedia: (file: string) => boolean
+  /** Photos recovered for this tweet from a pre-2011 photo host (ADR 0069). */
+  recovered?: (tweetId: string) => readonly RecoveredFile[]
 }
 
 export interface BuiltTweet {
@@ -352,6 +390,8 @@ export interface BuiltTweet {
   mediaFiles: string[]
   /** Attachments whose file the archive does not hold; they point at the original CDN. */
   missingMedia: string[]
+  /** Recovered photos attached to this tweet, to copy into the media volume. */
+  recoveredFiles: RecoveredFile[]
   /** Entities the text did not agree with, dropped to plain text. */
   mismatches: string[]
 }
@@ -516,12 +556,25 @@ export function tweetToObject(tweet: AnyObject, ctx: TweetContext): BuiltTweet {
   const entities = (tweet.entities ?? {}) as AnyObject
   const fullText = str(tweet.full_text) || str(tweet.text)
 
+  // Photos recovered for the tweet's pre-2011 photo links: their links come out of the text
+  // and the photos go in as attachments, after the archive's own media.
+  const recoveredHere = ctx.recovered?.(id) ?? []
+  const legacy = recoveredHere.length
+    ? legacyLinksInTweet(tweet).flatMap((link) => {
+        const file = recoveredHere.find((f) => isFileFor(link, f))
+        return file ? [{ link, file }] : []
+      })
+    : []
+
   const mismatches: string[] = []
-  const content = renderTweetHtml(fullText, entities, mismatches)
+  const content = renderTweetHtml(fullText, entities, mismatches, new Set(legacy.map((l) => l.link.url)))
 
   const mediaFiles: string[] = []
   const missingMedia: string[] = []
-  const attachment = buildAttachments(tweet, ctx, mediaFiles, missingMedia)
+  const attachment = [
+    ...buildAttachments(tweet, ctx, mediaFiles, missingMedia),
+    ...legacy.map(({ link, file }) => recoveredAttachment(link.url, file, ctx)),
+  ]
 
   const reply = replyTarget(tweet, ctx)
   const retweet = isRetweet(tweet)
@@ -592,7 +645,27 @@ export function tweetToObject(tweet: AnyObject, ctx: TweetContext): BuiltTweet {
     twitterArchive: { accountId: account.accountId, username: account.username, tweet },
   }
 
-  return { type, apId, object, mediaFiles, missingMedia, mismatches }
+  return { type, apId, object, mediaFiles, missingMedia, recoveredFiles: legacy.map((l) => l.file), mismatches }
+}
+
+/**
+ * A recovered photo as an attachment, in the shape the archive's own photos have. No alt
+ * text and no size: the photo host held neither in a form that survived, and neither is
+ * invented. `recoveredFrom` names the host, so a reader can tell it apart from a photo
+ * Twitter itself kept.
+ */
+function recoveredAttachment(sourceUrl: string, file: RecoveredFile, ctx: TweetContext): AnyObject {
+  return {
+    type: 'Document',
+    mediaType: IMAGE_TYPES[`.${file.ext}`] ?? 'application/octet-stream',
+    url: mediaUrl(ctx.baseUrl, ctx.account.username, archiveNameFor(file)),
+    name: null,
+    width: null,
+    height: null,
+    sourceUrl,
+    archived: true,
+    recoveredFrom: file.host,
+  }
 }
 
 // ---------------------------------------------------------------------------

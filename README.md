@@ -920,6 +920,20 @@ docker compose run --rm --no-deps -v /srv/twitter-import:/import:ro --entrypoint
 # …then the same command without --dry-run
 ```
 
+**Photos behind pre-2011 photo links** (Twitpic, yfrog and friends) are recovered on a
+laptop with `npm run recover-legacy-images` (ADR 0068), copied to the box next to the
+exports, and attached by the import with `--legacy-images` (ADR 0069):
+
+```bash
+# from the Mac
+rsync -av --exclude _retweets --exclude state.json --exclude index.csv \
+  ~/Pictures/legacy-twitter/ msge:/srv/twitter-import/legacy-images/
+# on the box: the import command above, plus
+#   --legacy-images=/import/legacy-images
+```
+
+Always pass `--legacy-images` when re-importing: without it the rows go back to text only.
+
 Give every account in one run: a reply from one account to the other then points at a
 tweet that is actually imported. The command is idempotent (re-running updates in place and
 copies nothing new), reports tweets it could not map and rows the database refused, and
