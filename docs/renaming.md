@@ -1,7 +1,7 @@
 # Renaming the service
 
-Runbook for ADR 0070. It lists every place the name lives and the order to change them
-in. The new name is written `NEWNAME` below. Nothing here has been done yet.
+Runbook for ADR 0070: renaming `activitypub-mcp` to `markivaren`. It lists every place
+the name lives and the order to change them in. Nothing here has been done yet.
 
 ## Order
 
@@ -58,9 +58,8 @@ Seven of the User-Agents are the same template. Pulling it into one constant in
 ### For agents
 
 - **A "formerly" line** at the top of `AGENTS.md` and `README.md`:
-  "NEWNAME is Markus' personal archive (formerly activitypub-mcp, connector
-  `Markus_ActivityPub`)." If the name is munin, add "It is not the Munin
-  server-monitoring tool."
+  "markivaren is Markus' personal archive (formerly activitypub-mcp, connector
+  `Markus_ActivityPub`)."
 - **MCP `instructions`** in `createMcpServer()`: today the server sets none. Add a short
   paragraph naming what it covers (posts, books, films and TV, theatre, gigs, scrobbles
   and races, trains, YouTube, LinkedIn, StoryGraph, garden pages, Twitter archives) and
@@ -85,13 +84,13 @@ should only hit the ADRs and the "formerly" lines.
 
 ## 2. GitHub
 
-Rename `mmsge/activitypub-mcp` to `mmsge/NEWNAME`. GitHub redirects the web URL and git
+Rename `mmsge/activitypub-mcp` to `mmsge/markivaren`. GitHub redirects the web URL and git
 remotes, so nothing breaks at once. Do not create a new repo under the old name later:
 that kills the redirect.
 
 ## 3. The box and naustet-server
 
-- On the box: `cd /srv/bot && git remote set-url origin git@github.com:mmsge/NEWNAME.git`.
+- On the box: `cd /srv/bot && git remote set-url origin git@github.com:mmsge/markivaren.git`.
   `/srv/bot` itself stays.
 - In `mmsge/naustet-server`:
   - rename `services/activitypub-mcp.md` and update its contents,
@@ -109,9 +108,8 @@ that kills the redirect.
 Do this last, and do all of it in one sitting.
 
 1. **The claude.ai connector** (Settings → Connectors). Renaming it changes every tool
-   name from `mcp__Markus_ActivityPub__*` to `mcp__<new connector name>__*`. Prefer a
-   name that reads as Markus' own, like `Markus_Munin`. Keeping the old connector name is
-   also a valid choice: the repo and the connector do not have to match.
+   name from `mcp__Markus_ActivityPub__*` to `mcp__Markivaren__*`. Until this step the
+   old connector name keeps working: the repo and the connector do not have to match.
 2. **Skills** that name the service or the tool prefix. Known: `dagbok-etterfyll`,
    `mastodon-tut-redaktor`. Search the rest for `ActivityPub` and `Markus_ActivityPub`.
 3. **Memory and project instructions** in claude.ai and Cowork that mention the old name.
