@@ -1,4 +1,5 @@
 import { config, getOwnerInstanceHost } from '../config.js'
+import { USER_AGENT } from './user-agent.js'
 import { logger } from './logger.js'
 
 /**
@@ -12,7 +13,6 @@ import { logger } from './logger.js'
 
 const AP_ACCEPT =
   'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"'
-const USER_AGENT = `activitypub-mcp/1.0 (+https://${config.APP_DOMAIN})`
 
 /**
  * The lowercase host a status reference would be dialled on, or '' when it names no

@@ -1,7 +1,8 @@
 # Renaming the service
 
 Runbook for ADR 0070: renaming `activitypub-mcp` to `markivaren`. It lists every place
-the name lives and the order to change them in. Nothing here has been done yet.
+the name lives and the order to change them in. Step 1 is done (the PR stacked on ADR
+0070); steps 2 to 4 are still to do.
 
 ## Order
 
@@ -18,14 +19,14 @@ Each step works on its own. Stopping after any of them leaves nothing broken.
 
 ### Identity (plain find and replace)
 
-| Where | Today |
+| Where | Was |
 |-------|-------|
 | `package.json` `name` (then `npm install` to refresh `package-lock.json`) | `activitypub-mcp` |
 | `src/mcp/server.ts:46` MCP server `name` | `activitypub-mcp` |
 | `src/rest/router.ts:73` REST `service` label, and its example in `docs/openapi.yaml` | `activitypub-mcp REST API` |
 | `docs/openapi.yaml` `title` and intro paragraph | `activitypub-mcp API` |
 | `src/stream/feed.ts:167` Atom `<generator>` | `activitypub-mcp` |
-| `README.md` title and badge URL | `ActivityPub MCP Server` |
+| `README.md` title (the utrulla badge is keyed on the repo slug and moves in step 3) | `ActivityPub MCP Server` |
 | `AGENTS.md` heading and the service tables | `activitypub-mcp` |
 | `docs/decision-records/README.md` intro line | `activitypub-mcp` |
 | `src/oauth/views/authorize.tsx:59` OAuth consent text | "your ActivityPub MCP server" |
@@ -38,7 +39,7 @@ Each step works on its own. Stopping after any of them leaves nothing broken.
 
 Remote admins read these. Keep the `+https://bot.skvip.lol` contact URL in every one.
 
-| Where | Today |
+| Where | Was |
 |-------|-------|
 | `src/lib/fetch-engagement.ts:15` | `activitypub-mcp/1.0 (+https://…)` |
 | `src/lib/thread-fetch.ts:26` | same |
@@ -52,8 +53,8 @@ Remote admins read these. Keep the `+https://bot.skvip.lol` contact URL in every
 | `src/activitypub/nodeinfo.ts:8-10` `SOFTWARE_NAME` and `REPOSITORY` | `activitypub-mcp`, `github.com/mmsge/activitypub-mcp` |
 | `src/activitypub/nodeinfo.test.ts:57,87` | the expectations for the two above |
 
-Seven of the User-Agents are the same template. Pulling it into one constant in
-`src/config.ts` would make the next rename a one-line change.
+Seven of the User-Agents were the same template. They now share `USER_AGENT` from
+`src/lib/user-agent.ts`, together with `SOFTWARE_NAME`, which NodeInfo reads too.
 
 ### For agents
 
@@ -97,7 +98,8 @@ that kills the redirect.
   - update the comment on this service's Caddyfile block (the routing does not change),
   - update the service registry entry the Naustet_Box tools read,
   - check anything keyed on the repo slug: the utrulla badge
-    (`utrulla.msge.no/badge/mmsge/activitypub-mcp`), the ADR pool at `adr.msge.no`,
+    (`utrulla.msge.no/badge/mmsge/activitypub-mcp`, then the badge URL in `README.md`),
+    the ADR pool at `adr.msge.no`,
     the log collector's service name.
 - Other repos that mention this one by name: `mmsge/storygraph-leser` (sidetal),
   msge.no's webhook registry, bartenderen. A search for `activitypub-mcp` across

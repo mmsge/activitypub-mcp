@@ -11,7 +11,7 @@ import { logger } from './logger.js'
 // full flavor, and the UA identifies this crawler politely either way.
 export const BOOKWYRM_AP_HEADERS = {
   Accept: 'application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"',
-  'User-Agent': `activitypub-mcp/1.0 (BookWyrm/0.7.5; +https://${config.APP_DOMAIN})`,
+  'User-Agent': `markivaren/1.0 (BookWyrm/0.7.5; +https://${config.APP_DOMAIN})`,
 }
 
 // Author AP objects are immutable for our purposes; cache resolved names for the

@@ -56,7 +56,7 @@ export function AuthorizePage({
       <body>
         <div class="box">
           <h1>Authorize access</h1>
-          <p><strong>{clientName}</strong> wants to connect to your ActivityPub MCP server and read your archived data.</p>
+          <p><strong>{clientName}</strong> wants to connect to Markivaren, your personal archive, and read your archived data.</p>
           <div class="scope">It will be able to call the read-only MCP tools (posts, reading, scrobbles, train trips, and more).</div>
           {error && <div class="error">{error}</div>}
           <form method="post" action="/oauth/authorize">

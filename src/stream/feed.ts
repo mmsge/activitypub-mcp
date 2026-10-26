@@ -164,7 +164,7 @@ ${e.originUrl ? `    <link rel="alternate" type="text/html" href="${esc(e.origin
   <link rel="alternate" type="text/html" href="${esc(opts.alternate)}"/>
   <link rel="self" type="application/atom+xml" href="${esc(opts.self)}"/>
   <author><name>Markus</name><uri>${esc(origin)}</uri></author>
-  <generator uri="https://${esc(config.APP_DOMAIN)}">activitypub-mcp</generator>
+  <generator uri="https://${esc(config.APP_DOMAIN)}">markivaren</generator>
 ${items}
 </feed>
 `

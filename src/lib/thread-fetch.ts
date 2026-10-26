@@ -1,4 +1,5 @@
 import { config, getOwnerInstanceHost } from '../config.js'
+import { USER_AGENT } from './user-agent.js'
 import { parseRetryAfter } from './probe-youtube-short.js'
 import { logger } from './logger.js'
 import type { ContextStatus } from './thread-context.js'
@@ -23,7 +24,6 @@ import type { ContextStatus } from './thread-context.js'
  * leaking it there would be worse than useless.
  */
 
-const USER_AGENT = `activitypub-mcp/1.0 (+https://${config.APP_DOMAIN})`
 
 export type ContextOutcome =
   | { ok: true; descendants: ContextStatus[]; authenticated: boolean }

@@ -1,8 +1,8 @@
-# ActivityPub MCP Server
+# Markivaren
 
 [![deployed](https://img.shields.io/endpoint?url=https://utrulla.msge.no/badge/mmsge/activitypub-mcp)](https://bot.skvip.lol)
 
-A personal ActivityPub actor that follows other accounts, archives their posts in PostgreSQL, and exposes an MCP server so AI agents can query the data.
+Markus' personal archive, formerly **activitypub-mcp** (see ADR 0070). It started as a personal ActivityPub actor that follows other accounts, archives their posts in PostgreSQL, and exposes an MCP server so AI agents can query the data.
 
 Works with **Mastodon**, **BookWyrm**, **Pixelfed**, and **Loops**.
 
