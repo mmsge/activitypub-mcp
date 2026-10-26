@@ -246,6 +246,13 @@ async function fetchFromRss(): Promise<GardenPage[]> {
   return pages
 }
 
+async function fetchCacheDoc() {
+  const res = await fetch(CACHE_URL, { headers: { Accept: 'application/json' } })
+  if (!res.ok) throw new Error(`cache -> ${res.status}`)
+  const doc = (await res.json()) as AnyObject
+  return { pages: parseCache(doc), reviews: parseGardenReviews(doc), noteRefs: parseNoteRefs(doc) }
+}
+
 // Refresh the process-lifetime cache when stale. Parses both the page list and the
 // book-review map from the one cache document so neither needs a second fetch.
 async function refreshGarden(): Promise<void> {
@@ -255,12 +262,7 @@ async function refreshGarden(): Promise<void> {
   let reviews = new Map<string, ReviewMeta>()
   let noteRefs: GardenNoteRef[] = []
   try {
-    const res = await fetch(CACHE_URL, { headers: { Accept: 'application/json' } })
-    if (!res.ok) throw new Error(`cache -> ${res.status}`)
-    const doc = (await res.json()) as AnyObject
-    pages = parseCache(doc)
-    reviews = parseGardenReviews(doc)
-    noteRefs = parseNoteRefs(doc)
+    ;({ pages, reviews, noteRefs } = await fetchCacheDoc())
   } catch (e) {
     logger.warn({ error: e }, 'Obsidian cache fetch failed; falling back to rss.xml')
   }
@@ -278,6 +280,36 @@ async function refreshGarden(): Promise<void> {
 
   cache = { at: Date.now(), pages, reviews, noteRefs }
   logger.info({ count: pages.length, reviews: reviews.size }, 'Tankehav garden refreshed')
+}
+
+// Re-fetch the cache doc now, ignoring the TTL, so a note published since the last
+// refresh can be found on a lookup miss. At most once per FORCE_MIN_INTERVAL_MS per
+// process (a failed attempt counts), so probing dead paths can't hammer Obsidian.
+// A failed fetch, or a doc with no pages, keeps the existing cache and never falls
+// back to RSS. Resolves true only when the cache was replaced.
+const FORCE_MIN_INTERVAL_MS = 60 * 1000
+let lastForcedAt = 0
+
+export async function forceRefreshGarden(): Promise<boolean> {
+  const now = Date.now()
+  if (now - lastForcedAt < FORCE_MIN_INTERVAL_MS) return false
+  lastForcedAt = now
+  try {
+    const fresh = await fetchCacheDoc()
+    if (fresh.pages.length === 0) throw new Error('cache doc has no pages')
+    cache = { at: Date.now(), ...fresh }
+    logger.info({ count: fresh.pages.length }, 'Tankehav garden force-refreshed')
+    return true
+  } catch (e) {
+    logger.warn({ error: e }, 'Forced Obsidian cache refresh failed; keeping existing cache')
+    return false
+  }
+}
+
+// Test seam: clear the cache and the forced-refresh rate limit.
+export function resetGardenCacheForTest(): void {
+  cache = null
+  lastForcedAt = 0
 }
 
 export async function fetchGarden(): Promise<GardenPage[]> {

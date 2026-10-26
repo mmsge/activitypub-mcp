@@ -5,6 +5,7 @@ import { gardenNotes } from '../../db/schema.js'
 import {
   fetchGarden,
   fetchGardenNoteRefs,
+  forceRefreshGarden,
   noteAccessUrl,
   stripFrontmatter,
 } from '../../lib/fetch-garden.js'
@@ -60,25 +61,33 @@ export async function getGardenPage(input: z.infer<typeof getGardenPageSchema>) 
   // Permalinks are stored verbatim and some end with a slash (e.g. "/melding/bok/"),
   // so match the normalized path and its trailing-slash variant.
   const variants = norm === '/' ? [norm] : [norm, `${norm}/`]
-  const page = (await fetchGarden()).find((p) => variants.includes(p.path))
   const db = getDb()
-  const rows = await db
-    .select()
-    .from(gardenNotes)
-    .where(and(inArray(gardenNotes.path, variants), isNull(gardenNotes.deletedAt)))
-  // Two source files can share a permalink (a rename that left an alias); prefer
-  // the row backing the page the list serves, else the most recently fetched.
-  let row =
-    rows.find((r) => page?.sourcePath && r.sourcePath === page.sourcePath) ??
-    [...rows].sort((a, b) => (b.fetchedAt?.getTime() ?? 0) - (a.fetchedAt?.getTime() ?? 0))[0]
+  const lookup = async () => {
+    const page = (await fetchGarden()).find((p) => variants.includes(p.path))
+    const rows = await db
+      .select()
+      .from(gardenNotes)
+      .where(and(inArray(gardenNotes.path, variants), isNull(gardenNotes.deletedAt)))
+    // Two source files can share a permalink (a rename that left an alias); prefer
+    // the row backing the page the list serves, else the most recently fetched.
+    const row =
+      rows.find((r) => page?.sourcePath && r.sourcePath === page.sourcePath) ??
+      [...rows].sort((a, b) => (b.fetchedAt?.getTime() ?? 0) - (a.fetchedAt?.getTime() ?? 0))[0]
+    // The page list omits the home note and RSS-fallback pages carry no sourcePath,
+    // so on a fresh DB the note refs (which include both) are the resolver of last
+    // resort for the live fetch below. Served from the same cached cache doc.
+    const ref =
+      !page?.sourcePath && !row
+        ? (await fetchGardenNoteRefs()).find((r) => variants.includes(r.path))
+        : undefined
+    return { page, row, ref }
+  }
 
-  // The page list omits the home note and RSS-fallback pages carry no sourcePath,
-  // so on a fresh DB the note refs (which include both) are the resolver of last
-  // resort for the live fetch below. Served from the same cached cache doc.
-  const ref =
-    !page?.sourcePath && !row
-      ? (await fetchGardenNoteRefs()).find((r) => variants.includes(r.path))
-      : undefined
+  let { page, row, ref } = await lookup()
+
+  // A note published since the last cache-doc refresh (6 h TTL) is unknown to both
+  // the cache and the DB, so on a miss force one fresh refresh (rate-limited) and retry.
+  if (!page && !row && !ref && (await forceRefreshGarden())) ({ page, row, ref } = await lookup())
 
   if (!page && !row && !ref) return { error: `No garden page found for path "${norm}"` }
 
