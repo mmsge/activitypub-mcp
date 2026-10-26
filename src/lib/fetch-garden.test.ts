@@ -1,5 +1,13 @@
-import { describe, it, expect } from 'vitest'
-import { parseGardenReviews, parseNoteRefs, noteAccessUrl, stripFrontmatter } from './fetch-garden.js'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import {
+  parseGardenReviews,
+  parseNoteRefs,
+  noteAccessUrl,
+  stripFrontmatter,
+  fetchGarden,
+  forceRefreshGarden,
+  resetGardenCacheForTest,
+} from './fetch-garden.js'
 
 describe('parseGardenReviews — Obsidian cache → review map', () => {
   const cacheDoc = {
@@ -159,5 +167,67 @@ describe('stripFrontmatter', () => {
   it('tolerates CRLF and a BOM', () => {
     expect(stripFrontmatter('---\r\na: 1\r\n---\r\nTekst')).toBe('Tekst')
     expect(stripFrontmatter('﻿---\na: 1\n---\nTekst')).toBe('Tekst')
+  })
+})
+
+describe('forceRefreshGarden — forced cache-doc refresh on a lookup miss', () => {
+  const doc = (...permalinks: string[]) =>
+    Object.fromEntries(permalinks.map((p) => [`_publish/${p}.md`, { frontmatter: { permalink: p } }]))
+  const ok = (body: unknown) => ({ ok: true, status: 200, json: async () => body })
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-26T12:00:00Z'))
+    resetGardenCacheForTest()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('replaces a fresh (non-stale) cache so a newly published note is found', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(ok(doc('gammal')))
+      .mockResolvedValueOnce(ok(doc('gammal', 'melding/bok/weirdo')))
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect((await fetchGarden()).map((p) => p.path)).toEqual(['/gammal'])
+    expect((await fetchGarden()).length).toBe(1) // within TTL: no refetch
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    expect(await forceRefreshGarden()).toBe(true)
+    expect((await fetchGarden()).map((p) => p.path)).toContain('/melding/bok/weirdo')
+  })
+
+  it('rate-limits forced refreshes to one per minute', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(ok(doc('a')))
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await forceRefreshGarden()).toBe(true)
+    expect(await forceRefreshGarden()).toBe(false)
+    vi.advanceTimersByTime(59_000)
+    expect(await forceRefreshGarden()).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    vi.advanceTimersByTime(1_000)
+    expect(await forceRefreshGarden()).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the existing cache when the forced refresh fails', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(ok(doc('gammal')))
+      .mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}) })
+      .mockRejectedValueOnce(new Error('network down'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchGarden()
+    expect(await forceRefreshGarden()).toBe(false) // HTTP 503, and no RSS fallback
+    vi.advanceTimersByTime(60_000)
+    expect(await forceRefreshGarden()).toBe(false) // network error
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect((await fetchGarden()).map((p) => p.path)).toEqual(['/gammal'])
   })
 })
