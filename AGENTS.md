@@ -1,4 +1,10 @@
-# activitypub-mcp
+# markivaren
+
+**markivaren** (Markus + *arkivaren*) is Markus' personal archive. It was called
+**activitypub-mcp** until ADR 0070, and its claude.ai connector was `Markus_ActivityPub`.
+The old name is in the ADRs, in the database (`activitypub` / `apuser`) and in
+`src/activitypub/`, which really is the ActivityPub part. Anything else saying
+activitypub-mcp means this service. Renaming runbook: `docs/renaming.md`.
 
 ## Deployment environment
 
@@ -29,7 +35,7 @@ This repo previously had its own bundled Caddy service in `docker-compose.yml` â
 | skjenelangs.no | skjenelangs.msge.no | 4001 |
 | markescence | markescence.msge.no | 4002 |
 | daggerheart (river-sky) | rpg.msge.no | 4000 |
-| **activitypub-mcp** | bot.skvip.lol | **3000** |
+| **markivaren** (formerly activitypub-mcp) | bot.skvip.lol | **3000** |
 | **meg (offentleg straum)** | meg.msge.no | **3000** (same container) |
 
 **Port 3000 is reserved for this service.** Do not change it without updating the Caddyfile in `naustet-server`.

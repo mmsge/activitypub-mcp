@@ -41,11 +41,26 @@ import { getLinkedinStatsSchema, getLinkedinStats } from './tools/linkedin-stats
 import { getThreadLeaderboardSchema, getThreadLeaderboard } from './tools/thread-leaderboard.js'
 import { getThreadTreeSchema, getThreadTree } from './tools/thread-tree.js'
 
+const SERVER_INSTRUCTIONS =
+  "Markivaren is Markus' personal archive (formerly activitypub-mcp; the claude.ai connector " +
+  'was called Markus_ActivityPub). It keeps his fediverse posts (Mastodon, BookWyrm, Pixelfed, ' +
+  'Loops, NeoDB, Gigowl) and much that never touched ActivityPub: books and reading dates, ' +
+  'StoryGraph pages, films and TV, theatre, gigs, Last.fm scrobbles and races, train trips ' +
+  'with weather, YouTube watch history, LinkedIn posts, Tankehav garden pages and two Twitter ' +
+  'archives, plus watchers such as post breakouts and the scrobble/kilometre convergence. ' +
+  'Everything is read-only.'
+
 export function createMcpServer(): McpServer {
-  const server = new McpServer({
-    name: 'activitypub-mcp',
-    version: '1.2.0',
-  })
+  const server = new McpServer(
+    {
+      name: 'markivaren',
+      version: '1.3.0',
+    },
+    {
+      // Agents choose tools from this text, not from the server name (ADR 0070).
+      instructions: SERVER_INSTRUCTIONS,
+    },
+  )
 
   server.tool(
     'get_actor_posts',

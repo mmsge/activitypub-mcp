@@ -1,4 +1,4 @@
-import { config } from '../config.js'
+import { USER_AGENT } from './user-agent.js'
 import { logger } from './logger.js'
 
 /**
@@ -33,7 +33,6 @@ const NOMINATIM_URL = 'https://nominatim.openstreetmap.org/search'
 const FETCH_TIMEOUT_MS = 10_000
 
 /** Nominatim asks for a real identifier with a way to make contact. */
-const USER_AGENT = `activitypub-mcp/1.0 (+https://${config.APP_DOMAIN})`
 
 /**
  * ISO 3166-1 alpha-2 → the IANA zone its clocks keep, for the countries a European

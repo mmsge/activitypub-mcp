@@ -1,4 +1,4 @@
-import { config } from '../config.js'
+import { USER_AGENT } from './user-agent.js'
 import { logger } from './logger.js'
 
 /**
@@ -17,7 +17,6 @@ import { logger } from './logger.js'
 
 const YOUTUBE_API_BASE = 'https://www.googleapis.com/youtube/v3/videos'
 const FETCH_TIMEOUT_MS = 10_000
-const USER_AGENT = `activitypub-mcp/1.0 (+https://${config.APP_DOMAIN})`
 
 /** The API's own ceiling for `id`. Raising it does not fetch more, it 400s. */
 export const YOUTUBE_VIDEOS_BATCH_SIZE = 50

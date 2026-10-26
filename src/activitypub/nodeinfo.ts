@@ -1,13 +1,13 @@
 import { Hono } from 'hono'
 import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
+import { SOFTWARE_NAME } from '../lib/user-agent.js'
 import { countNotes } from './notes-store.js'
 
 const app = new Hono()
 
-const SOFTWARE_NAME = 'activitypub-mcp'
 const SOFTWARE_VERSION = '1.2.0'
-const REPOSITORY = 'https://github.com/mmsge/activitypub-mcp'
+const REPOSITORY = 'https://github.com/mmsge/markivaren'
 
 /** One account, and it is this one. */
 const USERS = { total: 1, activeMonth: 1, activeHalfyear: 1 }

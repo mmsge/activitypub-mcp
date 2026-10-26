@@ -3,7 +3,7 @@ import { z } from 'zod'
 const schema = z.object({
   APP_DOMAIN: z.string().min(1),
   APP_USERNAME: z.string().min(1).default('bot'),
-  APP_DISPLAY_NAME: z.string().default('ActivityPub MCP Bot'),
+  APP_DISPLAY_NAME: z.string().default('Markivaren'),
   DATABASE_URL: z.string().url(),
   FOLLOW_ACTORS: z.string().default(''),
   // Your primary fediverse handle (@user@domain or actor URL). When set, the

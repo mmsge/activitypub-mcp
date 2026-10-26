@@ -1,6 +1,7 @@
 # Decision records
 
-Append-only architecture/decision records (ADRs) for activitypub-mcp. Each
+Append-only architecture/decision records (ADRs) for markivaren
+(formerly activitypub-mcp). Each
 records a non-obvious decision or a hard-to-re-derive incident so it doesn't
 have to be reverse-engineered from the code (or repeated). Records are immutable
 once accepted; to change one, add a new record and mark the old one

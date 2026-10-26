@@ -1,4 +1,4 @@
-import { config } from '../config.js'
+import { USER_AGENT } from './user-agent.js'
 import { logger } from './logger.js'
 
 /**
@@ -17,7 +17,6 @@ import { logger } from './logger.js'
  */
 
 const FETCH_TIMEOUT_MS = 10_000
-const USER_AGENT = `activitypub-mcp/1.0 (+https://${config.APP_DOMAIN})`
 
 /**
  * Without this, every probe from an EU IP is answered with a 302 to

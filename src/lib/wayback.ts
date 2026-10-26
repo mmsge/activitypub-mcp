@@ -67,7 +67,7 @@ export class WaybackClient {
     this.sleep = opts.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)))
     this.delayMs = opts.delayMs ?? 1500
     this.retries = opts.retries ?? 3
-    this.userAgent = opts.userAgent ?? 'activitypub-mcp legacy image recovery (bot.skvip.lol)'
+    this.userAgent = opts.userAgent ?? 'markivaren legacy image recovery (bot.skvip.lol)'
   }
 
   private async polite(url: string): ReturnType<FetchLike> {

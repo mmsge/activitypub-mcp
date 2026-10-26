@@ -62,7 +62,7 @@ export async function storygraphRequest(token: string, url: string): Promise<Sto
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/json',
-        'User-Agent': 'activitypub-mcp/1.0 (sync-storygraph)',
+        'User-Agent': 'markivaren/1.0 (sync-storygraph)',
       },
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     })

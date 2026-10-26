@@ -54,7 +54,7 @@ describe('nodeinfo documents', () => {
         )
 
         expect(body.version).toBe(version)
-        expect(body.software.name).toBe('activitypub-mcp')
+        expect(body.software.name).toBe('markivaren')
         expect(body.software.version).toBeTruthy()
         expect(body.protocols).toEqual(['activitypub'])
         // Required even when empty — this host bridges no third-party service.
@@ -84,6 +84,6 @@ describe('nodeinfo documents', () => {
   it('keeps repository out of 2.0, whose schema rejects it, and in 2.1', async () => {
     expect((await get('/nodeinfo/2.0')).body.software.repository).toBeUndefined()
     expect((await get('/nodeinfo/2.1')).body.software.repository)
-      .toBe('https://github.com/mmsge/activitypub-mcp')
+      .toBe('https://github.com/mmsge/markivaren')
   })
 })

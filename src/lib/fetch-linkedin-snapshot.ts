@@ -1,4 +1,4 @@
-import { config } from '../config.js'
+import { USER_AGENT } from './user-agent.js'
 import { logger } from './logger.js'
 
 /**
@@ -189,7 +189,7 @@ export async function dmaRequest(
         'Linkedin-Version': LINKEDIN_VERSION,
         Accept: 'application/json',
         'Content-Type': 'application/json',
-        'User-Agent': `activitypub-mcp/1.0 (+https://${config.APP_DOMAIN})`,
+        'User-Agent': USER_AGENT,
       },
       body: init.body,
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),

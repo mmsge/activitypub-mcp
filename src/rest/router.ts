@@ -70,7 +70,7 @@ for (const endpoint of endpoints) {
 // same table the routes are, so it never drifts.
 app.get('/', (c) => {
   return c.json({
-    service: 'activitypub-mcp REST API',
+    service: 'markivaren REST API',
     version: 'v1',
     methods: {
       GET: 'params as query string (?actor_handle=@a@b&limit=5); arrays repeated or comma-separated',
