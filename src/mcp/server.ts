@@ -22,6 +22,7 @@ import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats 
 import { getTripPostsSchema, getTripPosts } from './tools/trip-posts.js'
 import { getTripWeatherSchema, getTripWeather } from './tools/trip-weather.js'
 import { getTripTracksSchema, getTripTracks } from './tools/trip-tracks.js'
+import { getStationDiscrepanciesSchema, getStationDiscrepancies } from './tools/station-discrepancies.js'
 import {
   listRailwayLinesSchema, listRailwayLines,
   getLineStatsSchema, getLineStats,
@@ -314,6 +315,16 @@ export function createMcpServer(): McpServer {
     getTripTracksSchema.shape,
     async (input) => {
       const result = await getTripTracks(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_station_discrepancies',
+    "Where viaduct.world and the geocoder disagree about a station: every station a trip names, compared with viaduct's own waypoint of the same name from the GPX import (nearest one when viaduct has two). Lists stations at least min_km apart (default 5 km, wrong towns rather than wrong platforms), with both positions and what the geocoder matched; stations the geocoder never placed that viaduct has a position for; and stations viaduct has no waypoint for. Read-only: fixing a row is the pin at Admin → Stations (ADR 0072).",
+    getStationDiscrepanciesSchema.shape,
+    async (input) => {
+      const result = await getStationDiscrepancies(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

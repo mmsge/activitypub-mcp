@@ -568,6 +568,7 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_trip_posts` | "What did I post on Sjælland rundt? Show every togselfie with the train it was taken on. Which train was I on when I posted this?" |
 | `get_trip_weather` | "What was the weather on the Bergensbanen that day? How many trips have I taken in snow? Which was the coldest journey?" |
 | `get_trip_tracks` | "Give me the route of the night train to Bergen as GeoJSON. Draw every leg of Fyrste interrail 2016. Which legs have a route but no trip?" |
+| `get_station_discrepancies` | "Which stations has the geocoder put in the wrong town? Which stations has it never placed?" |
 | `get_linkedin_posts` | "What have I posted on LinkedIn this year, and how did each one do?" |
 | `get_linkedin_post` | "How did the KI-buzzwords post decay — what did its reach look like across exports?" |
 | `get_linkedin_stats` | "Which weekday actually earns me the best engagement rate? Is a 1.8% post good for me or bad? Is the LinkedIn token still working?" |
@@ -1314,6 +1315,11 @@ at query time on the same stations and local departure time; one with no trip to
 and listed on the result page. The file is the complete set, so an import replaces both
 tables; a file with no tracks is refused. `get_trip_tracks` and `/api/v1/trip-tracks` serve the
 routes as GeoJSON. See [ADR 0070](docs/decision-records/0070-a-route-is-its-own-import.md).
+
+**Admin → Stations** (and `get_station_discrepancies`) compares every station's geocoded
+position with viaduct's own waypoint for it, lists the ones 5 km or more apart, and pins a
+station to viaduct's position in one click. See
+[ADR 0072](docs/decision-records/0072-viaduct-is-a-second-opinion-on-a-station.md).
 
 ### Weather on the trips
 

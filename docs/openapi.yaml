@@ -2632,6 +2632,66 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/station-discrepancies:
+    get:
+      tags: [REST API]
+      summary: Stations where viaduct and the geocoder disagree
+      description: |
+        Where viaduct.world and the geocoder disagree about a station: every
+        station a trip names, compared with viaduct's own waypoint of the same
+        name from the GPX import (the nearest, when viaduct has two). Lists
+        stations at least `min_km` apart, stations not geocoded that viaduct
+        can place, and stations with no waypoint. Read-only. See ADR 0072.
+      operationId: getStationDiscrepanciesGet
+      parameters:
+        - name: min_km
+          in: query
+          description: Flag a station at least this far from viaduct's waypoint.
+          schema: { type: number, minimum: 0, default: 5 }
+        - name: include_manual
+          in: query
+          description: Include stations pinned by hand.
+          schema: { type: boolean, default: true }
+      responses:
+        "200":
+          description: Stations compared with viaduct's waypoints.
+          content:
+            application/json:
+              schema:
+                { $ref: "#/components/schemas/StationDiscrepanciesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Stations where viaduct and the geocoder disagree (JSON body)
+      description: |
+        Where viaduct.world and the geocoder disagree about a station: every
+        station a trip names, compared with viaduct's own waypoint of the same
+        name from the GPX import (the nearest, when viaduct has two). Lists
+        stations at least `min_km` apart, stations not geocoded that viaduct
+        can place, and stations with no waypoint. Read-only. See ADR 0072.
+      operationId: getStationDiscrepanciesPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                min_km: { type: number, minimum: 0, default: 5 }
+                include_manual: { type: boolean, default: true }
+      responses:
+        "200":
+          description: Stations compared with viaduct's waypoints.
+          content:
+            application/json:
+              schema:
+                { $ref: "#/components/schemas/StationDiscrepanciesResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/reading-stats:
     get:
       tags: [REST API]
@@ -6824,6 +6884,43 @@ components:
         trips:
           type: array
           items: { $ref: "#/components/schemas/Trip" }
+
+    StationComparison:
+      type: object
+      properties:
+        name: { type: string }
+        latitude: { type: [number, "null"] }
+        longitude: { type: [number, "null"] }
+        display_name:
+          type: [string, "null"]
+          description: What the geocoder matched.
+        country_code: { type: [string, "null"] }
+        source: { type: string, enum: [nominatim, manual] }
+        viaduct_latitude: { type: number }
+        viaduct_longitude: { type: number }
+        distance_km:
+          type: [number, "null"]
+          description: km between the two positions; null when the station is not geocoded.
+
+    StationDiscrepanciesResponse:
+      type: object
+      properties:
+        min_km: { type: number }
+        coverage:
+          type: object
+          properties:
+            stations: { type: integer }
+            viaduct_waypoints: { type: integer }
+            agreeing: { type: integer }
+        disagreeing:
+          type: array
+          items: { $ref: "#/components/schemas/StationComparison" }
+        not_geocoded:
+          type: array
+          items: { $ref: "#/components/schemas/StationComparison" }
+        no_waypoint:
+          type: array
+          items: { type: string }
 
     TripTracksResponse:
       type: object
