@@ -3,6 +3,7 @@ import { getDb } from '../db/client.js'
 import { logger } from '../lib/logger.js'
 import { COUNTRY_ZONES, geocodeStation, type GeocodeHit } from '../lib/geocode-station.js'
 import { LEG_ZONE, storeHit } from './sync-stations.js'
+import { distanceKm } from '../lib/geo-distance.js'
 
 /**
  * Geocode stations again that already have coordinates, and say what moved.
@@ -60,14 +61,7 @@ export interface RegeocodeResult {
   dryRun: boolean
 }
 
-/** Haversine distance in km. Pure. */
-export function distanceKm(aLat: number, aLon: number, bLat: number, bLon: number): number {
-  const rad = (d: number) => (d * Math.PI) / 180
-  const dLat = rad(bLat - aLat)
-  const dLon = rad(bLon - aLon)
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLon / 2) ** 2
-  return 2 * 6371 * Math.asin(Math.min(1, Math.sqrt(h)))
-}
+export { distanceKm }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 

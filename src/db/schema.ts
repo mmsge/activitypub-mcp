@@ -1207,6 +1207,12 @@ export const tripTracks = pgTable('trip_tracks', {
   segments: jsonb('segments').notNull(),
   pointCount: integer('point_count').notNull(),
   segmentCount: integer('segment_count').notNull(),
+  /**
+   * The drawn length, km to one decimal: segments summed, gaps between them not bridged.
+   * Reported beside the trip's own `distance_km` and never substituted for it in any
+   * total. See ADR 0071.
+   */
+  measuredKm: doublePrecision('measured_km'),
   importedAt: timestamp('imported_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [

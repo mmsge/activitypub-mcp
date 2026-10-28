@@ -3,6 +3,7 @@ import { getDb } from '../db/client.js'
 import { tripTracks, viaductWaypoints } from '../db/schema.js'
 import { logger } from '../lib/logger.js'
 import type { GpxProblem, GpxTrack, ViaductGpx } from '../lib/parse-viaduct-gpx.js'
+import { trackLengthKm } from '../lib/geo-distance.js'
 
 /**
  * Store viaduct.world's GPX export: one geometry per leg and every station waypoint.
@@ -103,6 +104,7 @@ export async function importTripTracks(gpx: ViaductGpx): Promise<TripTrackImport
         toStation: tripTracks.toStation,
         departureLocal: sql<string>`${tripTracks.departureLocal}::text`,
         segments: tripTracks.segments,
+        measuredKm: tripTracks.measuredKm,
       })
       .from(tripTracks)
     const stored = new Map(existing.map((e) => [e.viaductTripId, e]))
@@ -118,6 +120,7 @@ export async function importTripTracks(gpx: ViaductGpx): Promise<TripTrackImport
         prior.fromStation === t.fromStation &&
         prior.toStation === t.toStation &&
         prior.departureLocal === t.departureLocal &&
+        prior.measuredKm === trackLengthKm(t.segments) &&
         JSON.stringify(prior.segments) === JSON.stringify(t.segments)
       if (same) {
         report.tracksUnchanged++
@@ -132,6 +135,7 @@ export async function importTripTracks(gpx: ViaductGpx): Promise<TripTrackImport
           segments: t.segments,
           pointCount: t.pointCount,
           segmentCount: t.segments.length,
+          measuredKm: trackLengthKm(t.segments),
           updatedAt: new Date(),
         })
         .where(sql`${tripTracks.id} = ${prior.id}`)
@@ -147,6 +151,7 @@ export async function importTripTracks(gpx: ViaductGpx): Promise<TripTrackImport
           segments: t.segments,
           pointCount: t.pointCount,
           segmentCount: t.segments.length,
+          measuredKm: trackLengthKm(t.segments),
         })),
       )
     }

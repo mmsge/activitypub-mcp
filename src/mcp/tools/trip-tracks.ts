@@ -61,7 +61,7 @@ export async function getTripTracks(input: z.infer<typeof getTripTracksSchema>) 
     SELECT
       tt.viaduct_trip_id, tt.from_station, tt.to_station,
       tt.departure_local::text AS departure_local,
-      tt.point_count, tt.segment_count, ${geometry} AS segments,
+      tt.point_count, tt.segment_count, tt.measured_km, ${geometry} AS segments,
       t.id AS trip_id, t.journey, t.operator, t.train_code, t.mode,
       t.distance_km, t.status, t.departure_at, t.arrival_at
     FROM trip_tracks tt
@@ -103,6 +103,8 @@ export async function getTripTracks(input: z.infer<typeof getTripTracksSchema>) 
         train_code: r.train_code ?? null,
         mode: r.mode ?? null,
         distance_km: num(r.distance_km),
+        /** The drawn route's length; compare with distance_km, never a replacement for it. */
+        measured_km: num(r.measured_km),
         status: r.status ?? null,
         departure_at: r.departure_at ?? null,
         arrival_at: r.arrival_at ?? null,

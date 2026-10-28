@@ -6806,6 +6806,12 @@ components:
         toLon:
           type: [number, "null"]
           description: Destination station longitude (WGS84); null when not geocoded.
+        measuredKm:
+          type: [number, "null"]
+          description: |
+            Drawn length of the leg's viaduct.world GPX route, km to one decimal:
+            segments summed, gaps not bridged. Shown beside `distanceKm`, never
+            in place of it; null where no route is stored. See ADR 0071.
 
     TrainTripsResponse:
       type: object
@@ -6866,6 +6872,9 @@ components:
                   train_code: { type: [string, "null"] }
                   mode: { type: [string, "null"] }
                   distance_km: { type: [number, "null"] }
+                  measured_km:
+                    type: [number, "null"]
+                    description: The drawn route's length, km to one decimal. Never a replacement for distance_km.
                   status: { type: [string, "null"] }
                   departure_at: { type: [string, "null"], format: date-time }
                   arrival_at: { type: [string, "null"], format: date-time }

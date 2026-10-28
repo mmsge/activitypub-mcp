@@ -26,6 +26,7 @@ const baseRow: Row = {
   fromLon: '5.3329',
   toLat: '59.9111',
   toLon: '10.7528',
+  measuredKm: 488.3,
 }
 
 describe('shapeTripRow', () => {
@@ -62,13 +63,31 @@ describe('shapeTripRow', () => {
     expect(Object.keys(out)).toEqual([
       'departureAt', 'arrivalAt', 'from', 'to', 'journey', 'trainCode', 'operator', 'mode',
       'travelClass', 'distanceKm', 'delay', 'night', 'status', 'tags',
-      'fromTz', 'toTz', 'fromLat', 'fromLon', 'toLat', 'toLon',
+      'fromTz', 'toTz', 'fromLat', 'fromLon', 'toLat', 'toLon', 'measuredKm',
     ])
     expect(out).not.toHaveProperty('id')
   })
 })
 
+describe('measuredKm', () => {
+  it('rides beside distanceKm and never replaces it', () => {
+    const out = shapeTripRow({ ...baseRow, distanceKm: null })
+    expect(out.distanceKm).toBeNull()
+    expect(out.measuredKm).toBe(488.3)
+  })
+
+  it('is null where the leg has no stored route', () => {
+    expect(shapeTripRow({ ...baseRow, measuredKm: null }).measuredKm).toBeNull()
+  })
+})
+
 describe('buildTrainTripsQuery', () => {
+  it('reads measured_km off the matching GPX route, one row at most', () => {
+    const q = buildTrainTripsQuery(getTrainTripsSchema.parse({})).toSQL().sql
+    expect(q).toContain('(SELECT tt.measured_km FROM trip_tracks tt WHERE "tt".from_station = "train_trips".from_station')
+    expect(q).toContain('LIMIT 1)')
+  })
+
   const render = (input: Record<string, unknown> = {}) =>
     buildTrainTripsQuery(getTrainTripsSchema.parse(input)).toSQL().sql
 
