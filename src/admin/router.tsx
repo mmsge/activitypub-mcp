@@ -17,6 +17,9 @@ import { VisibilityPage } from './views/visibility.js'
 import { BreakoutsPage } from './views/breakouts.js'
 import { getPostBreakouts } from '../mcp/tools/post-breakouts.js'
 import { ThreadsPage } from './views/threads.js'
+import { StationsPage } from './views/stations.js'
+import { getStationDiscrepancies, getStationDiscrepanciesSchema } from '../mcp/tools/station-discrepancies.js'
+import { pinStationToWaypoint } from '../jobs/pin-station.js'
 import { getThreadLeaderboard } from '../mcp/tools/thread-leaderboard.js'
 import { loadWalkFailures } from '../lib/thread-store.js'
 import { config } from '../config.js'
@@ -262,6 +265,34 @@ app.get('/threads', async (c) => {
   ])
   if ('error' in report) return c.text(report.error as string, 404)
   return c.html(<ThreadsPage report={report} failures={failures} />)
+})
+
+// viaduct.world's waypoints against the geocoder, with a pin per row. Same handler as
+// get_station_discrepancies. See ADR 0072.
+app.get('/stations', async (c) => {
+  const report = await getStationDiscrepancies(getStationDiscrepanciesSchema.parse({}))
+  return c.html(<StationsPage report={report} />)
+})
+
+// The pin. The posted coordinates must be one of viaduct's own waypoints for that name,
+// which pinStationToWaypoint checks, so this form cannot place a station anywhere else.
+app.post('/stations/pin', bodyLimit({ maxSize: 16 * 1024 }), async (c) => {
+  const body = await c.req.parseBody()
+  const name = typeof body['name'] === 'string' ? body['name'] : ''
+  const latitude = Number(body['latitude'])
+  const longitude = Number(body['longitude'])
+  const render = async (notice?: string, error?: string) =>
+    c.html(<StationsPage report={await getStationDiscrepancies(getStationDiscrepanciesSchema.parse({}))} notice={notice} error={error} />)
+  if (!name || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    return render(undefined, 'Pin request was missing the station or its coordinates')
+  }
+  const result = await pinStationToWaypoint(name, latitude, longitude)
+  if (!result.ok) return render(undefined, result.reason)
+  const moved = result.movedKm == null ? 'placed' : `moved ${result.movedKm} km`
+  const extra = result.countryCleared
+    ? `; country cleared, ${result.weatherDropped} weather day${result.weatherDropped === 1 ? '' : 's'} dropped to be fetched again`
+    : ''
+  return render(`${result.name} pinned to viaduct's position (${moved}${extra}).`)
 })
 
 app.get('/visibility', async (c) => {

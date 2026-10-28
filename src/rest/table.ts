@@ -30,6 +30,7 @@ import {
 import { getTripPostsSchema, getTripPosts } from '../mcp/tools/trip-posts.js'
 import { getTripWeatherSchema, getTripWeather } from '../mcp/tools/trip-weather.js'
 import { getTripTracksSchema, getTripTracks } from '../mcp/tools/trip-tracks.js'
+import { getStationDiscrepanciesSchema, getStationDiscrepancies } from '../mcp/tools/station-discrepancies.js'
 import {
   listRailwayLinesSchema, listRailwayLines,
   getLineStatsSchema, getLineStats,
@@ -371,6 +372,16 @@ export const endpoints: RestEndpoint[] = [
     handler: getTripTracks,
     numbers: ['limit', 'page', 'year'],
     booleans: ['matched', 'with_geometry'],
+    arrays: [],
+  },
+  {
+    path: '/station-discrepancies',
+    name: 'get_station_discrepancies',
+    description: "Where viaduct.world and the geocoder disagree about a station: each station compared with viaduct's own waypoint of the same name. Lists stations at least min_km apart (default 5), with both positions; stations not geocoded that viaduct can place; and stations with no waypoint. Read-only.",
+    schema: getStationDiscrepanciesSchema,
+    handler: getStationDiscrepancies,
+    numbers: ['min_km'],
+    booleans: ['include_manual'],
     arrays: [],
   },
   {
