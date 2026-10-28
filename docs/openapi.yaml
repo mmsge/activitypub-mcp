@@ -2714,6 +2714,55 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/viaduct-waypoints:
+    get:
+      tags: [REST API]
+      summary: viaduct.world station waypoints
+      description: |
+        viaduct.world's own station positions from the GPX import, sorted by
+        name. Two rows for one name is normal (metres apart). viaduct's answer,
+        not the geocoder's. See ADR 0070.
+      operationId: getViaductWaypointsGet
+      parameters:
+        - name: name
+          in: query
+          description: Station name (case-insensitive, partial match).
+          schema: { type: string }
+      responses:
+        "200":
+          description: viaduct.world's station waypoints.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ViaductWaypointsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: viaduct.world station waypoints (JSON body)
+      description: |
+        viaduct.world's own station positions from the GPX import, sorted by
+        name. Two rows for one name is normal (metres apart). viaduct's answer,
+        not the geocoder's. See ADR 0070.
+      operationId: getViaductWaypointsPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+      responses:
+        "200":
+          description: viaduct.world's station waypoints.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ViaductWaypointsResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/reading-stats:
     get:
       tags: [REST API]
@@ -6943,6 +6992,23 @@ components:
         no_waypoint:
           type: array
           items: { type: string }
+
+    ViaductWaypointsResponse:
+      type: object
+      properties:
+        count: { type: integer }
+        imported_at:
+          type: [string, "null"]
+          format: date-time
+          description: When the newest of these rows was imported; null when there are none.
+        waypoints:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              latitude: { type: number }
+              longitude: { type: number }
 
     TripTracksResponse:
       type: object
