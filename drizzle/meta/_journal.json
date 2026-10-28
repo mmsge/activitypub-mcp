@@ -323,6 +323,13 @@
       "when": 1786958708001,
       "tag": "0045_trip_tracks",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1786958708002,
+      "tag": "0046_trip_track_measured_km",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { getDb } from '../../db/client.js'
 import { trainTrips, stations } from '../../db/schema.js'
+import { tripTrackMatchSql } from '../../jobs/import-trip-tracks.js'
 import { and, or, eq, gte, lt, lte, ilike, count, sql, type SQL } from 'drizzle-orm'
 import { type PgColumn, alias } from 'drizzle-orm/pg-core'
 import { encodeCursor, decodeCursor, keysetCondition, keysetOrderBy } from './pagination.js'
@@ -113,6 +114,10 @@ export function buildTrainTripsQuery(input: z.infer<typeof getTrainTripsSchema>)
       fromLon: fromStation.longitude,
       toLat: toStation.latitude,
       toLon: toStation.longitude,
+      // The drawn length of the leg's GPX route, beside viaduct's own distance and never
+      // in place of it (ADR 0071). Null where no route is stored. LIMIT 1 for the same
+      // reason get_trip_tracks has one: a trip must not multiply.
+      measuredKm: sql<number | null>`(SELECT tt.measured_km FROM trip_tracks tt WHERE ${tripTrackMatchSql('tt', 'train_trips')} LIMIT 1)`,
     })
     .from(trainTrips)
     .leftJoin(fromStation, eq(fromStation.name, trainTrips.fromStation))
@@ -133,13 +138,14 @@ const coord = (v: string | null): number | null => {
 }
 
 /** One API row: the internal id dropped, coordinates as numbers. */
-export function shapeTripRow({ id: _id, fromLat, fromLon, toLat, toLon, ...rest }: TripQueryRow) {
+export function shapeTripRow({ id: _id, fromLat, fromLon, toLat, toLon, measuredKm, ...rest }: TripQueryRow) {
   return {
     ...rest,
     fromLat: coord(fromLat),
     fromLon: coord(fromLon),
     toLat: coord(toLat),
     toLon: coord(toLon),
+    measuredKm: measuredKm == null ? null : Number(measuredKm),
   }
 }
 

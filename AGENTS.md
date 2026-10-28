@@ -430,6 +430,8 @@ Rules not to "simplify" back:
   Markus' choice; the refusal is what keeps a broken export from emptying the table.
 - **Segments are kept in viaduct's order**, which is not travel order. A MultiLineString,
   never a guessed path.
+- **`measured_km` is reported, never counted** (ADR 0071). It sums each segment and never
+  bridges a gap, so it undercounts; no total, stat or the convergence watcher may read it.
 
 ## Stack
 
