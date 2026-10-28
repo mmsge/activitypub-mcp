@@ -29,6 +29,7 @@ import {
 } from '../mcp/tools/train-trips.js'
 import { getTripPostsSchema, getTripPosts } from '../mcp/tools/trip-posts.js'
 import { getTripWeatherSchema, getTripWeather } from '../mcp/tools/trip-weather.js'
+import { getTripTracksSchema, getTripTracks } from '../mcp/tools/trip-tracks.js'
 import {
   listRailwayLinesSchema, listRailwayLines,
   getLineStatsSchema, getLineStats,
@@ -360,6 +361,16 @@ export const endpoints: RestEndpoint[] = [
     handler: getTripWeather,
     numbers: ['limit', 'page', 'year', 'min_temp', 'max_temp'],
     booleans: ['with_weather_only'],
+    arrays: [],
+  },
+  {
+    path: '/trip-tracks',
+    name: 'get_trip_tracks',
+    description: "The line each train trip drew on the map, from viaduct.world's GPX export, as a GeoJSON FeatureCollection: one MultiLineString Feature per leg, [lon, lat], segments not in travel order. Properties carry the joined CSV trip where one has the same stations and local departure time. Look up by trip_id or viaduct_trip_id, or filter by journey, station, year or matched; with_geometry=false omits the coordinates. Every response states coverage.",
+    schema: getTripTracksSchema,
+    handler: getTripTracks,
+    numbers: ['limit', 'page', 'year'],
+    booleans: ['matched', 'with_geometry'],
     arrays: [],
   },
   {

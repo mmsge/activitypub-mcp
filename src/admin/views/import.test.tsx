@@ -1,6 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { describe, it, expect } from 'vitest'
-import { ImportPage, StorygraphImportResultPage, TripImportResultPage } from './import.js'
+import { ImportPage, StorygraphImportResultPage, TripImportResultPage, TripTrackImportResultPage } from './import.js'
+import type { TripTrackImportReport } from '../../jobs/import-trip-tracks.js'
 import type { StorygraphImportReport } from '../../jobs/import-storygraph-reads.js'
 import type { TripImportResult } from '../import.js'
 import type { StoredTrip } from '../../lib/trip-prune.js'
@@ -145,5 +146,53 @@ describe('StoryGraph read dates import', () => {
     const html = String(<StorygraphImportResultPage report={sgReport()} />)
     expect(html).not.toContain('<h2>Conflicts</h2>')
     expect(html).not.toContain('<h2>Unmatched</h2>')
+  })
+})
+
+const gpxReport = (over: Partial<TripTrackImportReport> = {}): TripTrackImportReport => ({
+  tracksInFile: 299,
+  waypointsInFile: 749,
+  tracksInserted: 299,
+  tracksUpdated: 0,
+  tracksUnchanged: 0,
+  tracksDeleted: 0,
+  waypointsInserted: 749,
+  waypointsUnchanged: 0,
+  waypointsDeleted: 0,
+  pointsStored: 117437,
+  matched: 298,
+  unmatched: [],
+  departedTripsWithoutTrack: 3,
+  problems: [],
+  ...over,
+})
+
+describe('GPX import', () => {
+  it('has its own form, separate from the CSV one', () => {
+    const html = String(ImportPage({ bookwyrmActors: [] }))
+    expect(html).toContain('action="/admin/import/trip-tracks"')
+    expect(html).toContain('action="/admin/import/trips"')
+  })
+
+  it('lists the routes with no trip to join', () => {
+    const html = String(
+      TripTrackImportResultPage({
+        report: gpxReport({
+          matched: 297,
+          unmatched: [
+            { viaductTripId: '1735507', fromStation: 'Oslo S', toStation: 'Bergen', departureLocal: '2021-09-26 23:25:00' },
+          ],
+        }),
+      }),
+    )
+    expect(html).toContain('Routes with no trip to join')
+    expect(html).toContain('1735507')
+    expect(html).toContain('2021-09-26 23:25:00')
+  })
+
+  it('stays quiet when every route joined', () => {
+    const html = String(TripTrackImportResultPage({ report: gpxReport() }))
+    expect(html).not.toContain('Routes with no trip to join')
+    expect(html).not.toContain('could not be read')
   })
 })

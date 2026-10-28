@@ -29,6 +29,7 @@ import {
   TripPruneResultPage,
   YoutubeImportResultPage,
   StorygraphImportResultPage,
+  TripTrackImportResultPage,
 } from './views/import.js'
 import { ToolsPage, INFRA_ROUTES } from './views/tools.js'
 import { endpoints } from '../rest/table.js'
@@ -38,6 +39,8 @@ import { parseYoutubeWatchHistory } from '../lib/parse-youtube-takeout.js'
 import { parseStorygraphCsv } from '../lib/parse-storygraph-csv.js'
 import { importStorygraphReads } from '../jobs/import-storygraph-reads.js'
 import { importYoutubeWatches } from '../jobs/import-youtube-watches.js'
+import { parseViaductGpx } from '../lib/parse-viaduct-gpx.js'
+import { importTripTracks } from '../jobs/import-trip-tracks.js'
 import {
   parseMastodonArchive,
   crawlOutbox,
@@ -607,6 +610,36 @@ function parseInstant(value: unknown): Date | null {
   const d = new Date(value)
   return Number.isNaN(d.getTime()) ? null : d
 }
+
+// viaduct.world GPX export → the line each trip drew, and viaduct's station waypoints.
+// Its own upload, separate from the CSV: the two are different files, and neither import
+// writes the other's tables. The GPX is the complete set, so this one replaces rather
+// than merges. No webhook: nothing downstream reads track geometry yet. See ADR 0070.
+app.post(
+  '/import/trip-tracks',
+  bodyLimit({ maxSize: 50 * 1024 * 1024 }),
+  async (c) => {
+    const body = await c.req.parseBody()
+    const file = body['file']
+    if (!file || typeof file === 'string') {
+      return c.html(<ImportPage error="No file uploaded" />)
+    }
+    let text: string
+    try {
+      text = await (file as File).text()
+    } catch {
+      return c.html(<ImportPage error="Could not read file" />)
+    }
+
+    let report
+    try {
+      report = await importTripTracks(parseViaductGpx(text))
+    } catch (e) {
+      return c.html(<ImportPage error={e instanceof Error ? e.message : String(e)} />)
+    }
+    return c.html(<TripTrackImportResultPage report={report} />)
+  },
+)
 
 // StoryGraph library export → read dates that fill BookWyrm's gaps. An upload for the
 // same reason as the others here: StoryGraph has no API, and sidetal's scrape covers the

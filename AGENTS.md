@@ -412,6 +412,25 @@ Rules not to "simplify" back:
   only the Edition URL; keying it apart from the titled generatednote split one book into an
   unstarted half and an unfinished one, and made every title match ambiguous.
 
+## Train routes (GPX)
+
+viaduct.world's GPX export is its own upload at **Admin → Import → Train Routes (GPX)**,
+writing `trip_tracks` (one row per leg, keyed on viaduct's trip id) and `viaduct_waypoints`.
+`get_trip_tracks` / `/api/v1/trip-tracks` serve GeoJSON. See ADR 0070.
+
+Rules not to "simplify" back:
+
+- **The two imports never write each other's tables.** The CSV owns `train_trips`, the
+  geocoder and admin own `stations`; the GPX owns its two tables.
+- **The join is `(from_station, to_station, departure_local)`, at query time.** The GPX desc
+  is the origin's wall clock, so no zone is involved, and there is no foreign key to go stale
+  when a trip is pruned or the GPX arrives before its CSV. `tripTrackMatchSql` is the one
+  spelling of it.
+- **The file is the complete set, and an empty one is refused.** Replace-everything is
+  Markus' choice; the refusal is what keeps a broken export from emptying the table.
+- **Segments are kept in viaduct's order**, which is not travel order. A MultiLineString,
+  never a guessed path.
+
 ## Stack
 
 Hono + TypeScript, PostgreSQL. The `db` service (postgres) is internal-only and not exposed to the host. The `app` service exposes port 3000 to the host so central Caddy can reach it.

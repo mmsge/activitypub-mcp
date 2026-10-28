@@ -567,6 +567,7 @@ Or add it directly to an `.mcp.json` (project- or user-scoped):
 | `get_theatre_stats` | "How many plays have I seen, per year? Which theatre company have I seen most? Which playwright, director or actor keeps turning up?" |
 | `get_trip_posts` | "What did I post on Sjælland rundt? Show every togselfie with the train it was taken on. Which train was I on when I posted this?" |
 | `get_trip_weather` | "What was the weather on the Bergensbanen that day? How many trips have I taken in snow? Which was the coldest journey?" |
+| `get_trip_tracks` | "Give me the route of the night train to Bergen as GeoJSON. Draw every leg of Fyrste interrail 2016. Which legs have a route but no trip?" |
 | `get_linkedin_posts` | "What have I posted on LinkedIn this year, and how did each one do?" |
 | `get_linkedin_post` | "How did the KI-buzzwords post decay — what did its reach look like across exports?" |
 | `get_linkedin_stats` | "Which weekday actually earns me the best engagement rate? Is a 1.8% post good for me or bad? Is the LinkedIn token still working?" |
@@ -1303,6 +1304,16 @@ CSV name ("NDC Copenhagen 2026") while the posts carry the public one (`#kodetog
 the two share no characters. The page shows whichever hashtag the journey's posts carry
 most, so it updates itself and reports `null` rather than guessing when there is none.
 See [ADR 0024](docs/decision-records/0024-give-the-trip-post-join-a-surface.md).
+
+### Routes on the map
+
+viaduct.world's **GPX** export ("routes, all years") is uploaded at **Admin → Import → Train
+Routes (GPX)**, separately from the CSV. Each track is stored in `trip_tracks` keyed on
+viaduct's trip id, and the station waypoints in `viaduct_waypoints`. A track joins its CSV trip
+at query time on the same stations and local departure time; one with no trip to join is kept
+and listed on the result page. The file is the complete set, so an import replaces both
+tables; a file with no tracks is refused. `get_trip_tracks` and `/api/v1/trip-tracks` serve the
+routes as GeoJSON. See [ADR 0070](docs/decision-records/0070-a-route-is-its-own-import.md).
 
 ### Weather on the trips
 
