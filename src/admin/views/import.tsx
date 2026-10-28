@@ -7,6 +7,7 @@ import type { RowFailure } from '../../jobs/import-youtube-watches.js'
 import type { ApplyPruneResult } from '../prune-trips.js'
 import type { StorygraphImportReport } from '../../jobs/import-storygraph-reads.js'
 import type { StorygraphReadRange } from '../../lib/parse-storygraph-csv.js'
+import type { TripTrackImportReport } from '../../jobs/import-trip-tracks.js'
 import { getBookwyrmActors } from '../../config.js'
 
 export const ImportPage: FC<{ error?: string; bookwyrmActors?: string[] }> = ({
@@ -71,6 +72,29 @@ export const ImportPage: FC<{ error?: string; bookwyrmActors?: string[] }> = ({
         <div class="filters">
           <input type="file" name="file" accept=".csv,text/csv" required />
           <button type="submit">Import Trips</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="section">
+      <h2>Train Routes (GPX)</h2>
+      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
+        Upload a <strong>viaduct.world</strong> GPX export of your routes (the "all years"
+        file). Each track is the line one leg drew on the map, stored on its own and joined to
+        the CSV trip with the same stations and local departure time. Tracks with no trip to
+        join are kept and listed. The station waypoints are stored as well, beside the
+        geocoded stations rather than over them.
+      </p>
+      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
+        This is separate from the CSV import above and touches none of its trips. The file
+        is treated as the <em>complete</em> set: a route or waypoint it no longer contains is
+        removed. A file with no readable tracks is refused. Re-importing the same file
+        changes nothing.
+      </p>
+      <form method="post" action="/admin/import/trip-tracks" enctype="multipart/form-data">
+        <div class="filters">
+          <input type="file" name="file" accept=".gpx,application/gpx+xml" required />
+          <button type="submit">Import Routes</button>
         </div>
       </form>
     </div>
@@ -536,6 +560,108 @@ export const TripPruneResultPage: FC<{ result: ApplyPruneResult }> = ({ result }
     <div class="filters">
       <a href="/admin/import" class="btn">Import More</a>
       <a href="/admin/objects" class="btn" style="background: #333;">View Posts</a>
+    </div>
+  </Layout>
+)
+
+/** The outcome of a viaduct.world GPX import. See ADR 0070. */
+export const TripTrackImportResultPage: FC<{ report: TripTrackImportReport }> = ({ report }) => (
+  <Layout title="Import Result">
+    <h1>Train Routes Imported</h1>
+    <p style="color: #888; margin-bottom: 20px;">viaduct.world GPX export</p>
+
+    <div class="grid" style="margin-bottom: 24px;">
+      <div class="card">
+        <div class="num">{report.tracksInFile}</div>
+        <div class="label">Tracks in file</div>
+      </div>
+      <div class="card">
+        <div class="num" style="color: #4ade80;">{report.tracksInserted}</div>
+        <div class="label">Inserted</div>
+      </div>
+      <div class="card">
+        <div class="num" style="color: #60a5fa;">{report.tracksUpdated}</div>
+        <div class="label">Updated</div>
+      </div>
+      <div class="card">
+        <div class="num" style="color: #888;">{report.tracksUnchanged}</div>
+        <div class="label">Unchanged</div>
+      </div>
+      <div class="card">
+        <div class="num" style={report.tracksDeleted ? 'color: #f87171;' : 'color: #888;'}>
+          {report.tracksDeleted}
+        </div>
+        <div class="label">Removed</div>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-bottom: 24px;">
+      <div class="card">
+        <div class="num" style="color: #4ade80;">{report.matched}</div>
+        <div class="label">Joined to a trip</div>
+      </div>
+      <div class="card">
+        <div class="num" style={report.unmatched.length ? 'color: #fbbf24;' : 'color: #888;'}>
+          {report.unmatched.length}
+        </div>
+        <div class="label">No trip to join</div>
+      </div>
+      <div class="card">
+        <div class="num" style="color: #888;">{report.departedTripsWithoutTrack}</div>
+        <div class="label">Departed trips without a route</div>
+      </div>
+      <div class="card">
+        <div class="num">{report.pointsStored.toLocaleString('en-GB')}</div>
+        <div class="label">Points stored</div>
+      </div>
+      <div class="card">
+        <div class="num">{report.waypointsInFile}</div>
+        <div class="label">
+          Waypoints (+{report.waypointsInserted} / −{report.waypointsDeleted})
+        </div>
+      </div>
+    </div>
+
+    {report.unmatched.length > 0 && (
+      <div class="section">
+        <h2>Routes with no trip to join</h2>
+        <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
+          Stored, but no CSV trip has these stations and this local departure time. Usually
+          the CSV export is older than the GPX, or the leg was edited in viaduct since. A
+          newer CSV import joins them without importing the GPX again.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Departure (local)</th>
+              <th>From</th>
+              <th>To</th>
+              <th>viaduct trip</th>
+            </tr>
+          </thead>
+          <tbody>
+            {report.unmatched.map((u) => (
+              <tr key={u.viaductTripId}>
+                <td class="mono">{u.departureLocal}</td>
+                <td>{u.fromStation}</td>
+                <td>{u.toStation}</td>
+                <td class="mono">{u.viaductTripId}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )}
+
+    {report.problems.length > 0 && (
+      <div class="section">
+        <h2>Tracks that could not be read</h2>
+        <pre>{report.problems.map((p) => `${p.track}: ${p.reason}`).join('\n')}</pre>
+      </div>
+    )}
+
+    <div class="filters">
+      <a href="/admin/import" class="btn">Import More</a>
     </div>
   </Layout>
 )

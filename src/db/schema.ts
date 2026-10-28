@@ -1182,6 +1182,52 @@ export const stationWeather = pgTable('station_weather', {
   index('station_weather_date_idx').on(t.date),
 ])
 
+// The line a trip actually drew on the map, from viaduct.world's GPX export. See ADR 0070.
+//
+// Its own table, filled by its own upload, and never written by the CSV import: the two
+// exports are separate files with separate lifecycles, and one arriving without the
+// other must leave the other alone.
+//
+// Not a foreign key to `train_trips`. The GPX names viaduct's own trip id, which the CSV
+// never exports, so the join is the trip's identity read the way the GPX spells it:
+// `(from_station, to_station, departure_local)`. Done at query time, so a trip pruned and
+// re-entered, or a GPX imported before its CSV, matches the moment both rows exist.
+//
+// `segments` is a GeoJSON MultiLineString's coordinates, `[[[lon, lat], …], …]`, one
+// array per `<trkseg>` in the order delivered. viaduct does not put them in travel order,
+// so neither does this.
+export const tripTracks = pgTable('trip_tracks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  /** viaduct's trip id, from `trip NNN` in the track's desc. */
+  viaductTripId: text('viaduct_trip_id').notNull(),
+  fromStation: text('from_station').notNull(),
+  toStation: text('to_station').notNull(),
+  /** The origin's wall clock, as the GPX desc gives it. No zone, same as the CSV column. */
+  departureLocal: timestamp('departure_local').notNull(),
+  segments: jsonb('segments').notNull(),
+  pointCount: integer('point_count').notNull(),
+  segmentCount: integer('segment_count').notNull(),
+  importedAt: timestamp('imported_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('trip_tracks_viaduct_trip_idx').on(t.viaductTripId),
+  index('trip_tracks_identity_idx').on(t.fromStation, t.toStation, t.departureLocal),
+])
+
+// Every station viaduct.world placed on its own map, from the same GPX export.
+// Kept beside `stations`, never merged into it: `stations` is what Nominatim answered and
+// what an admin pinned, and this is what viaduct believes. Two coordinates for one name is
+// normal here (Milano Centrale appears twice, metres apart), so identity is the whole row.
+export const viaductWaypoints = pgTable('viaduct_waypoints', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  latitude: doublePrecision('latitude').notNull(),
+  longitude: doublePrecision('longitude').notNull(),
+  importedAt: timestamp('imported_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  uniqueIndex('viaduct_waypoints_identity_idx').on(t.name, t.latitude, t.longitude),
+])
+
 // Which named railway lines a trip ran on, and how far along each.
 //
 // Derived, never ingested — the same reasoning that kept `trip_posts` off both of

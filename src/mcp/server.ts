@@ -21,6 +21,7 @@ import { getNowPlayingSchema, getNowPlaying } from './tools/now-playing.js'
 import { getTrainTripsSchema, getTrainTrips, getTrainStatsSchema, getTrainStats } from './tools/train-trips.js'
 import { getTripPostsSchema, getTripPosts } from './tools/trip-posts.js'
 import { getTripWeatherSchema, getTripWeather } from './tools/trip-weather.js'
+import { getTripTracksSchema, getTripTracks } from './tools/trip-tracks.js'
 import {
   listRailwayLinesSchema, listRailwayLines,
   getLineStatsSchema, getLineStats,
@@ -303,6 +304,16 @@ export function createMcpServer(): McpServer {
     getTripWeatherSchema.shape,
     async (input) => {
       const result = await getTripWeather(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_trip_tracks',
+    "The line each train trip drew on the map, from viaduct.world's GPX export, as a GeoJSON FeatureCollection: one MultiLineString Feature per leg ([lon, lat] coordinates; viaduct's segments are not in travel order). Properties carry the joined CSV trip (trip_id, journey, operator, train code, distance, departure/arrival) where one has the same stations and local departure time, and null where none does. Look up one leg by trip_id (from get_train_trips) or viaduct_trip_id, or filter by journey, station, year or matched; with_geometry=false lists what has a route without the coordinates. Every response states coverage (ADR 0070).",
+    getTripTracksSchema.shape,
+    async (input) => {
+      const result = await getTripTracks(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )
