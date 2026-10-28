@@ -2539,6 +2539,99 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "503": { $ref: "#/components/responses/Disabled" }
 
+  /api/v1/trip-tracks:
+    get:
+      tags: [REST API]
+      summary: Train routes as GeoJSON
+      description: |
+        The line each train trip drew on the map, from viaduct.world's GPX
+        export, as a GeoJSON FeatureCollection. One `MultiLineString` Feature
+        per leg, `[lon, lat]`; viaduct's segments are not in travel order and
+        are kept as delivered. Properties carry the joined CSV trip (same
+        stations and local departure time), null where there is none. Every
+        response states `coverage`. See ADR 0070.
+      operationId: getTripTracksGet
+      parameters:
+        - name: trip_id
+          in: query
+          description: A train trip id; returns that trip's route.
+          schema: { type: string, format: uuid }
+        - name: viaduct_trip_id
+          in: query
+          description: viaduct.world's own trip number, as in the GPX desc.
+          schema: { type: string }
+        - name: journey
+          in: query
+          description: Journey/trip name (case-insensitive, partial match).
+          schema: { type: string }
+        - name: station
+          in: query
+          description: Origin or destination station (case-insensitive, partial).
+          schema: { type: string }
+        - name: year
+          in: query
+          description: Calendar year of the local departure.
+          schema: { type: integer }
+        - name: matched
+          in: query
+          description: true for tracks joined to a stored trip, false for those with none.
+          schema: { type: boolean }
+        - name: with_geometry
+          in: query
+          description: false returns properties only, with null geometry.
+          schema: { type: boolean, default: true }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+      responses:
+        "200":
+          description: Train routes as GeoJSON.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TripTracksResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+    post:
+      tags: [REST API]
+      summary: Train routes as GeoJSON (JSON body)
+      description: |
+        The line each train trip drew on the map, from viaduct.world's GPX
+        export, as a GeoJSON FeatureCollection. One `MultiLineString` Feature
+        per leg, `[lon, lat]`; viaduct's segments are not in travel order and
+        are kept as delivered. Properties carry the joined CSV trip (same
+        stations and local departure time), null where there is none. Every
+        response states `coverage`. See ADR 0070.
+      operationId: getTripTracksPost
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                trip_id: { type: string, format: uuid }
+                viaduct_trip_id: { type: string }
+                journey: { type: string }
+                station: { type: string }
+                year: { type: integer }
+                matched: { type: boolean }
+                with_geometry: { type: boolean, default: true }
+                limit: { type: integer, minimum: 1, maximum: 200, default: 20 }
+                page: { type: integer, minimum: 1, default: 1 }
+      responses:
+        "200":
+          description: Train routes as GeoJSON.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TripTracksResponse" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { $ref: "#/components/responses/Disabled" }
+
   /api/v1/reading-stats:
     get:
       tags: [REST API]
@@ -6726,6 +6819,56 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Trip" }
 
+    TripTracksResponse:
+      type: object
+      properties:
+        type: { type: string, enum: [FeatureCollection] }
+        count: { type: integer }
+        page: { type: integer }
+        coverage:
+          type: object
+          properties:
+            tracks: { type: integer }
+            matched_to_trips: { type: integer }
+        features:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string, enum: [Feature] }
+              geometry:
+                type: [object, "null"]
+                properties:
+                  type: { type: string, enum: [MultiLineString] }
+                  coordinates:
+                    type: array
+                    items:
+                      type: array
+                      items:
+                        type: array
+                        items: { type: number }
+                        minItems: 2
+                        maxItems: 2
+              properties:
+                type: object
+                properties:
+                  viaduct_trip_id: { type: string }
+                  from: { type: string }
+                  to: { type: string }
+                  departure_local:
+                    type: string
+                    description: The origin's wall clock, `YYYY-MM-DD HH:MM:SS`, no zone.
+                  point_count: { type: integer }
+                  segment_count: { type: integer }
+                  trip_id: { type: [string, "null"], format: uuid }
+                  journey: { type: [string, "null"] }
+                  operator: { type: [string, "null"] }
+                  train_code: { type: [string, "null"] }
+                  mode: { type: [string, "null"] }
+                  distance_km: { type: [number, "null"] }
+                  status: { type: [string, "null"] }
+                  departure_at: { type: [string, "null"], format: date-time }
+                  arrival_at: { type: [string, "null"], format: date-time }
     TripPostsResponse:
       type: object
       properties:
