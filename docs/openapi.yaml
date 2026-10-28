@@ -2576,6 +2576,19 @@ paths:
           in: query
           description: true for tracks joined to a stored trip, false for those with none.
           schema: { type: boolean }
+        - name: near_lat
+          in: query
+          description: With near_lon, only legs whose route passes within near_km of this point.
+          schema: { type: number, minimum: -90, maximum: 90 }
+        - name: near_lon
+          in: query
+          description: With near_lat, only legs whose route passes within near_km of this point.
+          schema: { type: number, minimum: -180, maximum: 180 }
+        - name: near_km
+          in: query
+          description: Radius for near_lat/near_lon, in km. Route points are about 0.7 km apart.
+          schema:
+            { type: number, exclusiveMinimum: 0, maximum: 200, default: 5 }
         - name: with_geometry
           in: query
           description: false returns properties only, with null geometry.
@@ -2619,6 +2632,15 @@ paths:
                 station: { type: string }
                 year: { type: integer }
                 matched: { type: boolean }
+                near_lat: { type: number, minimum: -90, maximum: 90 }
+                near_lon: { type: number, minimum: -180, maximum: 180 }
+                near_km:
+                  {
+                    type: number,
+                    exclusiveMinimum: 0,
+                    maximum: 200,
+                    default: 5,
+                  }
                 with_geometry: { type: boolean, default: true }
                 limit: { type: integer, minimum: 1, maximum: 200, default: 20 }
                 page: { type: integer, minimum: 1, default: 1 }
@@ -6972,6 +6994,9 @@ components:
                   measured_km:
                     type: [number, "null"]
                     description: The drawn route's length, km to one decimal. Never a replacement for distance_km.
+                  closest_km:
+                    type: [number, "null"]
+                    description: Only with near_lat/near_lon. How close the route comes to that point, in km.
                   status: { type: [string, "null"] }
                   departure_at: { type: [string, "null"], format: date-time }
                   arrival_at: { type: [string, "null"], format: date-time }

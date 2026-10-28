@@ -25,11 +25,48 @@ export const getTripTracksSchema = z.object({
   year: z.number().int().optional().describe('Filter to legs departing in this calendar year (local)'),
   matched: z.boolean().optional()
     .describe('true: only tracks joined to a stored trip. false: only tracks with no trip to join'),
+  near_lat: z.number().min(-90).max(90).optional()
+    .describe('With near_lon: only legs whose route passes within near_km of this point'),
+  near_lon: z.number().min(-180).max(180).optional()
+    .describe('With near_lat: only legs whose route passes within near_km of this point'),
+  near_km: z.number().gt(0).max(200).default(5)
+    .describe('Radius for near_lat/near_lon, in km (default 5). Route points are about 0.7 km apart, so below ~1 km a leg can slip between two of them.'),
   with_geometry: z.boolean().default(true)
     .describe('false returns properties only, with null geometry: a cheap way to list what has a route'),
   limit: z.number().int().min(1).max(200).default(20),
   page: z.number().int().min(1).default(1),
+}).refine((v) => (v.near_lat == null) === (v.near_lon == null), {
+  message: 'near_lat and near_lon go together',
+  path: ['near_lat'],
 })
+
+/** Great-circle km between two points, in SQL; the same formula as `distanceKm`. */
+export function haversineKmSql(lat1: SQL, lon1: SQL, lat2: SQL, lon2: SQL): SQL {
+  return sql`(2 * 6371 * asin(least(1, sqrt(
+    power(sin(radians(${lat2} - ${lat1}) / 2), 2)
+    + cos(radians(${lat1})) * cos(radians(${lat2})) * power(sin(radians(${lon2} - ${lon1}) / 2), 2)
+  ))))`
+}
+
+/**
+ * The closest any point of the route comes to (lat, lon), restricted first to a bounding
+ * box around it so the haversine only runs on the handful of points that could qualify.
+ * NULL when no point is inside the box. Points, not the lines between them: at ~0.7 km
+ * spacing that is accurate to well under the 5 km default.
+ */
+export function closestApproachSql(lat: number, lon: number, km: number): SQL {
+  const dLat = km / 111.0
+  // Widen the longitude band towards the poles; capped so a point near one never divides by ~0.
+  const dLon = km / (111.0 * Math.max(Math.cos((lat * Math.PI) / 180), 0.01))
+  const pLat = sql`(p.pt->>1)::float8`
+  const pLon = sql`(p.pt->>0)::float8`
+  return sql`(
+    SELECT min(${haversineKmSql(sql`${lat}::float8`, sql`${lon}::float8`, pLat, pLon)})
+    FROM jsonb_array_elements(tt.segments) AS s(seg), jsonb_array_elements(s.seg) AS p(pt)
+    WHERE ${pLat} BETWEEN ${lat - dLat} AND ${lat + dLat}
+      AND ${pLon} BETWEEN ${lon - dLon} AND ${lon + dLon}
+  )`
+}
 
 const num = (v: unknown): number | null => (v == null ? null : Number(v))
 
@@ -48,6 +85,14 @@ export async function getTripTracks(input: z.infer<typeof getTripTracksSchema>) 
     conds.push(sql`tt.departure_local >= ${`${input.year}-01-01`}::timestamp`)
     conds.push(sql`tt.departure_local < ${`${input.year + 1}-01-01`}::timestamp`)
   }
+  // The MCP server hands the handler its raw shape, so the pair is checked here as well.
+  if ((input.near_lat == null) !== (input.near_lon == null)) {
+    return { error: 'near_lat and near_lon go together' }
+  }
+  const near = input.near_lat != null && input.near_lon != null
+    ? closestApproachSql(input.near_lat, input.near_lon, input.near_km)
+    : null
+  if (near) conds.push(sql`${near} <= ${input.near_km}`)
   if (input.matched === true) conds.push(sql`t.id IS NOT NULL`)
   if (input.matched === false) conds.push(sql`t.id IS NULL`)
 
@@ -62,6 +107,7 @@ export async function getTripTracks(input: z.infer<typeof getTripTracksSchema>) 
       tt.viaduct_trip_id, tt.from_station, tt.to_station,
       tt.departure_local::text AS departure_local,
       tt.point_count, tt.segment_count, tt.measured_km, ${geometry} AS segments,
+      ${near ?? sql`NULL::float8`} AS closest_km,
       t.id AS trip_id, t.journey, t.operator, t.train_code, t.mode,
       t.distance_km, t.status, t.departure_at, t.arrival_at
     FROM trip_tracks tt
@@ -105,6 +151,8 @@ export async function getTripTracks(input: z.infer<typeof getTripTracksSchema>) 
         distance_km: num(r.distance_km),
         /** The drawn route's length; compare with distance_km, never a replacement for it. */
         measured_km: num(r.measured_km),
+        /** Only with near_lat/near_lon: how close the route comes to that point, in km. */
+        ...(near ? { closest_km: r.closest_km == null ? null : Math.round(Number(r.closest_km) * 10) / 10 } : {}),
         status: r.status ?? null,
         departure_at: r.departure_at ?? null,
         arrival_at: r.arrival_at ?? null,
