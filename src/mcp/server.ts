@@ -23,6 +23,7 @@ import { getTripPostsSchema, getTripPosts } from './tools/trip-posts.js'
 import { getTripWeatherSchema, getTripWeather } from './tools/trip-weather.js'
 import { getTripTracksSchema, getTripTracks } from './tools/trip-tracks.js'
 import { getStationDiscrepanciesSchema, getStationDiscrepancies } from './tools/station-discrepancies.js'
+import { getViaductWaypointsSchema, getViaductWaypoints } from './tools/viaduct-waypoints.js'
 import {
   listRailwayLinesSchema, listRailwayLines,
   getLineStatsSchema, getLineStats,
@@ -325,6 +326,16 @@ export function createMcpServer(): McpServer {
     getStationDiscrepanciesSchema.shape,
     async (input) => {
       const result = await getStationDiscrepancies(input as any)
+      return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
+    }
+  )
+
+  server.tool(
+    'get_viaduct_waypoints',
+    "viaduct.world's own station positions from the GPX import: every waypoint as name, latitude and longitude, sorted by name (two rows for one name is normal, metres apart). viaduct's answer, not the geocoder's; compare the two with get_station_discrepancies. Filter by name (partial match). States when the newest row was imported.",
+    getViaductWaypointsSchema.shape,
+    async (input) => {
+      const result = await getViaductWaypoints(input as any)
       return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] }
     }
   )

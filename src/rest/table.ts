@@ -31,6 +31,7 @@ import { getTripPostsSchema, getTripPosts } from '../mcp/tools/trip-posts.js'
 import { getTripWeatherSchema, getTripWeather } from '../mcp/tools/trip-weather.js'
 import { getTripTracksSchema, getTripTracks } from '../mcp/tools/trip-tracks.js'
 import { getStationDiscrepanciesSchema, getStationDiscrepancies } from '../mcp/tools/station-discrepancies.js'
+import { getViaductWaypointsSchema, getViaductWaypoints } from '../mcp/tools/viaduct-waypoints.js'
 import {
   listRailwayLinesSchema, listRailwayLines,
   getLineStatsSchema, getLineStats,
@@ -382,6 +383,16 @@ export const endpoints: RestEndpoint[] = [
     handler: getStationDiscrepancies,
     numbers: ['min_km'],
     booleans: ['include_manual'],
+    arrays: [],
+  },
+  {
+    path: '/viaduct-waypoints',
+    name: 'get_viaduct_waypoints',
+    description: "viaduct.world's own station positions from the GPX import: every waypoint as name, latitude and longitude, sorted by name; two rows for one name is normal. Filter by name (partial match). States when the newest row was imported.",
+    schema: getViaductWaypointsSchema,
+    handler: getViaductWaypoints,
+    numbers: [],
+    booleans: [],
     arrays: [],
   },
   {
