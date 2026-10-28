@@ -367,10 +367,10 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/trip-tracks',
     name: 'get_trip_tracks',
-    description: "The line each train trip drew on the map, from viaduct.world's GPX export, as a GeoJSON FeatureCollection: one MultiLineString Feature per leg, [lon, lat], segments not in travel order. Properties carry the joined CSV trip where one has the same stations and local departure time. Look up by trip_id or viaduct_trip_id, or filter by journey, station, year or matched; with_geometry=false omits the coordinates. Every response states coverage.",
+    description: "The line each train trip drew on the map, from viaduct.world's GPX export, as a GeoJSON FeatureCollection: one MultiLineString Feature per leg, [lon, lat], segments not in travel order. Properties carry the joined CSV trip where one has the same stations and local departure time. Look up by trip_id or viaduct_trip_id, or filter by journey, station, year or matched; with_geometry=false omits the coordinates. near_lat/near_lon/near_km (default 5 km) keeps only legs whose route passes that point, with closest_km saying how close. Every response states coverage.",
     schema: getTripTracksSchema,
     handler: getTripTracks,
-    numbers: ['limit', 'page', 'year'],
+    numbers: ['limit', 'page', 'year', 'near_lat', 'near_lon', 'near_km'],
     booleans: ['matched', 'with_geometry'],
     arrays: [],
   },
