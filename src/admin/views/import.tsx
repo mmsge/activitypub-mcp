@@ -1,6 +1,10 @@
 /** @jsxImportSource hono/jsx */
-import type { FC } from 'hono/jsx'
-import { Layout } from './layout.js'
+import type { FC, PropsWithChildren, Child } from 'hono/jsx'
+import { Layout, HelpInput, HelpButton, HelpPanel } from './layout.js'
+import { Section, Row, Stats, nf, nnDate, type BadgeDef } from './kit.js'
+import { CATEGORIES, category } from '../categories.js'
+import { IMPORT_KINDS, importKind, type ImportKind } from '../import-kinds.js'
+import type { ImportRun } from '../import-runs.js'
 import type { ImportResult, TripImportResult } from '../import.js'
 import type { ParseProblem, ParseNormalisation } from '../../lib/parse-youtube-takeout.js'
 import type { RowFailure } from '../../jobs/import-youtube-watches.js'
@@ -10,255 +14,202 @@ import type { StorygraphReadRange } from '../../lib/parse-storygraph-csv.js'
 import type { TripTrackImportReport } from '../../jobs/import-trip-tracks.js'
 import { getBookwyrmActors } from '../../config.js'
 
-export const ImportPage: FC<{ error?: string; bookwyrmActors?: string[] }> = ({
-  error,
-  bookwyrmActors = getBookwyrmActors(),
-}) => (
+// Import, rebuilt from the mobile handoff (ADR 0073, phase 3): a list grouped by
+// category with each import's last run, one page per import, and result pages that end
+// the same two-step flow. Every form posts where it always did. Dry run comes later and
+// adds its "Sjå over" step between the two.
+
+// --- list ------------------------------------------------------------------------
+
+/** "i dag 10:21", "i går", or a date; the run's outcome rides along as the tone. */
+export function lastRunText(run: ImportRun | undefined, now = new Date()): { text: string; failed: boolean } | null {
+  if (!run) return null
+  const day = (d: Date) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' })
+  const today = day(now)
+  const yesterday = day(new Date(now.getTime() - 86_400_000))
+  const when = day(run.ranAt) === today
+    ? `i dag ${run.ranAt.toLocaleTimeString('nn-NO', { timeZone: 'Europe/Oslo', hour: '2-digit', minute: '2-digit' })}`
+    : day(run.ranAt) === yesterday ? 'i går' : nnDate(run.ranAt)
+  return { text: run.ok ? when : `${when} · feila`, failed: !run.ok }
+}
+
+export const ImportListPage: FC<{ runs: Map<string, ImportRun>; now?: Date }> = ({ runs, now }) => (
   <Layout title="Import" nav="import">
-
-    {error && <div class="error">{error}</div>}
-
-    <div class="section" id="archive">
-      <h2>Mastodon Archive</h2>
-      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-        Export your archive from <strong>Mastodon Settings → Export → Request your archive</strong>.
-        Extract the <code>.tar.gz</code> and upload the <code>outbox.json</code> file.
-      </p>
-      <form method="post" action="/admin/import/archive" enctype="multipart/form-data">
-        <div class="filters">
-          <input type="file" name="archive" accept=".json" required />
-          <button type="submit">Import Archive</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="section" id="crawl">
-      <h2>Crawl ActivityPub Outbox</h2>
-      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-        Enter an actor handle to fetch their full public post history. Works with Mastodon and BookWyrm.
-        May take a minute for large accounts (up to 200 pages).
-      </p>
-      <form method="post" action="/admin/import/crawl">
-        <div class="filters">
-          <input
-            type="text"
-            name="handle"
-            placeholder="@user@instance.social"
-            style="width: 280px;"
-            required
-          />
-          <button type="submit">Crawl Outbox</button>
-        </div>
-      </form>
-    </div>
-    <div class="section" id="trips">
-      <h2>Train Trips (CSV)</h2>
-      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-        Upload a <strong>viaduct.world</strong> CSV export of your train journeys. A trip is
-        identified by its departure time and its two stations, so re-exporting a leg after
-        travelling it <em>updates</em> the stored one — filling in the train code, the delay and
-        the real distance, and moving it from Planned to Completed — rather than storing it a
-        second time. Re-importing an unchanged export writes nothing at all.
-      </p>
-      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-        The import also lists the stored trips that this export <em>no longer contains</em>, so a
-        leg deleted or re-timed in viaduct can be removed here too. It deletes nothing on its
-        own: the result page shows what would go, and pruning happens only if you confirm it
-        there. Only trips departing between the earliest and latest departure in the file are
-        ever eligible, so a partial export cannot reach outside its own range.
-      </p>
-      <form method="post" action="/admin/import/trips" enctype="multipart/form-data">
-        <div class="filters">
-          <input type="file" name="file" accept=".csv,text/csv" required />
-          <button type="submit">Import Trips</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="section" id="trip-tracks">
-      <h2>Train Routes (GPX)</h2>
-      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-        Upload a <strong>viaduct.world</strong> GPX export of your routes (the "all years"
-        file). Each track is the line one leg drew on the map, stored on its own and joined to
-        the CSV trip with the same stations and local departure time. Tracks with no trip to
-        join are kept and listed. The station waypoints are stored as well, beside the
-        geocoded stations rather than over them.
-      </p>
-      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-        This is separate from the CSV import above and touches none of its trips. The file
-        is treated as the <em>complete</em> set: a route or waypoint it no longer contains is
-        removed. A file with no readable tracks is refused. Re-importing the same file
-        changes nothing.
-      </p>
-      <form method="post" action="/admin/import/trip-tracks" enctype="multipart/form-data">
-        <div class="filters">
-          <input type="file" name="file" accept=".gpx,application/gpx+xml" required />
-          <button type="submit">Import Routes</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="section" id="storygraph">
-      <h2>StoryGraph Read Dates (CSV)</h2>
-      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-        Upload a <strong>StoryGraph library export</strong> (Manage account → Export StoryGraph
-        library). Each range in <code>Dates Read</code> becomes a read of its own, matched to
-        the BookWyrm book by ISBN-13, then by title and author. A StoryGraph date fills only
-        what BookWyrm is missing; where both have a date and they disagree, BookWyrm wins and
-        the result page lists the conflict. Books with no BookWyrm match are stored and listed,
-        but not shown by the reading tools. Only dates are read: ratings, reviews, moods and
-        the rest of the file are ignored. Re-importing the same file changes nothing.
-      </p>
-      <form method="post" action="/admin/import/storygraph" enctype="multipart/form-data">
-        <div class="filters">
-          <input type="file" name="file" accept=".csv,text/csv" required />
-          <input
-            name="actor"
-            list="bookwyrm-actors"
-            placeholder="BookWyrm actor (@user@host or URL)"
-            value={bookwyrmActors[0] ?? ''}
-            style="width: 280px;"
-            required
-          />
-          <datalist id="bookwyrm-actors">
-            {bookwyrmActors.map((a) => (
-              <option key={a} value={a} />
-            ))}
-          </datalist>
-          <button type="submit">Import Read Dates</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="section" id="linkedin">
-      <h2>LinkedIn Analytics (XLSX)</h2>
-      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-        Upload a <strong>LinkedIn Content export</strong> (analytics dashboard → Export →
-        Content, last 90 days is a good default). Impressions and engagements per post are
-        read from the <strong>TOP POSTS</strong> sheet and stored append-only, one row per
-        post per export — successive exports build the reach-decay series rather than
-        overwriting each other. The export is dated from its own reporting window, so
-        re-uploading the same file is safe.
-      </p>
-      <form method="post" action="/admin/import/linkedin" enctype="multipart/form-data">
-        <div class="filters">
-          <input
-            type="file"
-            name="file"
-            accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            required
-          />
-          <button type="submit">Import LinkedIn Metrics</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="section" id="youtube">
-      <h2>YouTube Watch History (JSON)</h2>
-      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-        Upload a Google Takeout-shaped <strong>watch-history.json</strong> (Takeout →
-        YouTube and YouTube Music → history, or a My Activity scrape). Idempotent on
-        (account, video, local minute), so re-uploading an overlapping export adds only
-        what is missing. Nothing is ever updated.
-      </p>
-      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-        <strong>For the full ~46 MB archive, prefer the command line:</strong>{' '}
-        <code>npm run import-youtube-watches -- &lt;path&gt;</code>. That runs in its own
-        process; this upload is parsed inside the server, so a file large enough to exhaust
-        the heap would take the server down with it rather than just failing the import.
-        This form is meant for the incremental exports that follow the first one.
-      </p>
-      <form method="post" action="/admin/import/youtube" enctype="multipart/form-data">
-        <div class="filters">
-          <input type="file" name="file" accept=".json,application/json" required />
-          <input name="account" placeholder="Account (if the file has none)" style="width:220px" />
-          <input name="source" placeholder="Source (e.g. takeout-2026-08)" style="width:220px" />
-          <button type="submit">Import Watch History</button>
-        </div>
-      </form>
-    </div>
-
-
-    <div class="section" id="reprocess">
-      <h2>Re-process Stored Bare Objects</h2>
-      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-        Re-runs processing on activities stored as bare Note/Review/etc. objects
-        (e.g. from a BookWyrm outbox crawl) so they appear as queryable posts.
-        Safe to run multiple times.
-      </p>
-      <form method="post" action="/admin/import/reprocess">
-        <div class="filters">
-          <button type="submit">Re-process Bare Objects</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="section" id="repair-neodb">
-      <h2>Repair NeoDB Marks</h2>
-      <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-        Walks stored posts that look like NeoDB marks and rebuilds what they should have
-        produced: re-derives missing post text from the stored object, upserts the mark
-        store, and enriches every catalogue item the marks tag (so they show up in{' '}
-        <strong>get_watched</strong>). Also fills in the shelf date (<strong>watched_at</strong>)
-        for marks ingested before that column existed, reading it back out of the stored
-        payload — blanks only, never overwriting a date already recorded. Nothing is
-        re-marked on NeoDB and no post is re-federated. Safe to run multiple times —
-        enrichment only fetches items that are missing or previously failed.
-      </p>
-      <form method="post" action="/admin/import/repair-neodb">
-        <div class="filters">
-          <button type="submit">Repair NeoDB Marks</button>
-        </div>
-      </form>
+    <div class="stack">
+      {CATEGORIES.map((c) => {
+        const kinds = IMPORT_KINDS.filter((k) => k.category === c.id)
+        if (kinds.length === 0) return null
+        return (
+          <section class="sec">
+            <div class="sec-head"><div class="sec-title">{c.label}</div></div>
+            <div class="panel">
+              {kinds.map((k) => {
+                const last = lastRunText(runs.get(k.id), now)
+                return (
+                  <a class="is-row" href={`/admin/import/${k.id}`}>
+                    <div class="r-main">
+                      <div class="r-title">{k.label}</div>
+                      <div class="r-sub">{k.sub}</div>
+                    </div>
+                    {last && <div class={`last-run${last.failed ? ' tone-red' : ''}`} title={runs.get(k.id)?.summary ?? runs.get(k.id)?.error ?? ''}>{last.text}</div>}
+                    <span class="chev">›</span>
+                  </a>
+                )
+              })}
+            </div>
+          </section>
+        )
+      })}
     </div>
   </Layout>
 )
 
-export const ImportResultPage: FC<{
-  result: ImportResult
-  actor: string
-}> = ({ result, actor }) => (
-  <Layout title="Import Complete" nav="import">
-    {actor && <p style="color: #888; margin-bottom: 20px;">{actor}</p>}
+// --- one import ------------------------------------------------------------------
 
-    <div class="grid" style="margin-bottom: 24px;">
-      <div class="card">
-        <div class="num">{result.total}</div>
-        <div class="label">Total activities</div>
-      </div>
-      <div class="card">
-        <div class="num" style="color: #4ade80;">{result.imported}</div>
-        <div class="label">Imported</div>
-      </div>
-      <div class="card">
-        <div class="num" style="color: #888;">{result.skipped}</div>
-        <div class="label">Skipped (already exist)</div>
-      </div>
-      <div class="card">
-        <div class="num" style="color: #f87171;">{result.errors.length}</div>
-        <div class="label">Errors</div>
-      </div>
+const Steps: FC<{ at: 'form' | 'done' }> = ({ at }) => (
+  <div class="steps" aria-label="Steg">
+    <div class={`step${at === 'form' ? ' on' : ' past'}`}><div class="step-bar" /><div class="step-l">Vel fil</div></div>
+    <div class={`step${at === 'done' ? ' on' : ''}`}><div class="step-bar" /><div class="step-l">Ferdig</div></div>
+  </div>
+)
+
+const KindHead: FC<{ kind: ImportKind }> = ({ kind }) => (
+  <div class="hx-wrap">
+    <HelpInput id={`help-imp-${kind.id}`} />
+    <div class="search-row">
+      <div class="lead">{kind.sub}</div>
+      <HelpButton for={`help-imp-${kind.id}`} label="Korleis verkar det?" />
     </div>
+    <HelpPanel>{kind.help.map((p) => <p>{p}</p>)}</HelpPanel>
+  </div>
+)
 
+/** Shows the chosen file's name in the picker, and blocks a second submit while one runs. */
+const IMPORT_JS = `
+document.querySelectorAll('.picker input[type=file]').forEach(function (i) {
+  i.addEventListener('change', function () {
+    var f = i.files && i.files[0];
+    var p = i.closest('.picker');
+    p.classList.toggle('picked', !!f);
+    p.querySelector('.picker-title').textContent = f ? f.name : 'Vel fil';
+    p.querySelector('.picker-sub').textContent = f ? (Math.round(f.size / 1024).toLocaleString('nn-NO') + ' kB · trykk for å byte') : p.dataset.accept;
+  });
+});
+document.querySelectorAll('form.imp-form').forEach(function (f) {
+  f.addEventListener('submit', function () {
+    var b = f.querySelector('button[type=submit]');
+    b.disabled = true; b.textContent = b.dataset.busy;
+  });
+});
+`
+
+export const ImportKindPage: FC<{ kind: ImportKind; error?: string; bookwyrmActors?: string[] }> = ({
+  kind, error, bookwyrmActors = getBookwyrmActors(),
+}) => {
+  const fields = (kind.fields ?? []).map((f) =>
+    kind.id === 'storygraph' && f.name === 'actor'
+      ? { ...f, suggestions: bookwyrmActors, value: bookwyrmActors[0] ?? '' }
+      : f)
+  return (
+    <Layout title={kind.label} nav="import" back={{ href: '/admin/import', label: 'Import' }}>
+      <div class="stack imp">
+        <KindHead kind={kind} />
+        {kind.fileField && <Steps at="form" />}
+        {error && (
+          <div class="banner-error" role="alert">
+            <div class="banner-title">Importen feila. Ingenting vart lagra.</div>
+            <div class="banner-reason">{error}</div>
+          </div>
+        )}
+        <form class="imp-form" method="post" action={`/admin/import/${kind.id}`}
+          enctype={kind.fileField ? 'multipart/form-data' : undefined}>
+          {kind.fileField && (
+            <label class="picker" data-accept={kind.accept}>
+              <input type="file" name={kind.fileField} accept={kind.accept} required />
+              <span class="picker-title">Vel fil</span>
+              <span class="picker-sub mono">{kind.accept}</span>
+            </label>
+          )}
+          {fields.map((f) => (
+            <label class="field">
+              <span>{f.label}</span>
+              <input name={f.name} placeholder={f.placeholder} value={f.value ?? ''} required={f.required}
+                list={f.suggestions?.length ? `dl-${f.name}` : undefined} />
+              {f.suggestions?.length ? (
+                <datalist id={`dl-${f.name}`}>{f.suggestions.map((s) => <option value={s} />)}</datalist>
+              ) : null}
+            </label>
+          ))}
+          <button type="submit" class="btn-primary"
+            data-busy={kind.fileField ? 'Les fila …' : 'Køyrer …'}>{kind.primary}</button>
+        </form>
+      </div>
+      <script dangerouslySetInnerHTML={{ __html: IMPORT_JS }} />
+    </Layout>
+  )
+}
+
+// --- results ---------------------------------------------------------------------
+
+/** The end of the flow: a green banner, the figures, the detail, and the way back. */
+const Done: FC<PropsWithChildren<{
+  kindId: string
+  title?: string
+  banner: Child
+  tone?: 'green' | 'yellow' | 'red'
+  note?: Child
+}>> = ({ kindId, title, banner, tone = 'green', note, children }) => {
+  const kind = importKind(kindId)
+  const cat = kind ? category(kind.category) : undefined
+  return (
+    <Layout title={title ?? kind?.label ?? 'Import'} nav="import" back={{ href: '/admin/import', label: 'Import' }}>
+      <div class="stack imp">
+        {kind?.fileField && <Steps at="done" />}
+        <div class={`done-banner tone-bg-${tone}`} role="status">
+          <div class="done-title">{banner}</div>
+          {note && <div class="done-note">{note}</div>}
+        </div>
+        {children}
+        <div class="done-actions">
+          {cat && <a class="btn btn-ghost" href={cat.href}>Tilbake til {cat.label}</a>}
+          <a class="btn btn-ghost" href="/admin">Til oversikt</a>
+        </div>
+      </div>
+    </Layout>
+  )
+}
+
+/** Generic result for the archive, the crawl and the two maintenance runs. */
+export const ImportResultPage: FC<{ result: ImportResult; actor: string; kind?: string }> = ({ result, actor, kind = 'archive' }) => (
+  <Done kindId={kind} banner={result.errors.length ? `Ferdig, med ${nf(result.errors.length)} feil` : 'Ferdig'}
+    tone={result.errors.length ? 'yellow' : 'green'} note={actor || undefined}>
+    <Stats items={[
+      { n: nf(result.total), label: 'totalt' },
+      { n: nf(result.imported), label: 'importerte', tone: 'green' },
+      { n: nf(result.skipped), label: 'fanst frå før' },
+      { n: nf(result.errors.length), label: 'feil', tone: result.errors.length ? 'red' : undefined },
+    ]} />
     {result.errors.length > 0 && (
-      <div class="section">
-        <h2>Errors (first {Math.min(result.errors.length, 20)})</h2>
-        <pre>{result.errors.slice(0, 20).join('\n')}</pre>
-      </div>
+      <Section title={`Feil (første ${Math.min(result.errors.length, 20)})`} id="errors">
+        <Row title="Detaljar" sub="Trykk for å sjå" raw={result.errors.slice(0, 20).join('\n')} />
+      </Section>
     )}
-
-    <div class="filters">
-      <a href="/admin/import" class="btn">Import More</a>
-      <a href="/admin/k/fediverse?tab=innlegg" class="btn btn-ghost">View Posts</a>
-    </div>
-  </Layout>
+  </Done>
 )
+
+const byReason = <T extends { reason?: string; kind?: string }>(list: T[]) => {
+  const m = new Map<string, T[]>()
+  for (const x of list) {
+    const key = x.reason ?? x.kind ?? 'ukjend'
+    m.set(key, [...(m.get(key) ?? []), x])
+  }
+  return [...m].sort((a, b) => b[1].length - a[1].length)
+}
 
 /**
- * The watch-history importer reports more than the generic result page can hold, and the
- * extra is the point: entries it refused, and values it CHANGED. A normalisation is not an
- * error — the row survives — but the archive no longer says exactly what the source said,
- * and that must not be the one thing the web path quietly drops. See ADR 0047.
+ * The watch-history importer reports entries it refused and values it CHANGED. A
+ * normalisation is not an error, the row survives, but the archive no longer says
+ * exactly what the source said, and that must never be silent. See ADR 0047.
  */
 export const YoutubeImportResultPage: FC<{
   total: number
@@ -268,531 +219,220 @@ export const YoutubeImportResultPage: FC<{
   problems: ParseProblem[]
   normalisations: ParseNormalisation[]
   failed: RowFailure[]
-}> = ({ total, parsed, inserted, skipped, problems, normalisations, failed }) => {
-  const byReason = <T extends { reason?: string; kind?: string }>(list: T[]) => {
-    const m = new Map<string, T[]>()
-    for (const x of list) {
-      const key = x.reason ?? x.kind ?? 'unknown'
-      m.set(key, [...(m.get(key) ?? []), x])
-    }
-    return [...m].sort((a, b) => b[1].length - a[1].length)
-  }
-
-  return (
-    <Layout title="Watch History Imported" nav="import">
-      <p style="color: #888; margin-bottom: 20px;">
-        {parsed} of {total} entries parsed
-      </p>
-
-      <div class="grid" style="margin-bottom: 24px;">
-        <div class="card">
-          <div class="num">{total}</div>
-          <div class="label">Entries in file</div>
-        </div>
-        <div class="card">
-          <div class="num" style="color: #4ade80;">{inserted}</div>
-          <div class="label">Inserted</div>
-        </div>
-        <div class="card">
-          <div class="num" style="color: #888;">{skipped}</div>
-          <div class="label">Already present</div>
-        </div>
-        <div class="card">
-          <div class="num" style={normalisations.length ? 'color: #60a5fa;' : 'color: #888;'}>
-            {normalisations.length}
-          </div>
-          <div class="label">Normalised</div>
-        </div>
-        <div class="card">
-          <div class="num" style={problems.length + failed.length ? 'color: #f87171;' : 'color: #888;'}>
-            {problems.length + failed.length}
-          </div>
-          <div class="label">Not imported</div>
-        </div>
-      </div>
-
-      {normalisations.length > 0 && (
-        <div class="section">
-          <h2>Normalised — kept, but altered</h2>
-          <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-            These rows are in the database, but not with the value the file gave. Shown so
-            the change is never silent.
-          </p>
-          {byReason(normalisations).map(([kind, list]) => (
-            <div key={kind} style="margin-bottom: 12px;">
-              <strong>{list.length}</strong> — {kind}
-              <pre>{list.slice(0, 20).map((n) => `entry ${n.index}: ${n.from} -> ${n.to}`).join('\n')}</pre>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {problems.length > 0 && (
-        <div class="section">
-          <h2>Entries that could not be parsed</h2>
-          {byReason(problems).map(([reason, list]) => (
-            <div key={reason} style="margin-bottom: 12px;">
-              <strong>{list.length}</strong> — {reason}
-              <pre>{list.slice(0, 10).map((p) => `entry ${p.index}: ${p.sample}`).join('\n')}</pre>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {failed.length > 0 && (
-        <div class="section">
-          <h2>Rows the database refused</h2>
-          {byReason(failed).map(([reason, list]) => (
-            <div key={reason} style="margin-bottom: 12px;">
-              <strong>{list.length}</strong> — {reason}
-              <pre>{list.slice(0, 10).map((f) => `row ${f.index}: ${f.account} ${f.watchedAtLocal} ${f.videoId}`).join('\n')}</pre>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div class="filters">
-        <a href="/admin/import" class="btn">Import More</a>
-        <a href="/admin/k/sjaaing?tab=youtube" class="btn btn-ghost">View Watch History</a>
-      </div>
-    </Layout>
-  )
-}
+}> = ({ total, parsed, inserted, skipped, problems, normalisations, failed }) => (
+  <Done kindId="youtube" banner={`${nf(inserted)} nye visningar`} note={`${nf(parsed)} av ${nf(total)} oppføringar lesne`}
+    tone={problems.length + failed.length ? 'yellow' : 'green'}>
+    <Stats items={[
+      { n: nf(total), label: 'oppføringar i fila' },
+      { n: nf(inserted), label: 'lagt til', tone: 'green' },
+      { n: nf(skipped), label: 'fanst frå før' },
+      { n: nf(normalisations.length), label: 'normaliserte', tone: normalisations.length ? 'blue' : undefined },
+      { n: nf(problems.length + failed.length), label: 'ikkje importerte', tone: problems.length + failed.length ? 'red' : undefined },
+    ]} />
+    {normalisations.length > 0 && (
+      <Section title="Normaliserte, lagra men endra" id="normalised"
+        help={<>Desse radene er i databasen, men ikkje med verdien fila gav. Vist så endringa aldri er stille.</>}>
+        {byReason(normalisations).map(([k, list]) => (
+          <Row title={k} metric={nf(list.length)} raw={list.slice(0, 20).map((n) => `oppføring ${n.index}: ${n.from} -> ${n.to}`).join('\n')} />
+        ))}
+      </Section>
+    )}
+    {problems.length > 0 && (
+      <Section title="Kunne ikkje lesast" id="problems">
+        {byReason(problems).map(([reason, list]) => (
+          <Row title={reason} metric={nf(list.length)} raw={list.slice(0, 10).map((p) => `oppføring ${p.index}: ${p.sample}`).join('\n')} />
+        ))}
+      </Section>
+    )}
+    {failed.length > 0 && (
+      <Section title="Avviste av databasen" id="failed">
+        {byReason(failed).map(([reason, list]) => (
+          <Row title={reason} metric={nf(list.length)} raw={list.slice(0, 10).map((f) => `rad ${f.index}: ${f.account} ${f.watchedAtLocal} ${f.videoId}`).join('\n')} />
+        ))}
+      </Section>
+    )}
+  </Done>
+)
 
 /**
- * The trips importer reports more than the generic result page can hold, and the extra
- * is the point: the trips this export NO LONGER CONTAINS. That list will not survive a
- * query string, so this is rendered rather than redirected to — the same reasoning as
- * the watch-history page above.
- *
- * Nothing on this page has been deleted. The confirm form below is the only route to
- * `applyTripPrune`, and it is rendered only when the plan is one the threshold would
- * accept. See decision record 0054.
+ * The trips import also lists the trips this export NO LONGER CONTAINS. Nothing on this
+ * page has been deleted: the confirm form is the only route to `applyTripPrune`, and it
+ * is rendered only when the plan is one the threshold would accept. See ADR 0054.
  */
 export const TripImportResultPage: FC<{ result: TripImportResult }> = ({ result }) => {
   const { prune } = result
   const canConfirm = prune.refusal === null && prune.candidates.length > 0
-
+  const n = prune.candidates.length
   return (
-    <Layout title="Train Trips Imported" nav="import">
-      <p style="color: #888; margin-bottom: 20px;">viaduct.world CSV export</p>
-
-      <div class="grid" style="margin-bottom: 24px;">
-        <div class="card">
-          <div class="num">{result.total}</div>
-          <div class="label">Rows in file</div>
-        </div>
-        <div class="card">
-          <div class="num" style="color: #4ade80;">{result.inserted}</div>
-          <div class="label">Inserted</div>
-        </div>
-        <div class="card">
-          <div class="num" style="color: #60a5fa;">{result.updated}</div>
-          <div class="label">Updated in place</div>
-        </div>
-        <div class="card">
-          <div class="num" style="color: #888;">{result.unchanged}</div>
-          <div class="label">Unchanged</div>
-        </div>
-        <div class="card">
-          <div
-            class="num"
-            style={prune.candidates.length ? 'color: #fbbf24;' : 'color: #888;'}
-          >
-            {prune.candidates.length}
-          </div>
-          <div class="label">Missing from this export</div>
-        </div>
-      </div>
-
+    <Done kindId="trips" banner={`${nf(result.inserted)} nye, ${nf(result.updated)} oppdaterte`}
+      note="viaduct.world, CSV" tone={n ? 'yellow' : 'green'}>
+      <Stats items={[
+        { n: nf(result.total), label: 'rader i fila' },
+        { n: nf(result.inserted), label: 'nye', tone: 'green' },
+        { n: nf(result.updated), label: 'oppdaterte', tone: 'blue' },
+        { n: nf(result.unchanged), label: 'uendra' },
+      ]} />
       {prune.window && (
-        <p style="color: #888; margin-bottom: 16px; line-height: 1.5;">
-          This export covers <strong class="mono">{prune.window.fromKey}</strong> to{' '}
-          <strong class="mono">{prune.window.toKey}</strong> UTC, and the archive holds{' '}
-          <strong>{prune.inWindow}</strong> trips in that range. Only those are eligible —
-          a trip departing outside it cannot be pruned by this file however absent it is.
+        <p class="muted">
+          Eksporten dekkjer <strong class="mono">{prune.window.fromKey}</strong> til{' '}
+          <strong class="mono">{prune.window.toKey}</strong> UTC, og arkivet har{' '}
+          <strong>{prune.inWindow}</strong> turar i det tidsrommet. Berre dei kan fjernast.
         </p>
       )}
-
-      {prune.refusal && <div class="error">{prune.refusal}</div>}
-
+      {prune.refusal && (
+        <div class="banner-error" role="alert">
+          <div class="banner-title">Ingenting blir fjerna</div>
+          <div class="banner-reason">{prune.refusal}</div>
+        </div>
+      )}
       {result.droppedJourneys.length > 0 && (
-        <div class="section">
-          <h2>Journeys no longer in this export</h2>
+        <Section title="Reiser som ikkje lenger er med" id="journeys"
+          help={<>Arkivet arkiverer framleis turane under reisa sitt namn, fordi ei tom reise i ein eksport aldri tømmer ei lagra. Slett turane i viaduct og importer på nytt for å fjerne dei òg.</>}>
           {result.droppedJourneys.map((d) => (
-            <p key={d.journey} style="line-height: 1.5; margin-bottom: 8px;">
-              Journey <strong>{d.journey}</strong> was deleted, but{' '}
-              <strong>{d.remaining}</strong> trip{d.remaining === 1 ? '' : 's'}{' '}
-              {d.remaining === 1 ? 'remains' : 'remain'}.
-            </p>
+            <Row title={d.journey} sub={`Reisa vart sletta, men ${d.remaining} ${d.remaining === 1 ? 'tur står' : 'turar står'} att.`} />
           ))}
-          <p style="color: #888; line-height: 1.5;">
-            The archive still files these trips under the journey's name, because a blank
-            journey in an export never clears a stored one. To remove the trips too, delete
-            them in viaduct and import again.
-          </p>
-        </div>
+        </Section>
       )}
-
-      {prune.candidates.length > 0 && (
-        <div class="section">
-          <h2>Stored, but not in this export</h2>
-          <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-            Nothing here has been deleted. {canConfirm
-              ? 'Read the list, then confirm below to remove them.'
-              : 'The prune was refused, so there is nothing to confirm.'}
+      {n > 0 && (
+        <section class="sec sec-warn">
+          <div class="sec-head"><div class="sec-title tone-yellow">Ikkje i denne eksporten</div></div>
+          <p class="muted">
+            Ingenting her er sletta. {canConfirm
+              ? 'Les lista, og stadfest under for å fjerne dei. Innlegg knytte til ein fjerna tur blir knytte til rett tur på nytt.'
+              : 'Fjerninga vart avvist, så det er ingenting å stadfeste.'}
           </p>
-          <table>
-            <thead>
-              <tr>
-                <th>Departure (UTC)</th>
-                <th>From</th>
-                <th>To</th>
-                <th>Journey</th>
-                <th>Train</th>
-                <th>Status</th>
-                <th>km</th>
-              </tr>
-            </thead>
-            <tbody>
-              {prune.candidates.map((t) => (
-                <tr key={t.id}>
-                  <td class="mono">{t.key}</td>
-                  <td>{t.fromStation}</td>
-                  <td>{t.toStation}</td>
-                  <td>{t.journey ?? '—'}</td>
-                  <td>{t.trainCode ?? '—'}</td>
-                  <td>{t.status ?? '—'}</td>
-                  <td>{t.distanceKm ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {canConfirm && prune.window && (
-        <div class="section">
-          {/* The trips are posted back by id, and every guarantee this page makes is
-              re-established server-side against the live database before anything is
-              deleted — so this list can only ever narrow what goes. */}
-          <form method="post" action="/admin/import/trips/prune">
+          <div class="panel">
             {prune.candidates.map((t) => (
-              <input key={t.id} type="hidden" name="trip" value={t.id} />
+              <Row title={`${t.fromStation} → ${t.toStation}`}
+                sub={<span class="mono">{t.key} UTC{t.journey ? ` · ${t.journey}` : ''}{t.trainCode ? ` · ${t.trainCode}` : ''}</span>}
+                badges={t.status ? [[TRIP_STATUS[t.status] ?? t.status, 'grey'] as BadgeDef] : undefined}
+                metric={t.distanceKm != null ? `${t.distanceKm} km` : undefined} />
             ))}
-            <input type="hidden" name="window_from" value={prune.window.from.toISOString()} />
-            <input type="hidden" name="window_to" value={prune.window.to.toISOString()} />
-            <input type="hidden" name="derived_at" value={result.derivedAt.toISOString()} />
-            <button type="submit" style="background: #b91c1c;">
-              Prune {prune.candidates.length} trip{prune.candidates.length === 1 ? '' : 's'}
-            </button>
-          </form>
-        </div>
+          </div>
+          {canConfirm && prune.window && (
+            // The trips are posted back by id, and every guarantee this page makes is
+            // re-established server-side before anything is deleted, so this list can
+            // only ever narrow what goes.
+            <form method="post" action="/admin/import/trips/prune">
+              {prune.candidates.map((t) => <input type="hidden" name="trip" value={t.id} />)}
+              <input type="hidden" name="window_from" value={prune.window.from.toISOString()} />
+              <input type="hidden" name="window_to" value={prune.window.to.toISOString()} />
+              <input type="hidden" name="derived_at" value={result.derivedAt.toISOString()} />
+              <button type="submit" class="btn-danger">Fjern {n} {n === 1 ? 'tur' : 'turar'}</button>
+            </form>
+          )}
+        </section>
       )}
-
-      <div class="filters">
-        <a href="/admin/import" class="btn">Import More</a>
-        <a href="/admin/k/fediverse?tab=innlegg" class="btn btn-ghost">View Posts</a>
-      </div>
-    </Layout>
+    </Done>
   )
 }
 
+const TRIP_STATUS: Record<string, string> = { Planned: 'Planlagd', Completed: 'Fullført', Cancelled: 'Innstilt' }
+
 /** The outcome of a confirmed prune. */
 export const TripPruneResultPage: FC<{ result: ApplyPruneResult }> = ({ result }) => (
-  <Layout title={result.deleted > 0 ? 'Trips Pruned' : 'Nothing Pruned'} nav="import">
-
-    {result.refusal && <div class="error">{result.refusal}</div>}
-
-    <div class="grid" style="margin-bottom: 24px;">
-      <div class="card">
-        <div class="num" style={result.deleted ? 'color: #f87171;' : 'color: #888;'}>
-          {result.deleted}
-        </div>
-        <div class="label">Deleted</div>
+  <Done kindId="trips" title="Fjerning" tone={result.refusal ? 'red' : result.deleted ? 'green' : 'yellow'}
+    banner={result.deleted > 0 ? `${nf(result.deleted)} ${result.deleted === 1 ? 'tur fjerna' : 'turar fjerna'}` : 'Ingenting fjerna'}
+    note="Innlegg knytte til ein fjerna tur er knytte til rett tur på nytt. Ingen innlegg er sletta, og kvar fjerna tur står i serverloggen.">
+    {result.refusal && (
+      <div class="banner-error" role="alert">
+        <div class="banner-title">Avvist</div>
+        <div class="banner-reason">{result.refusal}</div>
       </div>
-      <div class="card">
-        <div class="num" style="color: #888;">{result.rejected.length}</div>
-        <div class="label">Declined</div>
-      </div>
-      <div class="card">
-        <div class="num" style={result.orphaned.length ? 'color: #fbbf24;' : 'color: #888;'}>
-          {result.orphaned.length}
-        </div>
-        <div class="label">Posts left unbound</div>
-      </div>
-    </div>
-
-    <p style="color: #888; margin-bottom: 16px; line-height: 1.5;">
-      Posts that were bound to a pruned trip have been re-bound to the trip they were
-      actually made on. No post was deleted — only the derived link moved. Each pruned
-      trip is in the server log with everything needed to re-enter it by hand.
-    </p>
-
+    )}
+    <Stats items={[
+      { n: nf(result.deleted), label: 'fjerna', tone: result.deleted ? 'red' : undefined },
+      { n: nf(result.rejected.length), label: 'avslått' },
+      { n: nf(result.orphaned.length), label: 'innlegg utan tur', tone: result.orphaned.length ? 'yellow' : undefined },
+    ]} />
     {result.rejected.length > 0 && (
-      <div class="section">
-        <h2>Declined</h2>
-        <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-          Offered by the result page, refused here because the database no longer agrees
-          with what that page said.
-        </p>
-        <pre>{result.rejected.map((r) => `${r.id}: ${r.reason}`).join('\n')}</pre>
-      </div>
+      <Section title="Avslått" id="rejected"
+        help={<>Tilbydd av resultatsida, men avvist her fordi databasen ikkje lenger er samd med det sida sa.</>}>
+        {result.rejected.map((r) => <Row title={<span class="mono">{r.id}</span>} sub={r.reason} />)}
+      </Section>
     )}
-
     {result.orphaned.length > 0 && (
-      <div class="section">
-        <h2>Posts left unbound</h2>
-        <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-          These posts fall in no remaining trip's window, which is usually correct — the
-          only trip they matched is gone. The hourly re-derivation will pick them up if
-          that is not the reason.
-        </p>
-        <pre>{result.orphaned.join('\n')}</pre>
-      </div>
+      <Section title="Innlegg utan tur" id="orphaned"
+        help={<>Desse innlegga fell utanfor alle turane som er att, som oftast med rette. Den timevise utleiinga plukkar dei opp om ikkje.</>}>
+        <Row title={`${nf(result.orphaned.length)} innlegg`} sub="Trykk for å sjå" raw={result.orphaned.join('\n')} />
+      </Section>
     )}
-
-    <div class="filters">
-      <a href="/admin/import" class="btn">Import More</a>
-      <a href="/admin/k/fediverse?tab=innlegg" class="btn btn-ghost">View Posts</a>
-    </div>
-  </Layout>
+  </Done>
 )
 
 /** The outcome of a viaduct.world GPX import. See ADR 0070. */
 export const TripTrackImportResultPage: FC<{ report: TripTrackImportReport }> = ({ report }) => (
-  <Layout title="Train Routes Imported" nav="import">
-    <p style="color: #888; margin-bottom: 20px;">viaduct.world GPX export</p>
-
-    <div class="grid" style="margin-bottom: 24px;">
-      <div class="card">
-        <div class="num">{report.tracksInFile}</div>
-        <div class="label">Tracks in file</div>
-      </div>
-      <div class="card">
-        <div class="num" style="color: #4ade80;">{report.tracksInserted}</div>
-        <div class="label">Inserted</div>
-      </div>
-      <div class="card">
-        <div class="num" style="color: #60a5fa;">{report.tracksUpdated}</div>
-        <div class="label">Updated</div>
-      </div>
-      <div class="card">
-        <div class="num" style="color: #888;">{report.tracksUnchanged}</div>
-        <div class="label">Unchanged</div>
-      </div>
-      <div class="card">
-        <div class="num" style={report.tracksDeleted ? 'color: #f87171;' : 'color: #888;'}>
-          {report.tracksDeleted}
-        </div>
-        <div class="label">Removed</div>
-      </div>
-    </div>
-
-    <div class="grid" style="margin-bottom: 24px;">
-      <div class="card">
-        <div class="num" style="color: #4ade80;">{report.matched}</div>
-        <div class="label">Joined to a trip</div>
-      </div>
-      <div class="card">
-        <div class="num" style={report.unmatched.length ? 'color: #fbbf24;' : 'color: #888;'}>
-          {report.unmatched.length}
-        </div>
-        <div class="label">No trip to join</div>
-      </div>
-      <div class="card">
-        <div class="num" style="color: #888;">{report.departedTripsWithoutTrack}</div>
-        <div class="label">Departed trips without a route</div>
-      </div>
-      <div class="card">
-        <div class="num">{report.pointsStored.toLocaleString('en-GB')}</div>
-        <div class="label">Points stored</div>
-      </div>
-      <div class="card">
-        <div class="num">{report.waypointsInFile}</div>
-        <div class="label">
-          Waypoints (+{report.waypointsInserted} / −{report.waypointsDeleted})
-        </div>
-      </div>
-    </div>
-
+  <Done kindId="trip-tracks" banner={`${nf(report.tracksInFile)} ruter lesne`} note="viaduct.world, GPX"
+    tone={report.unmatched.length || report.problems.length ? 'yellow' : 'green'}>
+    <Stats items={[
+      { n: nf(report.tracksInserted), label: 'nye', tone: 'green' },
+      { n: nf(report.tracksUpdated), label: 'oppdaterte', tone: 'blue' },
+      { n: nf(report.tracksUnchanged), label: 'uendra' },
+      { n: nf(report.tracksDeleted), label: 'fjerna', tone: report.tracksDeleted ? 'red' : undefined },
+      { n: nf(report.matched), label: 'kopla til ein tur', tone: 'green' },
+      { n: nf(report.unmatched.length), label: 'utan tur å koplast til', tone: report.unmatched.length ? 'yellow' : undefined },
+      { n: nf(report.departedTripsWithoutTrack), label: 'gjennomførte turar utan rute' },
+      { n: nf(report.waypointsInFile), label: `stasjonspunkt (+${report.waypointsInserted} / −${report.waypointsDeleted}), ${nf(report.pointsStored)} punkt i alt` },
+    ]} />
     {report.unmatched.length > 0 && (
-      <div class="section">
-        <h2>Routes with no trip to join</h2>
-        <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-          Stored, but no CSV trip has these stations and this local departure time. Usually
-          the CSV export is older than the GPX, or the leg was edited in viaduct since. A
-          newer CSV import joins them without importing the GPX again.
-        </p>
-        <table>
-          <thead>
-            <tr>
-              <th>Departure (local)</th>
-              <th>From</th>
-              <th>To</th>
-              <th>viaduct trip</th>
-            </tr>
-          </thead>
-          <tbody>
-            {report.unmatched.map((u) => (
-              <tr key={u.viaductTripId}>
-                <td class="mono">{u.departureLocal}</td>
-                <td>{u.fromStation}</td>
-                <td>{u.toStation}</td>
-                <td class="mono">{u.viaductTripId}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Section title="Ruter utan tur" id="unmatched"
+        help={<>Lagra, men ingen CSV-tur har desse stasjonane og denne lokale avgangstida. Som oftast er CSV-eksporten eldre enn GPX-en. Ein nyare CSV-import koplar dei utan å importere GPX-en på nytt.</>}>
+        {report.unmatched.map((u) => (
+          <Row title={`${u.fromStation} → ${u.toStation}`}
+            sub={<span class="mono">{u.departureLocal} lokal · viaduct {u.viaductTripId}</span>} />
+        ))}
+      </Section>
     )}
-
     {report.problems.length > 0 && (
-      <div class="section">
-        <h2>Tracks that could not be read</h2>
-        <pre>{report.problems.map((p) => `${p.track}: ${p.reason}`).join('\n')}</pre>
-      </div>
+      <Section title="Spor som ikkje kunne lesast" id="problems">
+        {report.problems.map((p) => <Row title={p.track} sub={p.reason} />)}
+      </Section>
     )}
-
-    <div class="filters">
-      <a href="/admin/import" class="btn">Import More</a>
-    </div>
-  </Layout>
+  </Done>
 )
 
 const range = (r: StorygraphReadRange): string => `${r.started ?? '?'} → ${r.finished ?? '?'}`
 
+const CONFLICT: Record<string, string> = {
+  disagree: 'Datoane er ulike',
+  start_after_finish: 'Start ville kome etter slutt',
+}
+
 /** The outcome of a StoryGraph read-dates import. See ADR 0063. */
 export const StorygraphImportResultPage: FC<{ report: StorygraphImportReport }> = ({ report }) => (
-  <Layout title="StoryGraph Read Dates Imported" nav="import">
-    <p style="color: #888; margin-bottom: 20px;">
-      Matched against <span class="mono">{report.actorApId}</span>
-    </p>
-
-    <div class="grid" style="margin-bottom: 24px;">
-      <div class="card">
-        <div class="num">{report.rowsRead}</div>
-        <div class="label">Rows read</div>
-      </div>
-      <div class="card">
-        <div class="num" style="color: #4ade80;">{report.booksMatched}</div>
-        <div class="label">
-          Books matched ({report.matchedByIsbn} by ISBN, {report.matchedByTitle} by title)
-        </div>
-      </div>
-      <div class="card">
-        <div class="num" style={report.unmatched.length ? 'color: #fbbf24;' : 'color: #888;'}>
-          {report.unmatched.length}
-        </div>
-        <div class="label">Unmatched books</div>
-      </div>
-      <div class="card">
-        <div class="num" style="color: #60a5fa;">{report.startsFilled}</div>
-        <div class="label">Starts filled</div>
-      </div>
-      <div class="card">
-        <div class="num" style="color: #60a5fa;">{report.finishesFilled}</div>
-        <div class="label">Finishes filled</div>
-      </div>
-      <div class="card">
-        <div class="num" style="color: #60a5fa;">{report.readsAdded}</div>
-        <div class="label">Reads BookWyrm never saw</div>
-      </div>
-      <div class="card">
-        <div class="num" style={report.conflicts.length ? 'color: #fbbf24;' : 'color: #888;'}>
-          {report.conflicts.length}
-        </div>
-        <div class="label">Conflicts (BookWyrm kept)</div>
-      </div>
-    </div>
-
-    <p style="color: #888; margin-bottom: 16px; line-height: 1.5;">
-      Stored reads: <strong>{report.readsInserted}</strong> inserted,{' '}
-      <strong>{report.readsUpdated}</strong> updated, <strong>{report.readsUnchanged}</strong>{' '}
-      unchanged, <strong>{report.readsDeleted}</strong> deleted because StoryGraph no longer
-      lists them. {report.rowsWithReads} of the {report.rowsRead} rows had at least one read.
-    </p>
-
+  <Done kindId="storygraph" banner={`${nf(report.booksMatched)} bøker kopla`}
+    note={<>Mot <span class="mono">{report.actorApId}</span>: {nf(report.readsInserted)} lesingar lagt til, {nf(report.readsUpdated)} oppdaterte, {nf(report.readsUnchanged)} uendra, {nf(report.readsDeleted)} fjerna fordi StoryGraph ikkje lenger listar dei.</>}
+    tone={report.conflicts.length || report.unmatched.length ? 'yellow' : 'green'}>
+    <Stats items={[
+      { n: nf(report.rowsRead), label: `rader lesne, ${nf(report.rowsWithReads)} med lesingar` },
+      { n: nf(report.booksMatched), label: `bøker kopla (${report.matchedByIsbn} på ISBN, ${report.matchedByTitle} på tittel)`, tone: 'green' },
+      { n: nf(report.startsFilled + report.finishesFilled), label: `datoar fylte (${report.startsFilled} start, ${report.finishesFilled} slutt)`, tone: 'blue' },
+      { n: nf(report.readsAdded), label: 'lesingar BookWyrm aldri såg', tone: 'blue' },
+      { n: nf(report.unmatched.length), label: 'bøker utan treff', tone: report.unmatched.length ? 'yellow' : undefined },
+      { n: nf(report.conflicts.length), label: 'konfliktar (BookWyrm vann)', tone: report.conflicts.length ? 'yellow' : undefined },
+    ]} />
     {report.conflicts.length > 0 && (
-      <div class="section">
-        <h2>Conflicts</h2>
-        <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-          Both sources had a date for the same read and they disagree. The BookWyrm date is the
-          one served; nothing here was changed.
-        </p>
-        <table>
-          <thead>
-            <tr>
-              <th>Book</th>
-              <th>Field</th>
-              <th>BookWyrm</th>
-              <th>StoryGraph</th>
-              <th>Why</th>
-            </tr>
-          </thead>
-          <tbody>
-            {report.conflicts.map((c, i) => (
-              <tr key={String(i)}>
-                <td>{c.book ?? '—'}</td>
-                <td>{c.field}</td>
-                <td class="mono">{c.bookwyrm}</td>
-                <td class="mono">{c.storygraph}</td>
-                <td>{c.reason === 'disagree'
-                    ? 'Dates differ'
-                    : c.reason === 'start_after_finish'
-                      ? 'Start would fall after the finish'
-                      : 'Finish would fall before the start'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Section title="Konfliktar" id="conflicts"
+        help={<>Begge kjeldene hadde ein dato for same lesing, og dei er usamde. Datoen frå BookWyrm er den som blir servert. Ingenting her vart endra.</>}>
+        {report.conflicts.map((c) => (
+          <Row title={c.book ?? '—'}
+            sub={<span class="mono">{c.field}: BookWyrm {c.bookwyrm} · StoryGraph {c.storygraph}</span>}
+            badges={[[CONFLICT[c.reason] ?? 'Slutt ville kome før start', 'yellow']]} />
+        ))}
+      </Section>
     )}
-
     {report.unmatched.length > 0 && (
-      <div class="section">
-        <h2>Unmatched</h2>
-        <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
-          Stored, but no BookWyrm book matched by ISBN-13 or by title and author, so the
-          reading tools do not show these reads. A later import matches them once the book
-          is on BookWyrm.
-        </p>
-        <table>
-          <thead>
-            <tr>
-              <th>Title</th>
-              <th>Authors</th>
-              <th>Reads</th>
-            </tr>
-          </thead>
-          <tbody>
-            {report.unmatched.map((u, i) => (
-              <tr key={String(i)}>
-                <td>{u.title}</td>
-                <td>{u.authors.join(', ') || '—'}</td>
-                <td class="mono">{u.reads.map(range).join(', ')}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Section title="Utan treff" id="unmatched"
+        help={<>Lagra, men ingen BookWyrm-bok passa på ISBN-13 eller tittel og forfattar, så lesetenestene viser ikkje desse. Ein seinare import koplar dei når boka er på BookWyrm.</>}>
+        {report.unmatched.map((u) => (
+          <Row title={u.title} sub={<>{u.authors.join(', ') || '—'} · <span class="mono">{u.reads.map(range).join(', ')}</span></>} />
+        ))}
+      </Section>
     )}
-
     {report.unparsed.length > 0 && (
-      <div class="section">
-        <h2>Ranges that could not be read</h2>
-        <ul>
-          {report.unparsed.map((u, i) => (
-            <li key={String(i)}>
-              {u.title}: <span class="mono">{u.value}</span>
-            </li>
-          ))}
-        </ul>
-      </div>
+      <Section title="Intervall som ikkje kunne lesast" id="unparsed">
+        {report.unparsed.map((u) => <Row title={u.title} sub={<span class="mono">{u.value}</span>} />)}
+      </Section>
     )}
-
-    <div class="filters">
-      <a href="/admin/import" class="btn">Import More</a>
-    </div>
-  </Layout>
+  </Done>
 )

@@ -1,6 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { describe, it, expect } from 'vitest'
-import { ImportPage, StorygraphImportResultPage, TripImportResultPage, TripTrackImportResultPage } from './import.js'
+import { ImportKindPage, ImportListPage, StorygraphImportResultPage, TripImportResultPage, TripTrackImportResultPage, lastRunText } from './import.js'
+import { importKind } from '../import-kinds.js'
 import type { TripTrackImportReport } from '../../jobs/import-trip-tracks.js'
 import type { StorygraphImportReport } from '../../jobs/import-storygraph-reads.js'
 import type { TripImportResult } from '../import.js'
@@ -52,8 +53,8 @@ const render = (r: TripImportResult) => String(TripImportResultPage({ result: r 
 describe('TripImportResultPage', () => {
   it('lists what would go, and says plainly that nothing has gone', () => {
     const html = render(result())
-    expect(html).toContain('Stored, but not in this export')
-    expect(html).toContain('Nothing here has been deleted')
+    expect(html).toContain('Ikkje i denne eksporten')
+    expect(html).toContain('Ingenting her er sletta')
     expect(html).toContain('2026-08-20 05:34:00')
     expect(html).toContain('Røros 2026')
   })
@@ -80,23 +81,23 @@ describe('TripImportResultPage', () => {
       ...result({ candidates: [] }),
       droppedJourneys: [{ journey: 'Champions League Naples', remaining: 14 }],
     })
-    expect(html).toContain('Journey <strong>Champions League Naples</strong> was deleted')
-    expect(html).toContain('<strong>14</strong> trips remain')
+    expect(html).toContain('Champions League Naples')
+    expect(html).toContain('Reisa vart sletta, men 14 turar står att.')
   })
 
   it('stays quiet about journeys when none was dropped', () => {
-    expect(render(result())).not.toContain('Journeys no longer in this export')
+    expect(render(result())).not.toContain('Reiser som ikkje lenger er med')
   })
 
   it('offers no confirm when the export accounts for everything in its range', () => {
     const html = render(result({ candidates: [] }))
     expect(html).not.toContain('/admin/import/trips/prune')
-    expect(html).not.toContain('Stored, but not in this export')
+    expect(html).not.toContain('Ikkje i denne eksporten')
   })
 
   it('states the range, so the reader can see what was never eligible', () => {
     expect(render(result())).toContain('2026-08-20 15:30:00')
-    expect(render(result())).toContain('5</strong> trips in that range')
+    expect(render(result())).toContain('5</strong> turar i det tidsrommet')
   })
 })
 
@@ -122,7 +123,7 @@ const sgReport = (over: Partial<StorygraphImportReport> = {}): StorygraphImportR
 
 describe('StoryGraph read dates import', () => {
   it('offers the upload with the configured BookWyrm actor prefilled', () => {
-    const html = String(<ImportPage bookwyrmActors={['@mvrkws@bookwyrm.social']} />)
+    const html = String(<ImportKindPage kind={importKind('storygraph')!} bookwyrmActors={['@mvrkws@bookwyrm.social']} />)
     expect(html).toContain('action="/admin/import/storygraph"')
     expect(html).toContain('value="@mvrkws@bookwyrm.social"')
   })
@@ -136,7 +137,7 @@ describe('StoryGraph read dates import', () => {
         })}
       />,
     )
-    expect(html).toContain('Conflicts (BookWyrm kept)')
+    expect(html).toContain('konfliktar (BookWyrm vann)')
     expect(html).toContain('2024-10-03')
     expect(html).toContain('Only On StoryGraph')
     expect(html).toContain('? → 2023-01-02')
@@ -144,8 +145,8 @@ describe('StoryGraph read dates import', () => {
 
   it('shows neither table when there is nothing to list', () => {
     const html = String(<StorygraphImportResultPage report={sgReport()} />)
-    expect(html).not.toContain('<h2>Conflicts</h2>')
-    expect(html).not.toContain('<h2>Unmatched</h2>')
+    expect(html).not.toContain('>Konfliktar</div>')
+    expect(html).not.toContain('>Utan treff</div>')
   })
 })
 
@@ -169,9 +170,8 @@ const gpxReport = (over: Partial<TripTrackImportReport> = {}): TripTrackImportRe
 
 describe('GPX import', () => {
   it('has its own form, separate from the CSV one', () => {
-    const html = String(ImportPage({ bookwyrmActors: [] }))
-    expect(html).toContain('action="/admin/import/trip-tracks"')
-    expect(html).toContain('action="/admin/import/trips"')
+    expect(String(ImportKindPage({ kind: importKind('trip-tracks')! }))).toContain('action="/admin/import/trip-tracks"')
+    expect(String(ImportKindPage({ kind: importKind('trips')! }))).toContain('action="/admin/import/trips"')
   })
 
   it('lists the routes with no trip to join', () => {
@@ -185,14 +185,56 @@ describe('GPX import', () => {
         }),
       }),
     )
-    expect(html).toContain('Routes with no trip to join')
+    expect(html).toContain('>Ruter utan tur</div>')
     expect(html).toContain('1735507')
     expect(html).toContain('2021-09-26 23:25:00')
   })
 
   it('stays quiet when every route joined', () => {
     const html = String(TripTrackImportResultPage({ report: gpxReport() }))
-    expect(html).not.toContain('Routes with no trip to join')
-    expect(html).not.toContain('could not be read')
+    expect(html).not.toContain('>Ruter utan tur</div>')
+    expect(html).not.toContain('ikkje kunne lesast')
+  })
+})
+
+describe('the import list', () => {
+  const run = (ranAt: string, ok = true) => ({ kind: 'trips', ranAt: new Date(ranAt), ok, summary: 'x', error: ok ? null : 'boom' })
+  const now = new Date('2026-11-01T12:00:00Z')
+
+  it('groups every import under its category and links to its own page', () => {
+    const html = String(ImportListPage({ runs: new Map(), now }))
+    expect(html).toContain('href="/admin/import/storygraph"')
+    expect(html).toContain('href="/admin/import/trip-tracks"')
+    expect(html.indexOf('>Lesing</div>')).toBeLessThan(html.indexOf('>Reiser</div>'))
+  })
+
+  it('says when each import last ran, and when it failed', () => {
+    const html = String(ImportListPage({ runs: new Map([['trips', run('2026-11-01T09:21:00Z')], ['youtube', { ...run('2026-10-28T09:00:00Z', false), kind: 'youtube' }]]), now }))
+    expect(html).toContain('i dag 10:21')
+    expect(html).toContain('feila')
+  })
+
+  it('words a run by how long ago it was, in Oslo time', () => {
+    expect(lastRunText(run('2026-10-31T20:00:00Z'), now)?.text).toBe('i går')
+    expect(lastRunText(run('2026-10-02T20:00:00Z'), now)?.text).toBe('2. okt. 2026')
+    expect(lastRunText(undefined, now)).toBeNull()
+  })
+})
+
+describe('an import page', () => {
+  it('shows a two-step bar for a file import, and none for a maintenance run', () => {
+    expect(String(ImportKindPage({ kind: importKind('trips')! }))).toContain('>Vel fil</div>')
+    expect(String(ImportKindPage({ kind: importKind('reprocess')! }))).not.toContain('class="steps"')
+  })
+
+  it('posts multipart only when it carries a file', () => {
+    expect(String(ImportKindPage({ kind: importKind('youtube')! }))).toContain('enctype="multipart/form-data"')
+    expect(String(ImportKindPage({ kind: importKind('crawl')! }))).not.toContain('enctype=')
+  })
+
+  it('shows why the last attempt was refused', () => {
+    const html = String(ImportKindPage({ kind: importKind('trips')!, error: 'Inga fil lasta opp' }))
+    expect(html).toContain('Importen feila. Ingenting vart lagra.')
+    expect(html).toContain('Inga fil lasta opp')
   })
 })
