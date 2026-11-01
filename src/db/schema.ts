@@ -1651,3 +1651,17 @@ export const storygraphReads = pgTable('storygraph_reads', {
   check('storygraph_reads_in_order', sql`${t.startedOn} IS NULL OR ${t.finishedOn} IS NULL OR ${t.startedOn} <= ${t.finishedOn}`),
   check('storygraph_reads_matched_by', sql`${t.matchedBy} IS NULL OR ${t.matchedBy} IN ('isbn', 'title_author')`),
 ])
+
+// One row per import or maintenance run started from the admin (ADR 0073, phase 3).
+// Written after the run, so a row is an outcome: `ok`, a one-line `summary`, and the
+// `error` when it failed. The Import list reads the newest row per kind.
+export const importRuns = pgTable('import_runs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  kind: text('kind').notNull(),
+  ranAt: timestamp('ran_at', { withTimezone: true }).notNull().defaultNow(),
+  ok: boolean('ok').notNull(),
+  summary: text('summary'),
+  error: text('error'),
+}, (t) => [
+  index('import_runs_kind_ran_at_idx').on(t.kind, t.ranAt.desc()),
+])

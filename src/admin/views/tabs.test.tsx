@@ -90,7 +90,7 @@ describe('BooksView', () => {
 
   it('lists the category’s imports and syncs, and disables a running sync', () => {
     const html = String(BooksView({ ctx: ctxFor('lesing', 'boker', { running: new Set(['books']) }), data: page([]), actors: [] }))
-    expect(html).toContain('href="/admin/import#storygraph"')
+    expect(html).toContain('href="/admin/import/storygraph"')
     expect(html).toMatch(/<button type="submit" class="btn-run" disabled="">Køyrer<\/button>/)
     expect(html).toMatch(/value="reading"\/><input type="hidden" name="return"[^>]*\/><button type="submit" class="btn-run">Køyr<\/button>/)
   })

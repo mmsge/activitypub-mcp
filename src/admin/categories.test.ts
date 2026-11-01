@@ -68,3 +68,20 @@ describe('the registry', () => {
     expect(categoryHref('reiser', 'stasjonar', { notice: 'ok' })).toBe('/admin/k/reiser?tab=stasjonar&notice=ok')
   })
 })
+
+import { IMPORT_KINDS } from './import-kinds.js'
+
+describe('imports listed under a category', () => {
+  it('each name an import page that exists, in the same category', () => {
+    for (const c of CATEGORIES) {
+      for (const i of c.imports) {
+        expect(IMPORT_KINDS.find((k) => k.id === i.anchor)?.category).toBe(c.id)
+      }
+    }
+  })
+
+  it('cover every import', () => {
+    const listed = new Set(CATEGORIES.flatMap((c) => c.imports.map((i) => i.anchor)))
+    for (const k of IMPORT_KINDS) expect(listed.has(k.id)).toBe(true)
+  })
+})

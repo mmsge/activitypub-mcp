@@ -19,7 +19,7 @@ export interface TabDef {
   label: string
 }
 
-/** A link to an import, shown under "Import og synk". `anchor` is its section on /admin/import. */
+/** A link to an import, shown under "Import og synk". `anchor` is its id in `import-kinds.ts`. */
 export interface ImportDef {
   verb: 'Import' | 'Hent' | 'Køyr'
   label: string

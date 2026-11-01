@@ -13,7 +13,8 @@ import { LogsPage, LogRows } from './views/logs.js'
 import { pinStationToWaypoint } from '../jobs/pin-station.js'
 import { config } from '../config.js'
 import {
-  ImportPage,
+  ImportListPage,
+  ImportKindPage,
   ImportResultPage,
   TripImportResultPage,
   TripPruneResultPage,
@@ -22,6 +23,8 @@ import {
   TripTrackImportResultPage,
 } from './views/import.js'
 import { mediaRouter } from './media-router.js'
+import { importKind } from './import-kinds.js'
+import { recordImportRun, lastImportRuns } from './import-runs.js'
 import { categoryRouter, linkedinStaleMs } from './category-router.js'
 import { categoryHref, redirectFor } from './categories.js'
 import { mediaCounts } from './media-query.js'
@@ -223,8 +226,15 @@ app.route('/media', mediaRouter)
 app.route('/k', categoryRouter)
 
 
-// Import
-app.get('/import', (c) => c.html(<ImportPage />))
+// Import (ADR 0073, phase 3): the list, one page per import, and the POSTs below.
+app.get('/import', async (c) => c.html(<ImportListPage runs={await lastImportRuns()} />))
+
+/** A refused import: recorded as a failed run, and the form shown again with the reason. */
+async function fail(c: Context, kind: string, error: string) {
+  await recordImportRun(kind, { ok: false, error })
+  const k = importKind(kind)
+  return k ? c.html(<ImportKindPage kind={k} error={error} />, 422) : c.text(error, 422)
+}
 
 app.post(
   '/import/archive',
@@ -233,20 +243,20 @@ app.post(
     const body = await c.req.parseBody()
     const file = body['archive']
     if (!file || typeof file === 'string') {
-      return c.html(<ImportPage error="No file uploaded" />)
+      return fail(c, 'archive', "Inga fil lasta opp")
     }
     let text: string
     try {
       text = await (file as File).text()
     } catch {
-      return c.html(<ImportPage error="Could not read file" />)
+      return fail(c, 'archive', "Kunne ikkje lese fila")
     }
 
     let items: unknown[]
     try {
       items = parseMastodonArchive(text)
     } catch (e) {
-      return c.html(<ImportPage error={String(e)} />)
+      return fail(c, 'archive', String(e))
     }
 
     const firstActivity = items[0] as Record<string, unknown> | undefined
@@ -255,13 +265,13 @@ app.post(
         ? firstActivity.actor
         : null
     if (!actorUrl) {
-      return c.html(<ImportPage error="Could not determine actor from archive" />)
+      return fail(c, 'archive', "Fann ikkje aktøren i arkivet")
     }
 
     try {
       await ensureActor(actorUrl)
     } catch (e) {
-      return c.html(<ImportPage error={`Failed to fetch actor: ${e}`} />)
+      return fail(c, 'archive', `Kunne ikkje hente aktøren: ${e}`)
     }
 
     const result = await processActivityBatch(items, (n) => {
@@ -275,6 +285,8 @@ app.post(
       skipped: String(result.skipped),
       errorCount: String(result.errors.length),
     })
+    params.set('kind', 'archive')
+    await recordImportRun('archive', { ok: true, summary: `${params.get('imported')} importerte, ${params.get('skipped')} fanst frå før` })
     return c.redirect(`/admin/import/result?${params}`)
   },
 )
@@ -286,20 +298,20 @@ app.post(
     const body = await c.req.parseBody()
     const file = body['file']
     if (!file || typeof file === 'string') {
-      return c.html(<ImportPage error="No file uploaded" />)
+      return fail(c, 'trips', "Inga fil lasta opp")
     }
     let text: string
     try {
       text = await (file as File).text()
     } catch {
-      return c.html(<ImportPage error="Could not read file" />)
+      return fail(c, 'trips', "Kunne ikkje lese fila")
     }
 
     let rows
     try {
       rows = parseTrainTripsCsv(text)
     } catch (e) {
-      return c.html(<ImportPage error={String(e)} />)
+      return fail(c, 'trips', String(e))
     }
 
     const result = await importTrainTrips(rows)
@@ -350,6 +362,7 @@ app.post(
     // this export no longer contains is the substance of the report and will not
     // survive a query string. Re-POSTing on refresh is harmless — the import is
     // idempotent, and the page deletes nothing on its own.
+    await recordImportRun('trips', { ok: true, summary: `${result.inserted} nye, ${result.updated} oppdaterte, ${result.prune.candidates.length} manglar i fila` })
     return c.html(<TripImportResultPage result={result} />)
   },
 )
@@ -375,10 +388,10 @@ app.post(
     }
     const derivedAt = parseInstant(body['derived_at'])
     if (!window.from || !window.to || !derivedAt) {
-      return c.html(<ImportPage error="Prune request was missing its export range" />)
+      return c.html(<ImportKindPage kind={importKind('trips')!} error="Fjerninga mangla tidsrommet til eksporten" />, 422)
     }
     if (ids.length === 0) {
-      return c.html(<ImportPage error="Prune request named no trips" />)
+      return c.html(<ImportKindPage kind={importKind('trips')!} error="Fjerninga nemnde ingen turar" />, 422)
     }
 
     const result = await applyTripPrune({
@@ -431,21 +444,22 @@ app.post(
     const body = await c.req.parseBody()
     const file = body['file']
     if (!file || typeof file === 'string') {
-      return c.html(<ImportPage error="No file uploaded" />)
+      return fail(c, 'trip-tracks', "Inga fil lasta opp")
     }
     let text: string
     try {
       text = await (file as File).text()
     } catch {
-      return c.html(<ImportPage error="Could not read file" />)
+      return fail(c, 'trip-tracks', "Kunne ikkje lese fila")
     }
 
     let report
     try {
       report = await importTripTracks(parseViaductGpx(text))
     } catch (e) {
-      return c.html(<ImportPage error={e instanceof Error ? e.message : String(e)} />)
+      return fail(c, 'trip-tracks', e instanceof Error ? e.message : String(e))
     }
+    await recordImportRun('trip-tracks', { ok: true, summary: `${report.tracksInFile} ruter, ${report.unmatched.length} utan tur` })
     return c.html(<TripTrackImportResultPage report={report} />)
   },
 )
@@ -461,25 +475,25 @@ app.post(
     const body = await c.req.parseBody()
     const file = body['file']
     if (!file || typeof file === 'string') {
-      return c.html(<ImportPage error="No file uploaded" />)
+      return fail(c, 'storygraph', "Inga fil lasta opp")
     }
     const actorInput = typeof body['actor'] === 'string' ? body['actor'].trim() : ''
     if (!actorInput) {
-      return c.html(<ImportPage error="Name the BookWyrm actor the reads belong to" />)
+      return fail(c, 'storygraph', "Skriv kva BookWyrm-konto lesingane høyrer til")
     }
 
     let text: string
     try {
       text = await (file as File).text()
     } catch {
-      return c.html(<ImportPage error="Could not read file" />)
+      return fail(c, 'storygraph', "Kunne ikkje lese fila")
     }
 
     let rows
     try {
       rows = parseStorygraphCsv(text)
     } catch (e) {
-      return c.html(<ImportPage error={e instanceof Error ? e.message : String(e)} />)
+      return fail(c, 'storygraph', e instanceof Error ? e.message : String(e))
     }
 
     // The same resolution the reading tools use for actor_handle, so the rows are keyed
@@ -488,10 +502,11 @@ app.post(
       ? { apId: actorInput }
       : await resolveActorByHandle(actorInput)
     if (!actor) {
-      return c.html(<ImportPage error={`Could not resolve actor: ${actorInput}`} />)
+      return fail(c, 'storygraph', `Fann ikkje kontoen: ${actorInput}`)
     }
 
     const report = await importStorygraphReads(rows, actor.apId)
+    await recordImportRun('storygraph', { ok: true, summary: `${report.booksMatched} bøker kopla, ${report.conflicts.length} konfliktar` })
     return c.html(<StorygraphImportResultPage report={report} />)
   },
 )
@@ -507,7 +522,7 @@ app.post(
     const body = await c.req.parseBody()
     const file = body['file']
     if (!file || typeof file === 'string') {
-      return c.html(<ImportPage error="No file uploaded" />)
+      return fail(c, 'linkedin', "Inga fil lasta opp")
     }
 
     // arrayBuffer(), not text(): an .xlsx is a zip, and decoding it as UTF-8
@@ -516,26 +531,28 @@ app.post(
     try {
       bytes = await (file as File).arrayBuffer()
     } catch {
-      return c.html(<ImportPage error="Could not read file" />)
+      return fail(c, 'linkedin', "Kunne ikkje lese fila")
     }
 
     let parsed
     try {
       parsed = await parseLinkedinExport(bytes)
     } catch (e) {
-      return c.html(<ImportPage error={e instanceof Error ? e.message : String(e)} />)
+      return fail(c, 'linkedin', e instanceof Error ? e.message : String(e))
     }
 
     const result = await importLinkedinMetrics(parsed)
     logger.info({ ...result }, 'LinkedIn metrics import complete')
 
     const params = new URLSearchParams({
-      actor: `LinkedIn analytics — export dated ${result.exportDate}`,
+      actor: `Eksport datert ${result.exportDate}`,
       total: String(result.total),
       imported: String(result.inserted),
       skipped: String(result.skipped),
       errorCount: '0',
     })
+    params.set('kind', 'linkedin')
+    await recordImportRun('linkedin', { ok: true, summary: `${params.get('imported')} importerte, ${params.get('skipped')} fanst frå før` })
     return c.redirect(`/admin/import/result?${params}`)
   },
 )
@@ -555,7 +572,7 @@ app.post(
     const body = await c.req.parseBody()
     const file = body['file']
     if (!file || typeof file === 'string') {
-      return c.html(<ImportPage error="No file uploaded" />)
+      return fail(c, 'youtube', "Inga fil lasta opp")
     }
     const trimmed = (v: unknown) => {
       const s = typeof v === 'string' ? v.trim() : ''
@@ -566,17 +583,17 @@ app.post(
     try {
       text = await (file as File).text()
     } catch {
-      return c.html(<ImportPage error="Could not read file" />)
+      return fail(c, 'youtube', "Kunne ikkje lese fila")
     }
 
     let entries: unknown
     try {
       entries = JSON.parse(text)
     } catch (e) {
-      return c.html(<ImportPage error={`Not valid JSON: ${e instanceof Error ? e.message : String(e)}`} />)
+      return fail(c, 'youtube', `Ikkje gyldig JSON: ${e instanceof Error ? e.message : String(e)}`)
     }
     if (!Array.isArray(entries)) {
-      return c.html(<ImportPage error="Expected a JSON array of watch entries" />)
+      return fail(c, 'youtube', "Venta ei JSON-liste med visningar")
     }
 
     const { total, rows, problems, normalisations } = parseYoutubeWatchHistory(entries, {
@@ -595,6 +612,7 @@ app.post(
     // when nothing moved. An import that inserted rows moves that fingerprint, so
     // this wake turns into a real rebuild; one that inserted nothing never gets sent.
     await notifyMsgeChanged('tuben', result.inserted)
+    await recordImportRun('youtube', { ok: true, summary: `${result.inserted} nye visningar` })
 
     // Rendered rather than redirected, unlike the other importers: the problem,
     // normalisation and refusal lists are the substance of this report and will not
@@ -617,18 +635,18 @@ app.post(
 app.post('/import/crawl', async (c) => {
   const body = await c.req.parseBody()
   const handle = (body['handle'] as string | undefined)?.trim()
-  if (!handle) return c.html(<ImportPage error="Handle is required" />)
+  if (!handle) return fail(c, 'crawl', "Aktøren må fyllast ut")
 
   const actor = await resolveActorByHandle(handle)
   if (!actor) {
-    return c.html(<ImportPage error={`Actor not found: ${handle}`} />)
+    return fail(c, 'crawl', `Fann ikkje aktøren: ${handle}`)
   }
 
   let items: unknown[]
   try {
     items = await crawlOutbox(actor.apId)
   } catch (e) {
-    return c.html(<ImportPage error={`Outbox crawl failed: ${e}`} />)
+    return fail(c, 'crawl', `Hentinga av utboksen feila: ${e}`)
   }
 
   const result = await processActivityBatch(items, (n) => {
@@ -642,6 +660,8 @@ app.post('/import/crawl', async (c) => {
     skipped: String(result.skipped),
     errorCount: String(result.errors.length),
   })
+  params.set('kind', 'crawl')
+  await recordImportRun('crawl', { ok: true, summary: `${params.get('imported')} importerte, ${params.get('skipped')} fanst frå før` })
   return c.redirect(`/admin/import/result?${params}`)
 })
 
@@ -650,12 +670,14 @@ app.post('/import/reprocess', async (c) => {
     logger.info({ n }, 'Reprocess progress')
   })
   const params = new URLSearchParams({
-    actor: 'stored bare objects',
+    actor: 'Lagra nakne objekt',
     total: String(result.total),
     imported: String(result.imported),
     skipped: String(result.skipped),
     errorCount: String(result.errors.length),
   })
+  params.set('kind', 'reprocess')
+  await recordImportRun('reprocess', { ok: true, summary: `${params.get('imported')} importerte, ${params.get('skipped')} fanst frå før` })
   return c.redirect(`/admin/import/result?${params}`)
 })
 
@@ -665,30 +687,39 @@ app.post('/import/reprocess', async (c) => {
 app.post('/import/repair-neodb', async (c) => {
   const r = await repairNeodbIngest({ force: true })
   const summary = r
-    ? `${r.postsRepaired} post(s) re-texted, ${r.postsRefetched} refetched, ${r.marksUpserted} mark(s) reprocessed, ${r.watchDatesFilled} watch date(s) filled, ${r.unknownDatesDecoded} unknown-date sentinel(s) decoded, ${r.itemsSkipped} item(s) already enriched`
-    : 'nothing to do'
+    ? `${r.postsRepaired} postar fekk tekst att, ${r.postsRefetched} henta på nytt, ${r.marksUpserted} merke prosesserte, ${r.watchDatesFilled} datoar fylte, ${r.unknownDatesDecoded} ukjende datoar dekoda, ${r.itemsSkipped} alt beriga`
+    : 'ingenting å gjere'
 
   const params = new URLSearchParams({
-    actor: `NeoDB ingest repair — ${summary}`,
+    actor: summary,
     total: String((r?.itemsEnriched ?? 0) + (r?.itemsFailed ?? 0) + (r?.itemsSkipped ?? 0)),
     imported: String(r?.itemsEnriched ?? 0),
     skipped: String(r?.itemsSkipped ?? 0),
     errorCount: String(r?.itemsFailed ?? 0),
   })
+  params.set('kind', 'repair-neodb')
+  await recordImportRun('repair-neodb', { ok: true, summary: `${params.get('imported')} importerte, ${params.get('skipped')} fanst frå før` })
   return c.redirect(`/admin/import/result?${params}`)
 })
 
 app.get('/import/result', (c) => {
   const actor = c.req.query('actor') ?? ''
+  const kind = c.req.query('kind') ?? 'archive'
   const result = {
     total: Number(c.req.query('total') ?? '0'),
     imported: Number(c.req.query('imported') ?? '0'),
     skipped: Number(c.req.query('skipped') ?? '0'),
     errors: Number(c.req.query('errorCount') ?? '0') > 0
-      ? [`${c.req.query('errorCount')} error(s) — see server logs for details`]
+      ? [`${c.req.query('errorCount')} feil, sjå serverloggen for detaljar`]
       : [],
   }
-  return c.html(<ImportResultPage result={result} actor={actor} />)
+  return c.html(<ImportResultPage result={result} actor={actor} kind={kind} />)
+})
+
+// After /import/result, so that path is never read as an import's name.
+app.get('/import/:kind', (c) => {
+  const kind = importKind(c.req.param('kind'))
+  return kind ? c.html(<ImportKindPage kind={kind} />) : c.notFound()
 })
 
 export { app as adminRouter }

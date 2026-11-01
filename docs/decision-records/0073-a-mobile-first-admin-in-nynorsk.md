@@ -1,12 +1,13 @@
 # 0073 — a mobile-first admin in nynorsk
 
-**Status:** Accepted (phases 1 and 2 of 4)
+**Status:** Accepted (phases 1 to 3 of 4)
 **Date:** 2026-11-01
 **Topics:** admin, design, mobile
 **Contributors:** Markus (design handoff "Admin mobil v3"; decided: stacked PRs, dry-run
 imports as their own later phase, old URLs answer 301) + Claude (implemented)
 
-**Affects:** `src/admin/category-router.tsx`, `src/admin/views/kit.tsx`,
+**Affects:** `src/admin/import-kinds.ts`, `src/admin/import-runs.ts`, `drizzle/0047_import_runs.sql`,
+`src/admin/views/import.tsx`, `src/admin/category-router.tsx`, `src/admin/views/kit.tsx`,
 `src/admin/views/media-tabs.tsx`, `src/admin/views/other-tabs.tsx`, `src/admin/media-router.tsx`,
 `src/admin/views/layout.tsx`, `src/admin/views/dashboard.tsx`,
 `src/admin/views/login.tsx`, `src/admin/views/linkedin.tsx`, `src/admin/attention.ts`,
@@ -67,6 +68,24 @@ pages that GET, and as little JavaScript as possible.
 - The station pin redirects back to the tab with a `notice`/`error` instead of
   re-rendering on POST, so a reload cannot pin twice.
 - Flash messages from POST actions are nynorsk and render as a toast.
+
+### Phase 3: Import
+
+- `/admin/import` lists every import under its category, with when it last ran;
+  `/admin/import/:kind` is one page per import, and the POST it sends is the one it always
+  was (`/admin/import/:kind`). The kinds live in `import-kinds.ts`, keyed by that segment,
+  and a test holds the category list and the kinds to each other.
+- **`import_runs`** (migration 0047) is written after every run, from the admin: `ok`, a
+  one-line `summary`, or the `error` that refused it. A row is an outcome, never an intent,
+  and a failed write of it is logged and never fails the import. The trip prune is not
+  recorded: it is the second half of a trips import, not a run of its own.
+- The flow has **two steps**, Vel fil → Ferdig. Dry run adds "Sjå over" between them in its
+  own PR, so no step promises something that does not exist yet.
+- A refused upload re-renders its own page with the reason (HTTP 422), and every one of
+  them is refused before anything is written, which is what lets the banner say so.
+- Result pages keep every list they had (the trips "not in this export" list and its
+  confirm, StoryGraph conflicts, YouTube normalisations) as rows, and end with the way
+  back to the category and to Oversikt.
 
 ## Consequences
 

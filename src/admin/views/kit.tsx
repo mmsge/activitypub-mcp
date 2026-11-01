@@ -259,7 +259,7 @@ const ImportSync: FC<{ cat: Category; running: ReadonlySet<string>; returnTo: st
       <div class="sec-head"><div class="sec-title">Import og synk</div></div>
       <div class="panel">
         {cat.imports.map((k) => (
-          <a class="is-row" href={`/admin/import#${k.anchor}`}>
+          <a class="is-row" href={`/admin/import/${k.anchor}`}>
             <span class="badge badge-accent">{k.verb}</span>
             <div class="r-main">
               <div class="r-title">{k.label}</div>
