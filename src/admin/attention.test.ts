@@ -28,7 +28,7 @@ describe('attentionItems', () => {
 
   it('links delivery errors to the outbound logs', () => {
     const [d] = attentionItems({ ...quiet, deliveryErrors24h: 3 })
-    expect(d).toMatchObject({ id: 'delivery', tone: 'red', title: '3 leveringsfeil', href: '/admin/logs?direction=outbound' })
+    expect(d).toMatchObject({ id: 'delivery', tone: 'red', title: '3 leveringsfeil', href: '/admin/logs?f=ut' })
   })
 
   it('names the first pending follow and counts the rest', () => {

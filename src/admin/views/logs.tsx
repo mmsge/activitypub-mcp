@@ -1,6 +1,12 @@
 /** @jsxImportSource hono/jsx */
+import type { FC } from 'hono/jsx'
 import { Layout } from './layout.js'
-import { Pager, EmptyRow } from './ui.js'
+import { withQuery } from './ui.js'
+import { actorHandle } from '../attention.js'
+
+// Loggar, from the mobile handoff (ADR 0073, phase 4): filter chips, one card per HTTP
+// request, tap a card for its error and body. The list polls itself every 10 s, and
+// holds still while a card is open so a body being read is not swapped away.
 
 export interface LogEntry {
   id: number
@@ -17,110 +23,126 @@ export interface LogEntry {
   responseBody: string | null
 }
 
+export type LogFilter = 'alle' | 'inn' | 'ut' | 'feil' | 'ugyldig'
+
+export const LOG_FILTERS: Array<[LogFilter, string]> = [
+  ['alle', 'Alle'],
+  ['inn', 'Inn'],
+  ['ut', 'Ut'],
+  ['feil', 'Feil'],
+  ['ugyldig', 'Ugyldig signatur'],
+]
+
+/**
+ * The chip a request asks for. `f` is the new parameter; the old `direction` and
+ * `sigValid` ones still work, so a bookmarked or linked filter keeps its meaning.
+ */
+export function logFilterOf(q: { f?: string; direction?: string; sigValid?: string }): LogFilter {
+  if (q.f && LOG_FILTERS.some(([id]) => id === q.f)) return q.f as LogFilter
+  if (q.sigValid === 'false') return 'ugyldig'
+  if (q.direction === 'inbound') return 'inn'
+  if (q.direction === 'outbound') return 'ut'
+  return 'alle'
+}
+
 interface LogsPageProps {
   logs: LogEntry[]
   page: number
   hasMore: boolean
-  filters: { direction?: string; sigValid?: string; actor?: string }
+  filter: LogFilter
+  actor?: string
+  now?: Date
 }
 
-export function LogsPage({ logs, page, hasMore, filters }: LogsPageProps) {
+const params = (filter: LogFilter, actor?: string) => ({ f: filter === 'alle' ? undefined : filter, actor })
+
+export function LogsPage({ logs, page, hasMore, filter, actor, now }: LogsPageProps) {
   return (
     <Layout title="Loggar" nav="loggar" live>
-      <form class="filters" method="get" action="/admin/logs">
-        <select name="direction">
-          <option value="" selected={!filters.direction}>All directions</option>
-          <option value="inbound" selected={filters.direction === 'inbound'}>Inbound</option>
-          <option value="outbound" selected={filters.direction === 'outbound'}>Outbound</option>
-        </select>
-        <select name="sigValid">
-          <option value="" selected={!filters.sigValid}>Any signature</option>
-          <option value="true" selected={filters.sigValid === 'true'}>Valid ✓</option>
-          <option value="false" selected={filters.sigValid === 'false'}>Invalid ✗</option>
-        </select>
-        <input name="actor" placeholder="Actor URL" value={filters.actor ?? ''} style="width:280px" />
-        <button type="submit">Filter</button>
-        <a href="/admin/logs" class="btn btn-ghost">Clear</a>
-      </form>
-      <p class="muted" style="margin-bottom:12px">Auto-refreshes every 10s</p>
-      <table>
-        <thead>
-          <tr>
-            <th>Dir</th>
-            <th>Method</th>
-            <th>URL</th>
-            <th>Status</th>
-            <th>Sig</th>
-            <th>Actor</th>
-            <th>Time</th>
-            <th>Detail</th>
-          </tr>
-        </thead>
-        {/* Polls the fragment route below, which re-renders exactly these rows for the
-            current page and filters. */}
-        <tbody
+      <div class="stack logs">
+        <nav class="tabs" aria-label="Filter">
+          {LOG_FILTERS.map(([id, label]) => (
+            <a href={withQuery('/admin/logs', params(id, actor))} class={id === filter ? 'active' : ''}
+              aria-current={id === filter ? 'page' : undefined}>{label}</a>
+          ))}
+        </nav>
+        {actor && (
+          <div class="actor-filter">
+            <span class="mono">{actorHandle(actor)}</span>
+            <a href={withQuery('/admin/logs', params(filter))} aria-label="Fjern aktørfilteret">✕</a>
+          </div>
+        )}
+        {/* Polls the fragment route, which re-renders exactly these cards for the current
+            page and filter. The trigger filter skips a tick while any card is open. */}
+        <div
           id="log-rows"
-          hx-get={rowsUrl(page, filters)}
-          hx-trigger="every 10s"
+          class="log-list"
+          hx-get={withQuery('/admin/logs/rows', { ...params(filter, actor), page: page || undefined })}
+          hx-trigger="every 10s [!document.querySelector('#log-rows details[open]')]"
           hx-swap="innerHTML"
         >
-          <LogRows logs={logs} />
-        </tbody>
-      </table>
-      <Pager base="/admin/logs" page={page} hasMore={hasMore} params={filters} />
+          <LogRows logs={logs} now={now} />
+        </div>
+        {(page > 0 || hasMore) && (
+          <div class="panel">
+            <div class="more">
+              {page > 0 && <a href={withQuery('/admin/logs', { ...params(filter, actor), page: page - 1 })}>‹ Nyare</a>}
+              {hasMore && <a class="more-next" href={withQuery('/admin/logs', { ...params(filter, actor), page: page + 1 })}>Eldre ›</a>}
+            </div>
+          </div>
+        )}
+      </div>
     </Layout>
   )
 }
 
-function rowsUrl(page: number, filters: LogsPageProps['filters']): string {
-  const sp = new URLSearchParams()
-  for (const [k, v] of Object.entries({ ...filters, page: page || undefined })) {
-    if (v === undefined || v === null || v === '') continue
-    sp.set(k, String(v))
+/** The cards on their own, so the poll can swap them in without a page reload. */
+export function LogRows({ logs, now }: { logs: LogEntry[]; now?: Date }) {
+  if (logs.length === 0) {
+    return <div class="empty-box">Ingen førespurnader med dette filteret.</div>
   }
-  const qs = sp.toString()
-  return qs ? `/admin/logs/rows?${qs}` : '/admin/logs/rows'
+  return <>{logs.map((l) => <LogCard log={l} now={now} />)}</>
 }
 
-/** The tbody contents on their own, so the poll can swap them in without a page reload. */
-export function LogRows({ logs }: { logs: LogEntry[] }) {
-  return (
-    <>
-      {logs.map(l => <LogRow log={l} />)}
-      {logs.length === 0 && <EmptyRow colspan={8} text="No logs yet" />}
-    </>
-  )
+const OSLO_DAY = (d: Date) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Oslo' })
+
+/** "10:21:07" today, "31. okt. 10:21" before that, in Oslo time. */
+export function logTime(d: Date, now = new Date()): string {
+  const time = d.toLocaleTimeString('nn-NO', { timeZone: 'Europe/Oslo', hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  if (OSLO_DAY(d) === OSLO_DAY(now)) return time
+  const day = d.toLocaleDateString('nn-NO', { timeZone: 'Europe/Oslo', day: 'numeric', month: 'short' })
+  return `${day} ${time.slice(0, 5)}`
 }
 
-function LogRow({ log: l }: { log: LogEntry }) {
+const LogCard: FC<{ log: LogEntry; now?: Date }> = ({ log: l, now }) => {
+  const failed = (l.responseStatus ?? 0) >= 400
+  const body = [
+    l.requestBody ? l.requestBody.slice(0, 2000) : null,
+    l.responseBody ? `Svar:\n${l.responseBody.slice(0, 1000)}` : null,
+  ].filter(Boolean).join('\n\n')
   return (
-    <tr key={l.id}>
-      <td>
-        {l.direction === 'inbound'
-          ? <span class="badge badge-blue">IN</span>
-          : <span class="badge badge-yellow">OUT</span>
-        }
-      </td>
-      <td class="mono">{l.method}</td>
-      <td class="truncate mono">{l.url}</td>
-      <td class="mono">{l.responseStatus ?? '—'}</td>
-      <td>
-        {l.signatureValid === null ? '—'
-          : l.signatureValid
-            ? <span class="valid-yes">✓</span>
-            : <span class="valid-no">✗</span>
-        }
-      </td>
-      <td class="truncate mono" style="max-width:200px">{l.actorApId ?? '—'}</td>
-      <td class="mono">{l.createdAt.toISOString().slice(0, 19).replace('T', ' ')}</td>
-      <td>
-        <details>
-          <summary>Detail</summary>
-          {l.error && <div style="color:#f87171;margin-bottom:4px">{l.error}</div>}
-          {l.requestBody && <pre>{l.requestBody.slice(0, 2000)}</pre>}
-          {l.responseBody && <pre style="margin-top:4px">{l.responseBody.slice(0, 1000)}</pre>}
-        </details>
-      </td>
-    </tr>
+    <details class="log-card">
+      <summary>
+        <div class="log-top">
+          {l.direction === 'inbound'
+            ? <span class="badge badge-blue">INN</span>
+            : <span class="badge badge-yellow">UT</span>}
+          <span class="mono log-method">{l.method}</span>
+          <span class={`mono log-status${failed ? ' tone-red' : ''}`}>{l.responseStatus ?? '—'}</span>
+          {l.signatureValid !== null && (
+            <span class={l.signatureValid ? 'tone-green' : 'tone-red'} title={l.signatureValid ? 'Gyldig signatur' : 'Ugyldig signatur'}>
+              {l.signatureValid ? '✓' : '✗'}
+            </span>
+          )}
+          <span class="mono log-time" title={l.createdAt.toISOString()}>{logTime(l.createdAt, now)}</span>
+        </div>
+        <div class="mono log-url">{l.url}</div>
+        {l.actorApId && <div class="log-actor">{actorHandle(l.actorApId)}</div>}
+      </summary>
+      <div class="log-detail">
+        {l.error && <div class="log-error">{l.error}</div>}
+        <pre>{body || '(ingen body)'}</pre>
+      </div>
+    </details>
   )
 }

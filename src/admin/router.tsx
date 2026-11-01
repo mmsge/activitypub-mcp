@@ -6,10 +6,10 @@ import { requireAuth } from './middleware.js'
 import { verifyAdminPassword, createSession, deleteSession } from './auth.js'
 import { getDb } from '../db/client.js'
 import { activities, objects, follows, activityLog, linkedinPosts, scrobbles, trainTrips } from '../db/schema.js'
-import { and, desc, eq, gt, gte, count, isNull } from 'drizzle-orm'
+import { and, desc, eq, gt, gte, count, isNull, isNotNull, or } from 'drizzle-orm'
 import { LoginPage } from './views/login.js'
 import { DashboardPage } from './views/dashboard.js'
-import { LogsPage, LogRows } from './views/logs.js'
+import { LogsPage, LogRows, logFilterOf } from './views/logs.js'
 import { pinStationToWaypoint } from '../jobs/pin-station.js'
 import { config } from '../config.js'
 import {
@@ -184,15 +184,16 @@ const LOGS_LIMIT = 50
 
 async function queryLogs(c: Context) {
   const db = getDb()
-  const page = Number(c.req.query('page') ?? '0')
-  const direction = c.req.query('direction')
-  const sigValid = c.req.query('sigValid')
-  const actor = c.req.query('actor')
+  const page = Math.max(0, Number(c.req.query('page') ?? '0') || 0)
+  const filter = logFilterOf({ f: c.req.query('f'), direction: c.req.query('direction'), sigValid: c.req.query('sigValid') })
+  const actor = c.req.query('actor') || undefined
 
   const conditions = []
-  if (direction) conditions.push(eq(activityLog.direction, direction))
-  if (sigValid === 'true') conditions.push(eq(activityLog.signatureValid, true))
-  if (sigValid === 'false') conditions.push(eq(activityLog.signatureValid, false))
+  if (filter === 'inn') conditions.push(eq(activityLog.direction, 'inbound'))
+  if (filter === 'ut') conditions.push(eq(activityLog.direction, 'outbound'))
+  if (filter === 'ugyldig') conditions.push(eq(activityLog.signatureValid, false))
+  // An error is a status of 400 or more, or a request that never got one.
+  if (filter === 'feil') conditions.push(or(gte(activityLog.responseStatus, 400), isNotNull(activityLog.error))!)
   if (actor) conditions.push(eq(activityLog.actorApId, actor))
 
   const rows = await db.select().from(activityLog)
@@ -205,7 +206,8 @@ async function queryLogs(c: Context) {
     logs: rows.slice(0, LOGS_LIMIT),
     page,
     hasMore: rows.length > LOGS_LIMIT,
-    filters: { direction, sigValid, actor },
+    filter,
+    actor,
   }
 }
 

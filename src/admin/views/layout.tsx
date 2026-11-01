@@ -374,6 +374,28 @@ a.is-row:hover { text-decoration: none; background: rgba(139, 124, 255, 0.05); }
 .sec-warn .panel { border-color: var(--yellow-bg); }
 .hx-panel p + p { margin-top: 8px; }
 
+/* Loggar (views/logs.tsx). */
+.logs { gap: 14px; }
+.logs .tabs { margin-bottom: 0; }
+.log-list { display: flex; flex-direction: column; gap: 8px; }
+.log-card { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.log-card > summary { list-style: none; display: flex; flex-direction: column; gap: 4px; padding: 10px 14px; cursor: pointer; color: var(--ink); font-size: 14px; }
+.log-card > summary::-webkit-details-marker { display: none; }
+.log-card[open] { border-color: var(--line-strong); }
+.log-top { display: flex; align-items: center; gap: 8px; }
+.log-method { font-size: 13px; font-weight: 500; }
+.log-status { font-size: 13px; color: var(--ink-2); }
+.log-status.tone-red { color: var(--red); }
+.log-time { margin-left: auto; font-size: 12px; color: var(--muted); }
+.log-url { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-actor { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-detail { display: flex; flex-direction: column; gap: 8px; padding: 0 14px 12px; }
+.log-detail pre { margin: 0; max-height: 220px; }
+.log-error { padding: 8px 12px; border-radius: 8px; background: var(--red-bg); color: #ffbcbc; font-size: 13px; overflow-wrap: anywhere; }
+.actor-filter { display: inline-flex; align-self: flex-start; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 12px;
+  border-radius: 18px; background: var(--accent-tint); color: var(--accent-ink); font-size: 13px; }
+.actor-filter a { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 14px; }
+
 /* Older pages, restyled to the new tokens until they are rebuilt. */
 h1 { font-size: 19px; font-weight: 600; margin-bottom: 16px; }
 h2 { font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }

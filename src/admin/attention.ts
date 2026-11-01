@@ -84,7 +84,7 @@ export function attentionItems(input: AttentionInput): AttentionItem[] {
         'Utgåande førespurnader som fekk feil svar. Loggane filtrert på utgåande viser kva tenar ' +
         'som svarte og kvifor.',
       action: 'Sjå loggar',
-      href: '/admin/logs?direction=outbound',
+      href: '/admin/logs?f=ut',
     })
   }
 
