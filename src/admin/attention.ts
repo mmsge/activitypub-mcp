@@ -69,7 +69,7 @@ export function attentionItems(input: AttentionInput): AttentionItem[] {
         'DMA-tokenet er ikkje gyldig lenger. Lag eit nytt i LinkedIn Developers, legg det i .env som ' +
         'LINKEDIN_DMA_TOKEN og køyr npm run sync-linkedin. Dataa som alt er lagra er framleis gyldige.',
       action: 'Opne LinkedIn',
-      href: categoryHref('linkedin'),
+      href: categoryHref('linkedin', 'status'),
     })
   }
 

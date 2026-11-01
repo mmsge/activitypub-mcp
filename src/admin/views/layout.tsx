@@ -290,7 +290,8 @@ a.tile:hover { text-decoration: none; border-color: var(--line-strong); color: v
 .sec-head .hx-btn { height: 36px; }
 .empty-box { padding: 20px 16px; border-radius: 14px; border: 1px dashed var(--line-strong); font-size: 14px; color: var(--muted); text-align: center; }
 .r { border-bottom: 1px solid var(--divider); }
-.panel > .r:last-of-type { border-bottom: none; }
+.panel > .r:last-child { border-bottom: none; }
+details.r { margin-top: 0; }
 .r-hidden { opacity: 0.55; }
 .r-row { display: flex; align-items: center; gap: 12px; min-height: 56px; padding: 10px 6px 10px 14px; }
 .r-x > summary { list-style: none; cursor: pointer; }
@@ -339,6 +340,9 @@ a.is-row:hover { text-decoration: none; background: rgba(139, 124, 255, 0.05); }
   animation: toast-out 0.3s ease-in 4s forwards; }
 @keyframes toast-out { to { opacity: 0; visibility: hidden; } }
 @media (min-width: 900px) { .toast { left: 236px; bottom: 24px; } }
+
+/* Data tabs (views/data-tabs.tsx). */
+.route-thumb { flex: none; color: var(--accent-ink); background: var(--input); border-radius: 8px; }
 
 /* Import (views/import.tsx). */
 .last-run { font-size: 12px; color: var(--muted); white-space: nowrap; }

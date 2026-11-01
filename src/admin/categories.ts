@@ -48,7 +48,7 @@ export const CATEGORIES: Category[] = [
   cat({
     id: 'lesing',
     label: 'Lesing',
-    tabs: [{ id: 'boker', label: 'Bøker' }],
+    tabs: [{ id: 'boker', label: 'Bøker' }, { id: 'lesingar', label: 'Lesingar' }],
     imports: [
       { verb: 'Import', label: 'StoryGraph-lesedatoar', sub: 'CSV-eksport frå StoryGraph', anchor: 'storygraph' },
     ],
@@ -91,7 +91,11 @@ export const CATEGORIES: Category[] = [
   cat({
     id: 'reiser',
     label: 'Reiser',
-    tabs: [{ id: 'stasjonar', label: 'Stasjonar' }],
+    tabs: [
+      { id: 'turar', label: 'Turar' },
+      { id: 'ruter', label: 'Ruter' },
+      { id: 'stasjonar', label: 'Stasjonar' },
+    ],
     imports: [
       { verb: 'Import', label: 'Togturar', sub: 'CSV frå viaduct.world', anchor: 'trips' },
       { verb: 'Import', label: 'Togruter', sub: 'GPX frå viaduct.world', anchor: 'trip-tracks' },
@@ -119,7 +123,11 @@ export const CATEGORIES: Category[] = [
   cat({
     id: 'linkedin',
     label: 'LinkedIn',
-    tabs: [{ id: 'status', label: 'Status' }],
+    tabs: [
+      { id: 'innlegg', label: 'Innlegg' },
+      { id: 'statistikk', label: 'Statistikk' },
+      { id: 'status', label: 'Status' },
+    ],
     imports: [
       { verb: 'Import', label: 'LinkedIn-statistikk', sub: 'XLSX frå LinkedIn', anchor: 'linkedin' },
     ],
@@ -128,7 +136,7 @@ export const CATEGORIES: Category[] = [
   cat({
     id: 'system',
     label: 'System',
-    tabs: [{ id: 'verktoy', label: 'Verktøy' }],
+    tabs: [{ id: 'verktoy', label: 'Verktøy' }, { id: 'jobbar', label: 'Jobbar' }],
     imports: [],
     sync: [],
   }),

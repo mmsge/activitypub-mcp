@@ -1,7 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { Hono, type Context } from 'hono'
 import type { FC } from 'hono/jsx'
-import { and, desc, eq, isNull, like, or, sql, count } from 'drizzle-orm'
+import { and, desc, eq, isNull, like, or, sql, count, type SQL } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { activities, objects, follows, actors, neodbMarks, linkedinPosts, linkedinPostMetrics } from '../db/schema.js'
 import { config } from '../config.js'
@@ -25,6 +25,15 @@ import {
   BooksView, WatchedView, CatalogueView, GigsView, TheatreView, ScrobblesView, YoutubeView, type TabCtx,
 } from './views/media-tabs.js'
 import { CategoryPage } from './views/kit.js'
+import {
+  ReadingEventsView, TripsView, RoutesView, LinkedinPostsView, LinkedinStatsView, JobsView, type RouteRow,
+} from './views/data-tabs.js'
+import { getReadingEvents, getReadingEventsSchema } from '../mcp/tools/reading-events.js'
+import { getTrainTrips, getTrainTripsSchema } from '../mcp/tools/train-trips.js'
+import { getLinkedinPosts, getLinkedinPostsSchema } from '../mcp/tools/linkedin-posts.js'
+import { getLinkedinStats, getLinkedinStatsSchema } from '../mcp/tools/linkedin-stats.js'
+import { tripTrackMatchSql } from '../jobs/import-trip-tracks.js'
+import { jobStatuses } from '../jobs/job-runs.js'
 import {
   ActivitiesView, ObjectsView, FollowsView, ThreadsView, BreakoutsView, VisibilityView, StationsView,
   LinkedinView, ToolsView, INFRA_ROUTES,
@@ -71,6 +80,21 @@ function catalogueSplit(category: string, empty: string): Loader {
 
 const LOADERS: Record<string, Loader> = {
   // --- Lesing
+  'lesing/lesingar': async (c, ctx) => {
+    const actorsList = bookwyrmActorHandles()
+    const actor = opt(c, 'actor') ?? actorsList[0]
+    if (!actor) {
+      return c.html(<ReadingEventsView ctx={ctx} actors={actorsList} result={{ error: 'BOOKWYRM_ACTORS er ikkje sett' }} />)
+    }
+    const type = opt(c, 'event_type')
+    const parsed = getReadingEventsSchema.safeParse({
+      actor_handle: actor, event_type: type, limit: LIST_LIMIT, cursor: opt(c, 'cursor'),
+    })
+    const result = parsed.success
+      ? await getReadingEvents(parsed.data)
+      : { error: 'Ugyldig filter' }
+    return c.html(<ReadingEventsView ctx={ctx} result={result} actors={actorsList} actor={actor} />)
+  },
   'lesing/boker': async (c, ctx) => {
     const actorsList = bookwyrmActorHandles()
     const actor = opt(c, 'actor') ?? actorsList[0]
@@ -141,7 +165,22 @@ const LOADERS: Record<string, Loader> = {
   'musikk/album': catalogueSplit('music', 'Ingen album frå NeoDB enno.'),
   'musikk/podkastar': catalogueSplit('podcast', 'Ingen podkastar frå NeoDB enno.'),
 
-  // --- Reiser. Same handler as get_station_discrepancies (ADR 0072).
+  // --- Reiser
+  'reiser/turar': async (c, ctx) => {
+    const page = Math.max(1, Number(c.req.query('page') ?? '1') || 1)
+    const year = Number(c.req.query('year'))
+    const result = await getTrainTrips(getTrainTripsSchema.parse({
+      station: opt(c, 'station'), journey: opt(c, 'journey'), status: opt(c, 'status'),
+      year: Number.isInteger(year) && year > 1900 ? year : undefined, limit: LIST_LIMIT, page,
+    }))
+    return c.html(<TripsView ctx={ctx} result={result} page={page} />)
+  },
+  'reiser/ruter': async (c, ctx) => {
+    const page = Math.max(1, Number(c.req.query('page') ?? '1') || 1)
+    const { rows, hasMore, coverage } = await loadRoutes(c, page)
+    return c.html(<RoutesView ctx={ctx} rows={rows} page={page} hasMore={hasMore} coverage={coverage} />)
+  },
+  // Same handler as get_station_discrepancies (ADR 0072).
   'reiser/stasjonar': async (c, ctx) => {
     const report = await getStationDiscrepancies(getStationDiscrepanciesSchema.parse({}))
     return c.html(<StationsView ctx={ctx} report={report} />)
@@ -228,8 +267,64 @@ const LOADERS: Record<string, Loader> = {
     }} />)
   },
 
+  'linkedin/innlegg': async (c, ctx) => {
+    const page = Math.max(1, Number(c.req.query('page') ?? '1') || 1)
+    const result = await getLinkedinPosts(getLinkedinPostsSchema.parse({ limit: 25, page }))
+    return c.html(<LinkedinPostsView ctx={ctx} result={result} />)
+  },
+  'linkedin/statistikk': async (c, ctx) =>
+    c.html(<LinkedinStatsView ctx={ctx} stats={await getLinkedinStats(getLinkedinStatsSchema.parse({}))} />),
+
   // --- System
+  'system/jobbar': async (c, ctx) => c.html(<JobsView ctx={ctx} jobs={await jobStatuses()} />),
   'system/verktoy': async (c, ctx) => c.html(<ToolsView ctx={ctx} endpoints={endpoints} infra={INFRA_ROUTES} />),
+}
+
+/**
+ * The routes for Reiser → Ruter, newest first. The same join as get_trip_tracks
+ * (`tripTrackMatchSql`, LATERAL … LIMIT 1 so a trip stored twice cannot duplicate a
+ * row); that tool orders oldest first for a map, a list wants the latest on top.
+ */
+async function loadRoutes(c: Context, page: number) {
+  const db = getDb()
+  const conds: SQL[] = []
+  const station = opt(c, 'station')
+  if (station) conds.push(sql`(tt.from_station ILIKE ${`%${station}%`} OR tt.to_station ILIKE ${`%${station}%`})`)
+  const year = Number(c.req.query('year'))
+  if (Number.isInteger(year) && year > 1900) {
+    conds.push(sql`tt.departure_local >= ${`${year}-01-01`}::timestamp`)
+    conds.push(sql`tt.departure_local < ${`${year + 1}-01-01`}::timestamp`)
+  }
+  if (c.req.query('matched') === 'yes') conds.push(sql`t.id IS NOT NULL`)
+  if (c.req.query('matched') === 'no') conds.push(sql`t.id IS NULL`)
+  const where = conds.length ? sql`WHERE ${sql.join(conds, sql` AND `)}` : sql``
+  const rows = [...(await db.execute(sql`
+    SELECT tt.viaduct_trip_id, tt.from_station, tt.to_station, tt.departure_local::text AS departure_local,
+      tt.measured_km, tt.point_count, tt.segments, t.id AS trip_id, t.journey
+    FROM trip_tracks tt
+    LEFT JOIN LATERAL (SELECT * FROM train_trips t WHERE ${tripTrackMatchSql('tt', 't')} LIMIT 1) t ON true
+    ${where}
+    ORDER BY tt.departure_local DESC, tt.viaduct_trip_id
+    LIMIT ${LIST_LIMIT + 1} OFFSET ${(page - 1) * LIST_LIMIT}`)) as unknown as Array<Record<string, unknown>>]
+  const [coverage] = [...(await db.execute(sql`
+    SELECT count(*)::int AS tracks,
+      count(*) FILTER (WHERE EXISTS (SELECT 1 FROM train_trips t WHERE ${tripTrackMatchSql('tt', 't')}))::int AS matched
+    FROM trip_tracks tt`)) as unknown as Array<{ tracks: number; matched: number }>]
+  return {
+    hasMore: rows.length > LIST_LIMIT,
+    coverage: { tracks: coverage?.tracks ?? 0, matched: coverage?.matched ?? 0 },
+    rows: rows.slice(0, LIST_LIMIT).map((r): RouteRow => ({
+      viaductTripId: String(r.viaduct_trip_id),
+      fromStation: String(r.from_station),
+      toStation: String(r.to_station),
+      departureLocal: String(r.departure_local),
+      measuredKm: r.measured_km == null ? null : Number(r.measured_km),
+      pointCount: Number(r.point_count ?? 0),
+      segments: (r.segments as number[][][] | null) ?? null,
+      tripId: (r.trip_id as string | null) ?? null,
+      journey: (r.journey as string | null) ?? null,
+    })),
+  }
 }
 
 /** Twice the poll interval before calling LinkedIn stale: one missed run is a blip. */
