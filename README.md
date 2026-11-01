@@ -108,7 +108,7 @@ Here is what each variable means:
 | `STORYGRAPH_API_URL` | No | sidetal's API as reached from inside the container (on the box: `http://172.18.0.1:4008`). Enables the StoryGraph journal pull behind `get_pages_timeline` / `get_journal_entries`; blank disables it. See ADR 0062. |
 | `STORYGRAPH_API_TOKEN` | No | The bearer token sidetal was started with. Required alongside `STORYGRAPH_API_URL`. Confirm with `npm run sync-storygraph`. |
 | `STORYGRAPH_SYNC_INTERVAL_MINUTES` | No | Minutes between pulls. Default `60`, minimum `5`. |
-| `BREAKOUT_ENABLED` | No | Push an ntfy alert when a post beats your own baseline. **Off by default** — deploy, check `/admin/breakouts`, then arm. See [When a post does well](#when-a-post-does-well). |
+| `BREAKOUT_ENABLED` | No | Push an ntfy alert when a post beats your own baseline. **Off by default** — deploy, check **Admin → Fediverse → Breakouts**, then arm. See [When a post does well](#when-a-post-does-well). |
 | `NTFY_TOPIC_BREAKOUT` | No | ntfy topic for those alerts. Default `tut-treff` — its own topic so it can be muted separately from the scrobble race. |
 | `BREAKOUT_WEIGHT_FAVOURITES` / `_REBLOGS` / `_REPLIES` | No | Score weights. Default `1` / `3` / `2`. Changing one re-scores the whole archive (handled as a silent re-seed). |
 | `BREAKOUT_BASELINE_DAYS` | No | Rolling window the p90/p99 bar is computed over. Default `90`, minimum `7`. The record rung is not windowed. |
@@ -376,7 +376,7 @@ The visibility rule is the load-bearing part, and it is the one irreversible ste
 a post that should not have been public is public the moment a crawler reads it. So
 deploy with `STREAM_DOMAIN` **unset**, then:
 
-1. Open **`/admin/visibility`**. Check the public counts per account look roughly
+1. Open **Admin → Fediverse → Synlegheit**. Check the public counts per account look roughly
    right; open ten withheld rows and confirm each should be withheld; open ten
    publishable rows at their origin and confirm they really are public there.
 2. Set `STREAM_DOMAIN` and `STREAM_SOURCES`, restart, and check from the box before
@@ -396,7 +396,7 @@ deploy with `STREAM_DOMAIN` **unset**, then:
    curl -s https://meg.msge.no/ | grep -oE 'src="https?://[a-z0-9.-]+' | sort -u
    ```
 
-Re-read `/admin/visibility` a week later: a growing `unknown` count means a platform
+Re-read **Admin → Fediverse → Synlegheit** a week later: a growing `unknown` count means a platform
 changed how it serialises addressing and the fail-closed default is quietly costing
 posts.
 
@@ -1137,7 +1137,7 @@ docker compose exec app npm run post-breakouts # dry run: prints the bars, pushe
 
 Run the migration even if you are not arming the feature yet. The jobs all return at
 their first guard while `BREAKOUT_ENABLED` is unset, so they never touch the table — but
-`/admin/breakouts`, `get_post_breakouts` and `/api/v1/post-breakouts` read it regardless
+**Admin → Fediverse → Breakouts**, `get_post_breakouts` and `/api/v1/post-breakouts` read it regardless
 and will error until `post_breakout_state` exists.
 
 The dry run is the point of the exercise: it prints each account's median, p90, p99 and
@@ -1179,7 +1179,7 @@ Four things worth knowing before you arm it:
 the archive** rather than from the watcher's state — so it answers correctly even with
 notifications unconfigured. Its `armed` list is the debugging surface: rows sitting there
 with nothing arriving on your phone means the push is failing, not that nothing qualifies.
-`/admin/breakouts` is the same data as a page.
+**Admin → Fediverse → Breakouts** is the same data as a page.
 
 Note the horizon: the sampler tracks the most recent `ENGAGEMENT_SAMPLE_RECENT_POSTS`
 (default 20) posts per account, so a post that takes off after twenty newer ones have been
@@ -1318,7 +1318,7 @@ tables; a file with no tracks is refused. `get_trip_tracks` and `/api/v1/trip-tr
 routes as GeoJSON, and `near_lat`/`near_lon`/`near_km` finds every leg that passed a place,
 stop or no stop. See [ADR 0070](docs/decision-records/0070-a-route-is-its-own-import.md).
 
-**Admin → Stations** (and `get_station_discrepancies`) compares every station's geocoded
+**Admin → Reiser → Stasjonar** (and `get_station_discrepancies`) compares every station's geocoded
 position with viaduct's own waypoint for it, lists the ones 5 km or more apart, and pins a
 station to viaduct's position in one click. See
 [ADR 0072](docs/decision-records/0072-viaduct-is-a-second-opinion-on-a-station.md).

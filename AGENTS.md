@@ -56,7 +56,7 @@ account's own recent posts), an ntfy push goes to `n.msge.no` on its own topic
 (`NTFY_TOPIC_BREAKOUT`, default `tut-treff`), plus a low-priority digest each evening.
 `BREAKOUT_ENABLED` is **off by default** and the first run after arming is silent — it
 records where every post already stands rather than replaying the archive. Inspect at
-`/admin/breakouts` or via `get_post_breakouts`. See ADR 0036.
+**Admin → Fediverse → Breakouts** (`/admin/k/fediverse?tab=breakouts`) or via `get_post_breakouts`. See ADR 0036.
 
 The one rule not to "simplify" back: every score is the post's **peak** across its whole
 snapshot history, never the latest snapshot. Engagement counts go down, and reading the
@@ -186,7 +186,7 @@ Concert attendances federate from **Gigowl** (`@markus@gigowl.social`, software 
 `samklang`) as ordinary public Notes whose `tag` carries a `Link` named `Konsert` pointing at
 the concert. That link is the discriminator; the concert URL dereferences as an AS2 `Event`
 and is the join key. `get_gigs` / `get_gig_details` / `get_gig_stats`, `/api/v1/gigs`,
-**Admin → Media → Gigs**, and its own lane on the public stream. See ADR 0037.
+**Admin → Musikk → Konsertar**, and its own lane on the public stream. See ADR 0037.
 
 The origin used to live at `samklang.msge.no` with Nynorsk paths (`/konsert/`, `/oppmote/`,
 `/brukar/`) and moved, in one window, to `gigowl.social` with English ones (`/gig/`,
@@ -214,7 +214,7 @@ Two more rules not to "simplify" back:
 Every conversation rooted in one of Markus' own toots is walked and stored as a **tree of
 ids and links, never of words**: status id, origin, permalink, parent, depth, publish time,
 `@user@host` handle, mine-or-theirs. `get_thread_leaderboard` / `get_thread_tree`,
-`/api/v1/thread-leaderboard` and `/api/v1/thread-tree`, and **Admin → Threads**. The daily
+`/api/v1/thread-leaderboard` and `/api/v1/thread-tree`, and **Admin → Fediverse → Trådar**. The daily
 pass is `THREAD_WALK_INTERVAL_HOURS` (0 disables); the full pass is
 `npm run walk-threads -- --backfill --max-requests=2500`. See ADR 0057.
 
@@ -237,7 +237,7 @@ Rules not to "simplify" back:
 - **A walk REPLACES the node set in one transaction, and a failed fetch never reaches it.**
   That is how a deleted reply disappears with nothing tombstoned — and why a 404 or a
   timeout writes `walk_error` and leaves the stored tree alone. A failure is therefore
-  invisible unless listed, so `/admin/threads` lists it.
+  invisible unless listed, so **Admin → Fediverse → Trådar** lists it.
 - **`newest_node_at` falls back to the ROOT's own `published_at`.** Without it a brand-new
   toot reads as settled the moment it is first walked, during exactly the week its replies
   arrive. Settled (newest node ≥ `THREAD_SETTLED_DAYS`) is skipped by the daily pass; only a
@@ -334,7 +334,7 @@ Rules not to "simplify" back:
 
 Markus logs theatre on minreol as NeoDB `Performance` (a play) and `PerformanceProduction`
 (one staging of it) marks, category `performance`. `get_theatre` / `get_theatre_details` /
-`get_theatre_stats`, `/api/v1/theatre*`, **Admin → Media → Theatre**, the stream kind
+`get_theatre_stats`, `/api/v1/theatre*`, **Admin → Sjåing → Teater**, the stream kind
 `theatre` ("såg på teater") and the msge.no topic `teater`. See ADR 0061.
 
 Rules not to "simplify" back:

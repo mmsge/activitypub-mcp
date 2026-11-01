@@ -1,12 +1,14 @@
 # 0073 — a mobile-first admin in nynorsk
 
-**Status:** Accepted (phase 1 of 4)
+**Status:** Accepted (phases 1 and 2 of 4)
 **Date:** 2026-11-01
 **Topics:** admin, design, mobile
 **Contributors:** Markus (design handoff "Admin mobil v3"; decided: stacked PRs, dry-run
 imports as their own later phase, old URLs answer 301) + Claude (implemented)
 
-**Affects:** `src/admin/views/layout.tsx`, `src/admin/views/dashboard.tsx`,
+**Affects:** `src/admin/category-router.tsx`, `src/admin/views/kit.tsx`,
+`src/admin/views/media-tabs.tsx`, `src/admin/views/other-tabs.tsx`, `src/admin/media-router.tsx`,
+`src/admin/views/layout.tsx`, `src/admin/views/dashboard.tsx`,
 `src/admin/views/login.tsx`, `src/admin/views/linkedin.tsx`, `src/admin/attention.ts`,
 `src/admin/categories.ts`, `src/admin/router.tsx`, every view under `src/admin/views/`
 
@@ -44,6 +46,27 @@ pages that GET, and as little JavaScript as possible.
 2. Category pages at `/admin/k/:kategori?tab=…`; old URLs answer 301.
 3. Import list and flow, restyled, on today's direct import.
 4. Loggar. Dry-run previews for every file import follow as their own work.
+
+### Phase 2: category pages
+
+- Every old page is a tab of `/admin/k/:kategori`, loaded by the query it always ran
+  (`category-router.tsx`). Old URLs answer **301** with their filters kept, after the
+  session gate so a logged-out browser never caches a permanent redirect.
+- Tables became rows: cover, title, a sub line, badges, and on the right a metric, one
+  action (**Fest**), or a ⋯ sheet with **Berik på nytt**, **Skjul / Vis igjen** and
+  **Opne kjelde**. The sheet is one `<dialog>` per page filled from the tapped row: the
+  only script, and its forms post to the same `/admin/media/*` endpoints as before.
+- Rows with raw data (activities, posts, withheld addressing) open in place, `<details>`.
+- One search box per tab; every other filter the old pages had sits in a **Filter** fold
+  of the same GET form, so no filter was lost to fit a phone.
+- "Other media" is split as the handoff asks (Spel, Album, Podkastar) and the rest stays
+  reachable as **Sjåing → Heile katalogen**: NeoDB also holds books, performances and
+  rows of unknown category, and the failed-enrichment card on Oversikt needs one list of
+  every failure. Lesingar, Turar, Ruter, LinkedIn Innlegg/Statistikk and Jobbar are new
+  data views and come in their own PR.
+- The station pin redirects back to the tab with a `notice`/`error` instead of
+  re-rendering on POST, so a reload cannot pin twice.
+- Flash messages from POST actions are nynorsk and render as a toast.
 
 ## Consequences
 

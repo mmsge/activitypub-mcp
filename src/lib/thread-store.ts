@@ -377,7 +377,7 @@ export async function replaceThread(
 /**
  * Record that a walk failed, WITHOUT touching the stored tree. A 404 or a timeout must
  * not read as "this conversation is now empty": the previous shape stays until a walk
- * actually succeeds, and the error is visible at /admin/threads rather than showing up
+ * actually succeeds, and the error is visible at Admin → Fediverse → Trådar rather than showing up
  * as an absence.
  */
 export async function recordWalkFailure(root: RootToWalk, message: string): Promise<void> {
@@ -565,7 +565,7 @@ export interface FailingRoot {
   walkError: string | null
 }
 
-/** Roots whose last walk failed. The "why is nothing here" table on /admin/threads. */
+/** Roots whose last walk failed. The "why is nothing here" table on Admin → Fediverse → Trådar. */
 export async function loadWalkFailures(limit: number): Promise<FailingRoot[]> {
   return getDb()
     .select({

@@ -2,34 +2,15 @@
 import { Hono, type Context } from 'hono'
 import { logger } from '../lib/logger.js'
 import {
-  queryBooks,
-  queryWatched,
-  queryOther,
-  queryScrobbles,
-  queryYoutubeWatches,
-  youtubeAccounts,
-  catalogueCategories,
   failedCatalogueItems,
   catalogueItemById,
   bookById,
   setHidden,
   setCatalogHiddenByUrl,
-  bookwyrmActorHandles,
-  queryGigs,
-  gigCities,
   failedGigs,
   gigById,
   setGigHidden,
-  type BookFilters,
-  type WatchedFilters,
-  type OtherFilters,
-  type GigFilters,
-  type ScrobbleFilters,
-  type YoutubeFilters,
-  PAGE_SIZE,
 } from './media-query.js'
-import { BooksTab, WatchedTab, OtherTab, GigsTab, TheatreTab, ScrobblesTab, YoutubeTab } from './views/media.js'
-import { getTheatre, getTheatreSchema } from '../mcp/tools/theatre.js'
 import { enrichCatalogueItem, syncNeodbMetadata } from '../jobs/sync-neodb-metadata.js'
 import { enrichGig, syncGigMetadata } from '../jobs/sync-gig-metadata.js'
 import { backfillGigs } from '../jobs/backfill-gigs.js'
@@ -39,26 +20,16 @@ import { syncScrobbles } from '../jobs/sync-scrobbles.js'
 
 const app = new Hono()
 
-const TABS = ['books', 'watched', 'other', 'gigs', 'theatre', 'scrobbles', 'youtube'] as const
-type Tab = (typeof TABS)[number]
-
-function tabOf(c: Context): Tab {
-  const t = c.req.query('tab')
-  return (TABS as readonly string[]).includes(t ?? '') ? (t as Tab) : 'books'
-}
-
-const pageOf = (c: Context) => Math.max(0, Number(c.req.query('page') ?? '0') || 0)
-
 /**
  * Where a POST should send the browser back to.
  *
  * The form echoes the current query string so an action lands you back on the same tab,
- * page and filters. It is attacker-controllable, so only same-site admin media paths are
+ * page and filters. It is attacker-controllable, so only same-site category pages are
  * honoured — anything else would turn every one of these buttons into an open redirect.
  */
 function safeReturn(raw: unknown): string {
   const v = typeof raw === 'string' ? raw : ''
-  return v.startsWith('/admin/media') && !v.startsWith('//') ? v : '/admin/media'
+  return v.startsWith('/admin/k/') && !v.startsWith('//') ? v : '/admin'
 }
 
 function redirectWith(c: Context, returnTo: string, notice: string) {
@@ -66,181 +37,6 @@ function redirectWith(c: Context, returnTo: string, notice: string) {
   url.searchParams.set('notice', notice)
   return c.redirect(`${url.pathname}?${url.searchParams.toString()}`)
 }
-
-/** The URL the current view's forms should echo back. */
-function currentPath(c: Context): string {
-  const url = new URL(c.req.url)
-  url.searchParams.delete('notice')
-  const qs = url.searchParams.toString()
-  return qs ? `/admin/media?${qs}` : '/admin/media'
-}
-
-// --- GET ---------------------------------------------------------------------
-
-app.get('/', async (c) => {
-  const tab = tabOf(c)
-  const page = pageOf(c)
-  const notice = c.req.query('notice')
-  const returnTo = currentPath(c)
-  const q = (k: string) => c.req.query(k) || undefined
-
-  if (tab === 'watched') {
-    const filters: WatchedFilters = {
-      title: q('title'),
-      director: q('director'),
-      comment: q('comment'),
-      category: q('category'),
-      status: q('status'),
-      year: q('year'),
-      from: q('from'),
-      to: q('to'),
-      health: q('health'),
-      hidden: q('hidden'),
-      showDeleted: c.req.query('showDeleted') === '1',
-      undated: c.req.query('undated') === '1',
-      sort: q('sort') === 'enriched' ? 'enriched' : 'watched',
-    }
-    const data = await queryWatched(filters, page)
-    return c.html(
-      <WatchedTab
-        data={data}
-        filters={c.req.query() as Record<string, string | undefined>}
-        notice={notice}
-        returnTo={returnTo}
-      />
-    )
-  }
-
-  if (tab === 'other') {
-    const filters: OtherFilters = {
-      title: q('title'),
-      category: q('category'),
-      health: q('health'),
-      hidden: q('hidden'),
-      sort: q('sort') === 'watched' ? 'watched' : 'enriched',
-    }
-    const [data, categories] = await Promise.all([queryOther(filters, page), catalogueCategories()])
-    return c.html(
-      <OtherTab
-        data={data}
-        categories={categories}
-        filters={c.req.query() as Record<string, string | undefined>}
-        notice={notice}
-        returnTo={returnTo}
-      />
-    )
-  }
-
-  if (tab === 'gigs') {
-    const filters: GigFilters = {
-      q: q('q'),
-      city: q('city'),
-      health: q('health'),
-      hidden: q('hidden'),
-      sort: q('sort') === 'enriched' ? 'enriched' : 'gig_date',
-    }
-    const [data, cities] = await Promise.all([queryGigs(filters, page), gigCities()])
-    return c.html(
-      <GigsTab
-        data={data}
-        cities={cities}
-        filters={c.req.query() as Record<string, string | undefined>}
-        notice={notice}
-        returnTo={returnTo}
-      />
-    )
-  }
-
-  if (tab === 'theatre') {
-    // The same query get_theatre answers with, so the tab can never disagree with the
-    // tool about what counts as a visit. Hidden items are listed, badged, so they can be
-    // unhidden from here.
-    const status = q('status')
-    const input = getTheatreSchema.parse({
-      q: q('q'),
-      troupe: q('troupe'),
-      person: q('person'),
-      status: ['wishlist', 'progress', 'complete', 'dropped'].includes(status ?? '') ? status : undefined,
-      include_hidden: true,
-      limit: PAGE_SIZE,
-      page: page + 1,
-    })
-    const result = await getTheatre(input)
-    return c.html(
-      <TheatreTab
-        data={{ rows: result.visits, total: result.total, page, hasMore: (page + 1) * PAGE_SIZE < result.total }}
-        filters={c.req.query() as Record<string, string | undefined>}
-        notice={notice}
-        returnTo={returnTo}
-      />
-    )
-  }
-
-  if (tab === 'youtube') {
-    const filters: YoutubeFilters = {
-      channel: q('channel'),
-      title: q('title'),
-      account: q('account'),
-      sort: q('sort') === 'recent' ? 'recent' : 'watches',
-    }
-    const [data, accounts] = await Promise.all([
-      queryYoutubeWatches(filters, page),
-      youtubeAccounts(),
-    ])
-    return c.html(
-      <YoutubeTab
-        data={data}
-        accounts={accounts}
-        filters={c.req.query() as Record<string, string | undefined>}
-        notice={notice}
-        returnTo={returnTo}
-      />
-    )
-  }
-
-  if (tab === 'scrobbles') {
-    const filters: ScrobbleFilters = {
-      artist: q('artist'),
-      album: q('album'),
-      sort: q('sort') === 'recent' ? 'recent' : 'plays',
-    }
-    const data = await queryScrobbles(filters, page)
-    return c.html(
-      <ScrobblesTab
-        data={data}
-        filters={c.req.query() as Record<string, string | undefined>}
-        notice={notice}
-        returnTo={returnTo}
-      />
-    )
-  }
-
-  const actors = bookwyrmActorHandles()
-  const actor = q('actor') ?? actors[0]
-  const filters: BookFilters = {
-    title: q('title'),
-    author: q('author'),
-    format: q('format'),
-    language: q('language'),
-    series: q('series'),
-    subject: q('subject'),
-    shelf: q('shelf'),
-    hidden: q('hidden'),
-    sort: q('sort') === 'enriched' ? 'enriched' : 'read',
-    actor,
-  }
-  const data = await queryBooks(filters, page)
-  return c.html(
-    <BooksTab
-      data={data}
-      actors={actors}
-      actor={actor}
-      filters={c.req.query() as Record<string, string | undefined>}
-      notice={notice}
-      returnTo={returnTo}
-    />
-  )
-})
 
 // --- POST: per-row re-enrichment ---------------------------------------------
 
@@ -258,16 +54,16 @@ app.post('/reenrich', async (c) => {
   try {
     if (kind === 'book') {
       const row = await bookById(id)
-      if (!row) return redirectWith(c, returnTo, 'Book not found')
+      if (!row) return redirectWith(c, returnTo, 'Fann ikkje boka')
       const ok = await enrichBookEdition(row.bookUrl)
-      return redirectWith(c, returnTo, ok ? 'Book re-enriched' : 'Re-enrich returned no metadata')
+      return redirectWith(c, returnTo, ok ? 'Boka er beriga på nytt' : 'Berikinga gav ingen metadata')
     }
 
     if (kind === 'gig') {
       const row = await gigById(id)
-      if (!row) return redirectWith(c, returnTo, 'Gig not found')
+      if (!row) return redirectWith(c, returnTo, 'Fann ikkje konserten')
       const meta = await enrichGig(row.concertUrl)
-      return redirectWith(c, returnTo, meta ? 'Gig re-enriched' : 'Re-enrich failed — see server logs')
+      return redirectWith(c, returnTo, meta ? 'Konserten er beriga på nytt' : 'Berikinga feila, sjå serverloggen')
     }
 
     // The Watched grid's row id is a mark id, not a catalogue id, so it passes the
@@ -275,13 +71,13 @@ app.post('/reenrich', async (c) => {
     const item = kind === 'catalogUrl'
       ? { itemUrl: id, category: null, itemType: null }
       : await catalogueItemById(id)
-    if (!item) return redirectWith(c, returnTo, 'Item not found')
+    if (!item) return redirectWith(c, returnTo, 'Fann ikkje oppføringa')
 
     const meta = await enrichCatalogueItem(item.itemUrl, { category: item.category, itemType: item.itemType })
-    return redirectWith(c, returnTo, meta ? 'Item re-enriched' : 'Re-enrich failed — see server logs')
+    return redirectWith(c, returnTo, meta ? 'Beriga på nytt' : 'Berikinga feila, sjå serverloggen')
   } catch (e) {
     logger.error({ err: e, kind, id }, 'Admin re-enrich failed')
-    return redirectWith(c, returnTo, 'Re-enrich errored — see server logs')
+    return redirectWith(c, returnTo, 'Berikinga feila, sjå serverloggen')
   }
 })
 
@@ -298,7 +94,6 @@ async function handleHide(c: Context, hidden: boolean) {
   const returnTo = safeReturn(body.return)
   const kind = String(body.kind ?? '')
   const id = String(body.id ?? '')
-  const verb = hidden ? 'Hidden' : 'Unhidden'
 
   // The Watched grid's row id is a mark id, so it hides by catalogue URL instead —
   // hiding is an editorial act on the catalogue entry, not on one viewing of it.
@@ -310,8 +105,8 @@ async function handleHide(c: Context, hidden: boolean) {
         ? await setHidden(kind, id, hidden)
         : false
 
-  if (!ok) return redirectWith(c, returnTo, kind ? 'Row not found' : 'Unknown row kind')
-  return redirectWith(c, returnTo, `${verb} — ${hidden ? 'no longer' : 'again'} served by the API`)
+  if (!ok) return redirectWith(c, returnTo, kind ? 'Fann ikkje rada' : 'Ukjend radtype')
+  return redirectWith(c, returnTo, hidden ? 'Skjult, blir ikkje servert frå API-et' : 'Synleg igjen i API-et')
 }
 
 const RETRY_MAX = 50
@@ -332,8 +127,8 @@ app.post('/retry-failed', async (c) => {
     await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
   }
 
-  const capped = items.length === RETRY_MAX ? ` (capped at ${RETRY_MAX} per press)` : ''
-  return redirectWith(c, returnTo, `Retried ${items.length}, ${ok} enriched${capped}`)
+  const capped = items.length === RETRY_MAX ? ` (maks ${RETRY_MAX} per trykk)` : ''
+  return redirectWith(c, returnTo, `Prøvde ${items.length}, ${ok} beriga${capped}`)
 })
 
 app.post('/retry-failed-gigs', async (c) => {
@@ -351,8 +146,8 @@ app.post('/retry-failed-gigs', async (c) => {
     await new Promise((r) => setTimeout(r, RETRY_DELAY_MS))
   }
 
-  const capped = gigs.length === RETRY_MAX ? ` (capped at ${RETRY_MAX} per press)` : ''
-  return redirectWith(c, returnTo, `Retried ${gigs.length}, ${ok} enriched${capped}`)
+  const capped = gigs.length === RETRY_MAX ? ` (maks ${RETRY_MAX} per trykk)` : ''
+  return redirectWith(c, returnTo, `Prøvde ${gigs.length}, ${ok} beriga${capped}`)
 })
 
 // --- POST: global syncs ------------------------------------------------------
@@ -371,6 +166,11 @@ app.post('/retry-failed-gigs', async (c) => {
  */
 const running = new Set<string>()
 
+/** Jobs kicked from the admin that are still running, so their button can show "Køyrer". */
+export function runningJobs(): ReadonlySet<string> {
+  return running
+}
+
 export function kick(job: string, fn: () => Promise<void>): 'started' | 'already running' {
   if (running.has(job)) return 'already running'
   running.add(job)
@@ -381,15 +181,15 @@ export function kick(job: string, fn: () => Promise<void>): 'started' | 'already
 }
 
 const SYNC_JOBS: Record<string, { label: string; run: () => Promise<void> }> = {
-  neodb: { label: 'NeoDB metadata', run: () => syncNeodbMetadata() },
-  books: { label: 'Book metadata', run: () => syncBookMetadata() },
+  neodb: { label: 'NeoDB-metadata', run: () => syncNeodbMetadata() },
+  books: { label: 'Bokmetadata', run: () => syncBookMetadata() },
   // Chained in the same order the scheduler uses: the history has to land before
   // enrichment collects Edition URLs from it, or the pass finds nothing new.
-  reading: { label: 'Reading history', run: async () => { await syncReadingHistory(); await syncBookMetadata() } },
+  reading: { label: 'Lesehistorikk', run: async () => { await syncReadingHistory(); await syncBookMetadata() } },
   // The backfill first, so a gig whose attendance is stored but never parsed gets its
   // catalogue row before enrichment goes looking for what to fetch.
-  gigs: { label: 'Gigs', run: async () => { await backfillGigs({ force: true }); await syncGigMetadata() } },
-  lastfm: { label: 'Last.fm scrobbles', run: () => syncScrobbles() },
+  gigs: { label: 'Konsertar', run: async () => { await backfillGigs({ force: true }); await syncGigMetadata() } },
+  lastfm: { label: 'Last.fm', run: () => syncScrobbles() },
 }
 
 app.post('/sync', async (c) => {
@@ -397,8 +197,8 @@ app.post('/sync', async (c) => {
   const returnTo = safeReturn(body.return)
   const job = String(body.job ?? '')
   const entry = SYNC_JOBS[job]
-  if (!entry) return redirectWith(c, returnTo, 'Unknown sync job')
-  return redirectWith(c, returnTo, `${entry.label} sync ${kick(job, entry.run)}`)
+  if (!entry) return redirectWith(c, returnTo, 'Ukjend synkjobb')
+  return redirectWith(c, returnTo, `${entry.label}: ${kick(job, entry.run) === 'started' ? 'starta' : 'køyrer alt'}`)
 })
 
 export { app as mediaRouter }

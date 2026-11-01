@@ -117,7 +117,7 @@ export function DashboardPage({ data }: { data: DashboardData }) {
               </div>
             ))}
             {data.recentActivities.length === 0 && <div class="panel-empty">Ingen aktivitetar enno.</div>}
-            <a class="panel-more" href="/admin/activities">Alle aktivitetar →</a>
+            <a class="panel-more" href="/admin/k/fediverse?tab=aktivitetar">Alle aktivitetar →</a>
           </div>
         </section>
       </div>
