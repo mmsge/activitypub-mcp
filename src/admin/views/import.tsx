@@ -18,7 +18,7 @@ export const ImportPage: FC<{ error?: string; bookwyrmActors?: string[] }> = ({
 
     {error && <div class="error">{error}</div>}
 
-    <div class="section">
+    <div class="section" id="archive">
       <h2>Mastodon Archive</h2>
       <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
         Export your archive from <strong>Mastodon Settings → Export → Request your archive</strong>.
@@ -32,7 +32,7 @@ export const ImportPage: FC<{ error?: string; bookwyrmActors?: string[] }> = ({
       </form>
     </div>
 
-    <div class="section">
+    <div class="section" id="crawl">
       <h2>Crawl ActivityPub Outbox</h2>
       <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
         Enter an actor handle to fetch their full public post history. Works with Mastodon and BookWyrm.
@@ -51,7 +51,7 @@ export const ImportPage: FC<{ error?: string; bookwyrmActors?: string[] }> = ({
         </div>
       </form>
     </div>
-    <div class="section">
+    <div class="section" id="trips">
       <h2>Train Trips (CSV)</h2>
       <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
         Upload a <strong>viaduct.world</strong> CSV export of your train journeys. A trip is
@@ -75,7 +75,7 @@ export const ImportPage: FC<{ error?: string; bookwyrmActors?: string[] }> = ({
       </form>
     </div>
 
-    <div class="section">
+    <div class="section" id="trip-tracks">
       <h2>Train Routes (GPX)</h2>
       <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
         Upload a <strong>viaduct.world</strong> GPX export of your routes (the "all years"
@@ -98,7 +98,7 @@ export const ImportPage: FC<{ error?: string; bookwyrmActors?: string[] }> = ({
       </form>
     </div>
 
-    <div class="section">
+    <div class="section" id="storygraph">
       <h2>StoryGraph Read Dates (CSV)</h2>
       <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
         Upload a <strong>StoryGraph library export</strong> (Manage account → Export StoryGraph
@@ -130,7 +130,7 @@ export const ImportPage: FC<{ error?: string; bookwyrmActors?: string[] }> = ({
       </form>
     </div>
 
-    <div class="section">
+    <div class="section" id="linkedin">
       <h2>LinkedIn Analytics (XLSX)</h2>
       <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
         Upload a <strong>LinkedIn Content export</strong> (analytics dashboard → Export →
@@ -153,7 +153,7 @@ export const ImportPage: FC<{ error?: string; bookwyrmActors?: string[] }> = ({
       </form>
     </div>
 
-    <div class="section">
+    <div class="section" id="youtube">
       <h2>YouTube Watch History (JSON)</h2>
       <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
         Upload a Google Takeout-shaped <strong>watch-history.json</strong> (Takeout →
@@ -179,7 +179,7 @@ export const ImportPage: FC<{ error?: string; bookwyrmActors?: string[] }> = ({
     </div>
 
 
-    <div class="section">
+    <div class="section" id="reprocess">
       <h2>Re-process Stored Bare Objects</h2>
       <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
         Re-runs processing on activities stored as bare Note/Review/etc. objects
@@ -193,7 +193,7 @@ export const ImportPage: FC<{ error?: string; bookwyrmActors?: string[] }> = ({
       </form>
     </div>
 
-    <div class="section">
+    <div class="section" id="repair-neodb">
       <h2>Repair NeoDB Marks</h2>
       <p style="color: #888; margin-bottom: 12px; line-height: 1.5;">
         Walks stored posts that look like NeoDB marks and rebuilds what they should have
@@ -249,7 +249,7 @@ export const ImportResultPage: FC<{
 
     <div class="filters">
       <a href="/admin/import" class="btn">Import More</a>
-      <a href="/admin/objects" class="btn btn-ghost">View Posts</a>
+      <a href="/admin/k/fediverse?tab=innlegg" class="btn btn-ghost">View Posts</a>
     </div>
   </Layout>
 )
@@ -353,7 +353,7 @@ export const YoutubeImportResultPage: FC<{
 
       <div class="filters">
         <a href="/admin/import" class="btn">Import More</a>
-        <a href="/admin/media?tab=youtube" class="btn btn-ghost">View Watch History</a>
+        <a href="/admin/k/sjaaing?tab=youtube" class="btn btn-ghost">View Watch History</a>
       </div>
     </Layout>
   )
@@ -492,7 +492,7 @@ export const TripImportResultPage: FC<{ result: TripImportResult }> = ({ result 
 
       <div class="filters">
         <a href="/admin/import" class="btn">Import More</a>
-        <a href="/admin/objects" class="btn btn-ghost">View Posts</a>
+        <a href="/admin/k/fediverse?tab=innlegg" class="btn btn-ghost">View Posts</a>
       </div>
     </Layout>
   )
@@ -554,7 +554,7 @@ export const TripPruneResultPage: FC<{ result: ApplyPruneResult }> = ({ result }
 
     <div class="filters">
       <a href="/admin/import" class="btn">Import More</a>
-      <a href="/admin/objects" class="btn btn-ghost">View Posts</a>
+      <a href="/admin/k/fediverse?tab=innlegg" class="btn btn-ghost">View Posts</a>
     </div>
   </Layout>
 )

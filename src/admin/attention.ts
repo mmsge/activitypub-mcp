@@ -99,7 +99,7 @@ export function attentionItems(input: AttentionInput): AttentionItem[] {
         'Metadata kunne ikkje hentast. «Berik på nytt» prøver éi og éi; NeoDB-synk prøver alle. ' +
         'Skjulte rader er ikkje talde med.',
       action: 'Opne Sjåing',
-      href: '/admin/media?tab=other&health=failed',
+      href: categoryHref('sjaaing', 'katalog', { health: 'failed' }),
     })
   }
 
@@ -114,7 +114,7 @@ export function attentionItems(input: AttentionInput): AttentionItem[] {
       help:
         'Følgjeførespurnader som ikkje er godkjende enno. Det kan ta frå nokre minutt til nokre timar.',
       action: 'Sjå følgjer',
-      href: '/admin/follows',
+      href: categoryHref('fediverse', 'folgjer'),
     })
   }
 

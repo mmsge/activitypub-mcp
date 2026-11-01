@@ -10,6 +10,9 @@ describe('media routes are behind the session gate', () => {
   const cases = [
     ['GET', '/admin/media'],
     ['GET', '/admin/media?tab=watched'],
+    ['GET', '/admin/k/lesing'],
+    ['GET', '/admin/k/fediverse?tab=aktivitetar'],
+    ['GET', '/admin/activities'],
     ['POST', '/admin/media/sync'],
     ['POST', '/admin/media/reenrich'],
     ['POST', '/admin/media/retry-failed'],

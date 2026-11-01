@@ -5,27 +5,13 @@ import { bodyLimit } from 'hono/body-limit'
 import { requireAuth } from './middleware.js'
 import { verifyAdminPassword, createSession, deleteSession } from './auth.js'
 import { getDb } from '../db/client.js'
-import { activities, objects, follows, activityLog, actors, neodbMarks, linkedinPosts, linkedinPostMetrics, scrobbles, trainTrips } from '../db/schema.js'
-import { and, desc, eq, gt, gte, count, isNull, like, or, sql } from 'drizzle-orm'
+import { activities, objects, follows, activityLog, linkedinPosts, scrobbles, trainTrips } from '../db/schema.js'
+import { and, desc, eq, gt, gte, count, isNull } from 'drizzle-orm'
 import { LoginPage } from './views/login.js'
 import { DashboardPage } from './views/dashboard.js'
-import { LinkedinPage } from './views/linkedin.js'
-import { ActivitiesPage } from './views/activities.js'
-import { FollowsPage } from './views/follows.js'
 import { LogsPage, LogRows } from './views/logs.js'
-import { ObjectsPage } from './views/objects.js'
-import { VisibilityPage } from './views/visibility.js'
-import { BreakoutsPage } from './views/breakouts.js'
-import { getPostBreakouts } from '../mcp/tools/post-breakouts.js'
-import { ThreadsPage } from './views/threads.js'
-import { StationsPage } from './views/stations.js'
-import { getStationDiscrepancies, getStationDiscrepanciesSchema } from '../mcp/tools/station-discrepancies.js'
 import { pinStationToWaypoint } from '../jobs/pin-station.js'
-import { getThreadLeaderboard } from '../mcp/tools/thread-leaderboard.js'
-import { loadWalkFailures } from '../lib/thread-store.js'
 import { config } from '../config.js'
-import { streamEnabled } from '../stream/host.js'
-import { parseSources } from '../stream/sources.js'
 import {
   ImportPage,
   ImportResultPage,
@@ -35,9 +21,9 @@ import {
   StorygraphImportResultPage,
   TripTrackImportResultPage,
 } from './views/import.js'
-import { ToolsPage, INFRA_ROUTES } from './views/tools.js'
-import { endpoints } from '../rest/table.js'
 import { mediaRouter } from './media-router.js'
+import { categoryRouter, linkedinStaleMs } from './category-router.js'
+import { categoryHref, redirectFor } from './categories.js'
 import { mediaCounts } from './media-query.js'
 import { parseYoutubeWatchHistory } from '../lib/parse-youtube-takeout.js'
 import { parseStorygraphCsv } from '../lib/parse-storygraph-csv.js'
@@ -97,6 +83,16 @@ app.get('/logout', async (c) => {
 
 // Protected routes
 app.use('/*', requireAuth)
+
+// The pages that became category tabs answer 301 with their filters kept (ADR 0073).
+// After the session gate, so a logged-out browser gets the login redirect, which it
+// does not cache, rather than a permanent one.
+app.on('GET', ['/media', '/media/', '/activities', '/objects', '/follows', '/threads', '/breakouts',
+  '/visibility', '/stations', '/linkedin', '/tools'], (c) => {
+  const url = new URL(c.req.url)
+  const to = redirectFor(`/admin${url.pathname.replace(/^\/admin/, '')}`, url.searchParams)
+  return to ? c.redirect(to, 301) : c.notFound()
+})
 
 // Oversikt
 app.get('/', async (c) => {
@@ -158,143 +154,6 @@ app.get('/', async (c) => {
   )
 })
 
-/** Twice the poll interval before calling LinkedIn stale: one missed run is a blip. */
-function linkedinStaleMs(): number {
-  return config.LINKEDIN_SYNC_INTERVAL_HOURS * 2 * 60 * 60_000
-}
-
-// LinkedIn health, until the LinkedIn category page replaces it.
-app.get('/linkedin', async (c) => {
-  const db = getDb()
-  const [[{ cnt: liPosts }], [{ cnt: liMetrics }], liLatestExport, liHealth] = await Promise.all([
-    db.select({ cnt: count() }).from(linkedinPosts),
-    db.select({ cnt: count() }).from(linkedinPostMetrics),
-    db.select({ latest: sql<string | null>`max(${linkedinPostMetrics.exportDate})` })
-      .from(linkedinPostMetrics),
-    getSourceHealth(LINKEDIN_SOURCE),
-  ])
-  return c.html(
-    <LinkedinPage data={{
-      enabled: Boolean(config.LINKEDIN_DMA_TOKEN),
-      status: deriveTokenStatus(liHealth, linkedinStaleMs(), new Date()),
-      lastSuccessAt: liHealth?.lastSuccessAt ?? null,
-      lastDataAt: liHealth?.lastDataAt ?? null,
-      lastError: liHealth?.lastError ?? null,
-      lastNote: liHealth?.lastNote ?? null,
-      lastHttpStatus: liHealth?.lastHttpStatus ?? null,
-      posts: Number(liPosts),
-      metricRows: Number(liMetrics),
-      latestExport: liLatestExport[0]?.latest ?? null,
-    }} />
-  )
-})
-
-// Activities browser
-app.get('/activities', async (c) => {
-  const db = getDb()
-  const page = Number(c.req.query('page') ?? '0')
-  const actor = c.req.query('actor')
-  const type = c.req.query('type')
-  const limit = 25
-
-  const conditions = []
-  if (actor) conditions.push(eq(activities.actorApId, actor))
-  if (type) conditions.push(eq(activities.type, type))
-
-  const rows = await db.select().from(activities)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(activities.receivedAt))
-    .limit(limit + 1)
-    .offset(page * limit)
-
-  return c.html(
-    <ActivitiesPage
-      activities={rows.slice(0, limit)}
-      page={page}
-      hasMore={rows.length > limit}
-      filters={{ actor, type }}
-    />
-  )
-})
-
-// Objects browser
-app.get('/objects', async (c) => {
-  const db = getDb()
-  const page = Number(c.req.query('page') ?? '0')
-  const actor = c.req.query('actor')
-  const type = c.req.query('type')
-  const q = c.req.query('q')
-  const limit = 25
-
-  const conditions = [isNull(objects.deletedAt)]
-  if (actor) conditions.push(eq(objects.actorApId, actor))
-  if (type) conditions.push(eq(objects.type, type))
-  if (q) conditions.push(or(
-    like(objects.contentText, `%${q}%`),
-    like(objects.summary, `%${q}%`),
-  )!)
-
-  const rows = await db.select().from(objects)
-    .where(and(...conditions))
-    .orderBy(desc(objects.publishedAt))
-    .limit(limit + 1)
-    .offset(page * limit)
-
-  return c.html(
-    <ObjectsPage
-      objects={rows.slice(0, limit)}
-      page={page}
-      hasMore={rows.length > limit}
-      filters={{ actor, type, q }}
-    />
-  )
-})
-
-/**
- * The pre-launch check for the public stream.
- *
- * Publishing the archive is the one irreversible step in this feature — a post
- * that should not have been public is public the moment a crawler reads it. The
- * classifier fails closed and is heavily tested, but those tests assert what we
- * believe the five platforms send. This is where that meets the real rows, while
- * the site is still switched off.
- */
-/**
- * The breakout notifier's own state. Calls the MCP tool directly rather than over HTTP,
- * so there is one implementation and one set of SQL behind the page and the API.
- *
- * No scope is passed: the admin IS the owner, so this sees the whole archive including
- * followers-only posts — unlike the REST endpoint, which is bound to public-only for
- * the reason ADR 0026 gives.
- */
-app.get('/breakouts', async (c) => {
-  const report = await getPostBreakouts({ days: 30, limit: 50 })
-  if ('error' in report) return c.text(report.error as string, 404)
-  return c.html(<BreakoutsPage report={report} />)
-})
-
-/**
- * The thread walker's state, plus the leaderboard. Same handler as the MCP tool and the
- * REST endpoint, so there is one implementation behind all three.
- *
- * No scope is passed: the admin IS the owner, so this includes unlisted roots — unlike
- * the REST endpoint, which is bound to public-only for the reason ADR 0026 gives.
- */
-app.get('/threads', async (c) => {
-  const [report, failures] = await Promise.all([
-    getThreadLeaderboard({ sort: 'external_nodes', limit: 50 }),
-    loadWalkFailures(50),
-  ])
-  if ('error' in report) return c.text(report.error as string, 404)
-  return c.html(<ThreadsPage report={report} failures={failures} />)
-})
-
-// viaduct.world's waypoints against the geocoder, with a pin per row. Same handler as
-// get_station_discrepancies. See ADR 0072.
-app.get('/stations', async (c) => {
-  const report = await getStationDiscrepancies(getStationDiscrepanciesSchema.parse({}))
-  return c.html(<StationsPage report={report} />)
-})
 
 // The pin. The posted coordinates must be one of viaduct's own waypoints for that name,
 // which pinStationToWaypoint checks, so this form cannot place a station anywhere else.
@@ -303,123 +162,18 @@ app.post('/stations/pin', bodyLimit({ maxSize: 16 * 1024 }), async (c) => {
   const name = typeof body['name'] === 'string' ? body['name'] : ''
   const latitude = Number(body['latitude'])
   const longitude = Number(body['longitude'])
-  const render = async (notice?: string, error?: string) =>
-    c.html(<StationsPage report={await getStationDiscrepancies(getStationDiscrepanciesSchema.parse({}))} notice={notice} error={error} />)
+  const back = (key: 'notice' | 'error', message: string) =>
+    c.redirect(categoryHref('reiser', 'stasjonar', { [key]: message }))
   if (!name || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    return render(undefined, 'Pin request was missing the station or its coordinates')
+    return back('error', 'Festinga mangla stasjonen eller koordinatane')
   }
   const result = await pinStationToWaypoint(name, latitude, longitude)
-  if (!result.ok) return render(undefined, result.reason)
-  const moved = result.movedKm == null ? 'placed' : `moved ${result.movedKm} km`
+  if (!result.ok) return back('error', result.reason)
+  const moved = result.movedKm == null ? 'plassert' : `flytta ${result.movedKm} km`
   const extra = result.countryCleared
-    ? `; country cleared, ${result.weatherDropped} weather day${result.weatherDropped === 1 ? '' : 's'} dropped to be fetched again`
+    ? `; landet tømt, ${result.weatherDropped} vêrdagar sletta og blir henta på nytt`
     : ''
-  return render(`${result.name} pinned to viaduct's position (${moved}${extra}).`)
-})
-
-app.get('/visibility', async (c) => {
-  const db = getDb()
-
-  const counts = await db
-    .select({
-      actorApId: objects.actorApId,
-      handle: actors.handle,
-      software: actors.software,
-      visibility: sql<string>`coalesce(${objects.visibility}, 'unknown')`,
-      count: sql<number>`count(*)::int`,
-    })
-    .from(objects)
-    .leftJoin(actors, eq(actors.apId, objects.actorApId))
-    .where(isNull(objects.deletedAt))
-    .groupBy(objects.actorApId, actors.handle, actors.software, objects.visibility)
-    .orderBy(desc(sql`count(*)`))
-
-  const sampleCols = {
-    apId: objects.apId,
-    url: objects.url,
-    visibility: sql<string>`coalesce(${objects.visibility}, 'unknown')`,
-    publishedAt: objects.publishedAt,
-    contentText: objects.contentText,
-    // Shown verbatim so a wrong verdict can be checked against the actual data.
-    to: sql<string | null>`${objects.raw}->>'to'`,
-    cc: sql<string | null>`${objects.raw}->>'cc'`,
-  }
-
-  const withheld = await db
-    .select(sampleCols)
-    .from(objects)
-    .where(and(isNull(objects.deletedAt), sql`coalesce(${objects.visibility}, 'unknown') <> 'public'`))
-    .orderBy(desc(objects.publishedAt))
-    .limit(25)
-
-  const publishable = await db
-    .select(sampleCols)
-    .from(objects)
-    .where(and(isNull(objects.deletedAt), eq(objects.visibility, 'public')))
-    .orderBy(desc(objects.publishedAt))
-    .limit(15)
-
-  // A mark's visibility lives on the Note it federated with; without that Note it
-  // is withheld. Surfaced as a number so it is a known quantity, not a mystery.
-  const [markStats] = await db
-    .select({
-      total: sql<number>`count(*)::int`,
-      withNote: sql<number>`count(*) FILTER (WHERE EXISTS (
-        SELECT 1 FROM objects o WHERE o.ap_id = ${neodbMarks.markApId}))::int`,
-    })
-    .from(neodbMarks)
-    .where(isNull(neodbMarks.deletedAt))
-
-  let configuredHandles: string[] = []
-  try {
-    configuredHandles = parseSources(config.STREAM_SOURCES).map((s) => s.handle)
-  } catch (e) {
-    configuredHandles = [`(STREAM_SOURCES is invalid: ${e instanceof Error ? e.message : String(e)})`]
-  }
-  const knownHandles = new Set(
-    (await db.select({ handle: actors.handle }).from(actors))
-      .map((r) => (r.handle ?? '').toLowerCase()),
-  )
-  const unresolvedHandles = configuredHandles.filter((h) => !knownHandles.has(h.toLowerCase()))
-
-  return c.html(
-    <VisibilityPage
-      counts={counts}
-      withheld={withheld}
-      publishable={publishable}
-      unknownTotal={counts.filter((x) => x.visibility === 'unknown').reduce((s, x) => s + x.count, 0)}
-      streamEnabled={streamEnabled()}
-      streamDomain={config.STREAM_DOMAIN}
-      includeUnlisted={config.STREAM_INCLUDE_UNLISTED}
-      configuredHandles={configuredHandles}
-      unresolvedHandles={unresolvedHandles}
-      markCounts={{
-        total: markStats?.total ?? 0,
-        withNote: markStats?.withNote ?? 0,
-        withoutNote: (markStats?.total ?? 0) - (markStats?.withNote ?? 0),
-      }}
-    />,
-  )
-})
-
-// Follows
-app.get('/follows', async (c) => {
-  const db = getDb()
-  const rows = await db
-    .select({
-      actorApId: follows.actorApId,
-      status: follows.status,
-      followedAt: follows.followedAt,
-      acceptedAt: follows.acceptedAt,
-      handle: actors.handle,
-      displayName: actors.displayName,
-      iconUrl: actors.iconUrl,
-    })
-    .from(follows)
-    .leftJoin(actors, eq(follows.actorApId, actors.apId))
-    .orderBy(desc(follows.followedAt))
-
-  return c.html(<FollowsPage follows={rows} />)
+  return back('notice', `${result.name} festa til viaduct-posisjonen (${moved}${extra}).`)
 })
 
 // Logs. The page and its 10s poll run the same query, so it lives in one place.
@@ -461,11 +215,13 @@ app.get('/logs/rows', async (c) => {
   return c.html(<LogRows logs={logs} />)
 })
 
-// Media. Mounted below `app.use('/*', requireAuth)` above, so it inherits the session gate.
+// Media actions (re-enrich, hide, sync). Mounted below `app.use('/*', requireAuth)`
+// above, so they inherit the session gate. The pages are under /k now.
 app.route('/media', mediaRouter)
 
-// Tools & endpoints
-app.get('/tools', (c) => c.html(<ToolsPage endpoints={endpoints} infra={INFRA_ROUTES} />))
+// Category pages (ADR 0073).
+app.route('/k', categoryRouter)
+
 
 // Import
 app.get('/import', (c) => c.html(<ImportPage />))

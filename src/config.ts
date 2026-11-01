@@ -292,7 +292,7 @@ const schema = z.object({
   THREAD_SKIP_HOSTS: z.string().default(''),
   // ── Breakout alerts: "this post is doing better than your usual" (record 0036) ──
   // Master switch, off by default. The code can therefore be deployed and inspected
-  // at /admin/breakouts days before anything is allowed to push — the same
+  // at Admin → Fediverse → Breakouts days before anything is allowed to push — the same
   // deploy-then-arm property STREAM_DOMAIN gives the public stream.
   BREAKOUT_ENABLED: z.string().default('')
     .transform(v => ['1', 'true', 'yes', 'on'].includes(v.trim().toLowerCase())),
