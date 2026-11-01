@@ -31,7 +31,7 @@ describe('DashboardPage (Oversikt)', () => {
   it('renders a card per problem with a count and a deep link', () => {
     const html = String(DashboardPage({ data: data({ deliveryErrors24h: 3 }) }))
     expect(html).toContain('<span class="count-pill">1</span>')
-    expect(html).toContain('href="/admin/logs?direction=outbound"')
+    expect(html).toContain('href="/admin/logs?f=ut"')
     // The explanation is folded away behind the ⓘ by default.
     expect(html).toContain('<input type="checkbox" class="hx-toggle" id="help-delivery"/>')
     expect(html).toContain('<label class="hx-btn" for="help-delivery"')

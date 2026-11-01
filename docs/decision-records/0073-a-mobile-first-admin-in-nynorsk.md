@@ -1,12 +1,12 @@
 # 0073 — a mobile-first admin in nynorsk
 
-**Status:** Accepted (phases 1 to 3 of 4)
+**Status:** Accepted (all four phases)
 **Date:** 2026-11-01
 **Topics:** admin, design, mobile
 **Contributors:** Markus (design handoff "Admin mobil v3"; decided: stacked PRs, dry-run
 imports as their own later phase, old URLs answer 301) + Claude (implemented)
 
-**Affects:** `src/admin/import-kinds.ts`, `src/admin/import-runs.ts`, `drizzle/0047_import_runs.sql`,
+**Affects:** `src/admin/views/logs.tsx`, `src/admin/import-kinds.ts`, `src/admin/import-runs.ts`, `drizzle/0047_import_runs.sql`,
 `src/admin/views/import.tsx`, `src/admin/category-router.tsx`, `src/admin/views/kit.tsx`,
 `src/admin/views/media-tabs.tsx`, `src/admin/views/other-tabs.tsx`, `src/admin/media-router.tsx`,
 `src/admin/views/layout.tsx`, `src/admin/views/dashboard.tsx`,
@@ -86,6 +86,19 @@ pages that GET, and as little JavaScript as possible.
 - Result pages keep every list they had (the trips "not in this export" list and its
   confirm, StoryGraph conflicts, YouTube normalisations) as rows, and end with the way
   back to the category and to Oversikt.
+
+### Phase 4: Loggar
+
+- Filter chips (Alle · Inn · Ut · Feil · Ugyldig signatur) as one GET parameter, `f`.
+  The old `direction` and `sigValid` links still resolve to the same chip, and an actor
+  filter from a URL is kept in every link and shown as a removable pill.
+- **Feil** is a status of 400 or more, or a request that never got one (`error` set).
+- One card per request: direction, method, status (red from 400), signature, time in Oslo
+  (a clock time today, a date before that), the URL and the actor's handle. Tapping opens
+  the error and the body in place.
+- The list still polls every 10 s, and the trigger skips a tick while any card is open,
+  so a body being read is never swapped away.
+- The delivery-error card on Oversikt links to `?f=ut`, the handoff's choice.
 
 ## Consequences
 
