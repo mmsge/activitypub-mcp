@@ -24,12 +24,11 @@ interface ActivitiesPageProps {
 export function ActivitiesPage({ activities, page, hasMore, filters }: ActivitiesPageProps) {
   return (
     <Layout title="Activities">
-      <h1>Activities</h1>
       <form class="filters" method="get" action="/admin/activities">
         <input name="actor" placeholder="Actor URL" value={filters.actor ?? ''} style="width: 300px" />
         <input name="type" placeholder="Type (Create, Announce...)" value={filters.type ?? ''} style="width: 180px" />
         <button type="submit">Filter</button>
-        <a href="/admin/activities" class="btn" style="background:#333">Clear</a>
+        <a href="/admin/activities" class="btn btn-ghost">Clear</a>
       </form>
       <table>
         <thead>

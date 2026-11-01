@@ -73,7 +73,6 @@ function Rows({ rows, showDistance }: { rows: StationComparison[]; showDistance:
 export function StationsPage({ report, notice, error }: { report: Report; notice?: string; error?: string }) {
   return (
     <Layout title="Stations">
-      <h1>Stations</h1>
       {notice && <div class="notice" style="color:#4ade80;margin-bottom:16px">{notice}</div>}
       {error && <div class="error">{error}</div>}
 

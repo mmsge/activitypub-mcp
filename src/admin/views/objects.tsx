@@ -26,13 +26,12 @@ interface ObjectsPageProps {
 export function ObjectsPage({ objects, page, hasMore, filters }: ObjectsPageProps) {
   return (
     <Layout title="Posts">
-      <h1>Posts</h1>
       <form class="filters" method="get" action="/admin/objects">
         <input name="actor" placeholder="Actor URL" value={filters.actor ?? ''} style="width:280px" />
         <input name="type" placeholder="Type (Note, Article...)" value={filters.type ?? ''} style="width:160px" />
         <input name="q" placeholder="Search text" value={filters.q ?? ''} style="width:200px" />
         <button type="submit">Filter</button>
-        <a href="/admin/objects" class="btn" style="background:#333">Clear</a>
+        <a href="/admin/objects" class="btn btn-ghost">Clear</a>
       </form>
       <table>
         <thead>

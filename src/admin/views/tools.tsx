@@ -59,7 +59,6 @@ function paramsFor(ep: RestEndpoint): Param[] {
 export function ToolsPage({ endpoints, infra }: { endpoints: RestEndpoint[]; infra: InfraRoute[] }) {
   return (
     <Layout title="Tools & Endpoints">
-      <h1>Tools &amp; Endpoints</h1>
       <p style="color:#888; margin-bottom:20px; font-size:13px">
         The MCP tools and HTTP API exposed by this running server. The data API is read live from
         the endpoint registry; every MCP tool has a matching <code>/api/v1</code> REST endpoint

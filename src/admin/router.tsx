@@ -5,10 +5,11 @@ import { bodyLimit } from 'hono/body-limit'
 import { requireAuth } from './middleware.js'
 import { verifyAdminPassword, createSession, deleteSession } from './auth.js'
 import { getDb } from '../db/client.js'
-import { activities, objects, follows, activityLog, actors, neodbMarks, linkedinPosts, linkedinPostMetrics } from '../db/schema.js'
-import { and, desc, eq, gt, count, isNull, like, or, sql } from 'drizzle-orm'
+import { activities, objects, follows, activityLog, actors, neodbMarks, linkedinPosts, linkedinPostMetrics, scrobbles, trainTrips } from '../db/schema.js'
+import { and, desc, eq, gt, gte, count, isNull, like, or, sql } from 'drizzle-orm'
 import { LoginPage } from './views/login.js'
 import { DashboardPage } from './views/dashboard.js'
+import { LinkedinPage } from './views/linkedin.js'
 import { ActivitiesPage } from './views/activities.js'
 import { FollowsPage } from './views/follows.js'
 import { LogsPage, LogRows } from './views/logs.js'
@@ -84,7 +85,7 @@ app.post('/login', async (c) => {
     })
     return c.redirect('/admin')
   }
-  return c.html(<LoginPage error="Invalid password" />)
+  return c.html(<LoginPage error="Feil passord." />)
 })
 
 app.get('/logout', async (c) => {
@@ -97,7 +98,7 @@ app.get('/logout', async (c) => {
 // Protected routes
 app.use('/*', requireAuth)
 
-// Dashboard
+// Oversikt
 app.get('/', async (c) => {
   const db = getDb()
   const now = new Date()
@@ -105,64 +106,85 @@ app.get('/', async (c) => {
   const day7 = new Date(now.getTime() - 7 * 86_400_000)
 
   const [
-    [{ cnt: totalActivities }],
     [{ cnt: activities24h }],
     [{ cnt: activities7d }],
     [{ cnt: totalObjects }],
-    followsList,
+    pendingFollows,
     recentActs,
-    lastAct,
-    delivErrors,
+    [{ cnt: delivErrors24h }],
     media,
+    [{ cnt: scrobbleCount }],
+    [{ cnt: tripCount }],
     [{ cnt: liPosts }],
-    [{ cnt: liMetrics }],
-    liLatestExport,
     liHealth,
   ] = await Promise.all([
-    db.select({ cnt: count() }).from(activities),
     db.select({ cnt: count() }).from(activities).where(gt(activities.receivedAt, day24)),
     db.select({ cnt: count() }).from(activities).where(gt(activities.receivedAt, day7)),
     db.select({ cnt: count() }).from(objects).where(isNull(objects.deletedAt)),
-    db.select({ status: follows.status }).from(follows),
-    db.select().from(activities).orderBy(desc(activities.receivedAt)).limit(15),
-    db.select({ receivedAt: activities.receivedAt }).from(activities).orderBy(desc(activities.receivedAt)).limit(1),
-    db.select({ cnt: count() }).from(activityLog)
-      .where(and(eq(activityLog.direction, 'outbound'), gt(activityLog.responseStatus, 299))),
+    db.select({ actorApId: follows.actorApId }).from(follows)
+      .where(eq(follows.status, 'pending')).orderBy(follows.followedAt),
+    db.select().from(activities).orderBy(desc(activities.receivedAt)).limit(3),
+    // The last 24 hours only: an all-time count never goes back to zero, so a card
+    // built on it could never be cleared.
+    db.select({ cnt: count() }).from(activityLog).where(and(
+      eq(activityLog.direction, 'outbound'),
+      gte(activityLog.responseStatus, 400),
+      gt(activityLog.createdAt, day24),
+    )),
     mediaCounts(),
+    db.select({ cnt: count() }).from(scrobbles),
+    db.select({ cnt: count() }).from(trainTrips),
+    db.select({ cnt: count() }).from(linkedinPosts),
+    getSourceHealth(LINKEDIN_SOURCE),
+  ])
+
+  return c.html(
+    <DashboardPage data={{
+      activitiesLast24h: Number(activities24h),
+      activitiesLast7d: Number(activities7d),
+      recentActivities: recentActs,
+      totalObjects: Number(totalObjects),
+      media,
+      scrobbles: Number(scrobbleCount),
+      trips: Number(tripCount),
+      linkedinPosts: Number(liPosts),
+      linkedinStatus: deriveTokenStatus(liHealth, linkedinStaleMs(), now),
+      linkedinLastSuccessAt: liHealth?.lastSuccessAt ?? null,
+      linkedinLastHttpStatus: liHealth?.lastHttpStatus ?? null,
+      deliveryErrors24h: Number(delivErrors24h),
+      failedEnrichment: media.failedEnrichment,
+      pendingFollowActors: pendingFollows.map((f) => f.actorApId),
+    }} />
+  )
+})
+
+/** Twice the poll interval before calling LinkedIn stale: one missed run is a blip. */
+function linkedinStaleMs(): number {
+  return config.LINKEDIN_SYNC_INTERVAL_HOURS * 2 * 60 * 60_000
+}
+
+// LinkedIn health, until the LinkedIn category page replaces it.
+app.get('/linkedin', async (c) => {
+  const db = getDb()
+  const [[{ cnt: liPosts }], [{ cnt: liMetrics }], liLatestExport, liHealth] = await Promise.all([
     db.select({ cnt: count() }).from(linkedinPosts),
     db.select({ cnt: count() }).from(linkedinPostMetrics),
     db.select({ latest: sql<string | null>`max(${linkedinPostMetrics.exportDate})` })
       .from(linkedinPostMetrics),
     getSourceHealth(LINKEDIN_SOURCE),
   ])
-
-  // Twice the poll interval before calling it stale: one missed run is a blip.
-  const linkedinStale = config.LINKEDIN_SYNC_INTERVAL_HOURS * 2 * 60 * 60_000
-
   return c.html(
-    <DashboardPage data={{
-      totalActivities: Number(totalActivities),
-      activitiesLast24h: Number(activities24h),
-      activitiesLast7d: Number(activities7d),
-      totalObjects: Number(totalObjects),
-      followsAccepted: followsList.filter(f => f.status === 'accepted').length,
-      followsPending: followsList.filter(f => f.status === 'pending').length,
-      recentActivities: recentActs,
-      lastReceivedAt: lastAct[0]?.receivedAt ?? null,
-      deliveryErrors: Number(delivErrors[0]?.cnt ?? 0),
-      media,
-      linkedin: {
-        enabled: Boolean(config.LINKEDIN_DMA_TOKEN),
-        status: deriveTokenStatus(liHealth, linkedinStale, now),
-        lastSuccessAt: liHealth?.lastSuccessAt ?? null,
-        lastDataAt: liHealth?.lastDataAt ?? null,
-        lastError: liHealth?.lastError ?? null,
-        lastNote: liHealth?.lastNote ?? null,
-        lastHttpStatus: liHealth?.lastHttpStatus ?? null,
-        posts: Number(liPosts),
-        metricRows: Number(liMetrics),
-        latestExport: liLatestExport[0]?.latest ?? null,
-      },
+    <LinkedinPage data={{
+      enabled: Boolean(config.LINKEDIN_DMA_TOKEN),
+      status: deriveTokenStatus(liHealth, linkedinStaleMs(), new Date()),
+      lastSuccessAt: liHealth?.lastSuccessAt ?? null,
+      lastDataAt: liHealth?.lastDataAt ?? null,
+      lastError: liHealth?.lastError ?? null,
+      lastNote: liHealth?.lastNote ?? null,
+      lastHttpStatus: liHealth?.lastHttpStatus ?? null,
+      posts: Number(liPosts),
+      metricRows: Number(liMetrics),
+      latestExport: liLatestExport[0]?.latest ?? null,
     }} />
   )
 })

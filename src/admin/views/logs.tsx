@@ -26,8 +26,7 @@ interface LogsPageProps {
 
 export function LogsPage({ logs, page, hasMore, filters }: LogsPageProps) {
   return (
-    <Layout title="Logs">
-      <h1>HTTP Logs</h1>
+    <Layout title="Loggar" nav="loggar" live>
       <form class="filters" method="get" action="/admin/logs">
         <select name="direction">
           <option value="" selected={!filters.direction}>All directions</option>
@@ -41,7 +40,7 @@ export function LogsPage({ logs, page, hasMore, filters }: LogsPageProps) {
         </select>
         <input name="actor" placeholder="Actor URL" value={filters.actor ?? ''} style="width:280px" />
         <button type="submit">Filter</button>
-        <a href="/admin/logs" class="btn" style="background:#333">Clear</a>
+        <a href="/admin/logs" class="btn btn-ghost">Clear</a>
       </form>
       <p class="muted" style="margin-bottom:12px">Auto-refreshes every 10s</p>
       <table>

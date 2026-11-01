@@ -1,15 +1,14 @@
 /** @jsxImportSource hono/jsx */
-import { Layout } from './layout.js'
-import { SourceBadge } from './ui.js'
-import type { TokenStatus } from '../../lib/source-health.js'
+import { Layout, HelpInput, HelpButton, HelpPanel } from './layout.js'
+import { CATEGORIES, type CategoryId } from '../categories.js'
+import { attentionItems, actorHandle, type AttentionInput } from '../attention.js'
 
-interface DashboardData {
-  totalActivities: number
+// Oversikt: what needs attention, the seven categories with one number each, and recent
+// activity. Everything else moved behind the categories (ADR 0073).
+
+export interface DashboardData extends AttentionInput {
   activitiesLast24h: number
   activitiesLast7d: number
-  totalObjects: number
-  followsAccepted: number
-  followsPending: number
   recentActivities: Array<{
     type: string
     actorApId: string
@@ -18,209 +17,109 @@ interface DashboardData {
     processed: boolean
     processingError: string | null
   }>
-  lastReceivedAt: Date | null
-  deliveryErrors: number
-  media: {
-    books: number
-    films: number
-    tv: number
-    gigs: number
-    youtube: number
-    failedEnrichment: number
-    hidden: number
-  }
-  linkedin: {
-    enabled: boolean
-    status: TokenStatus
-    lastSuccessAt: Date | null
-    lastDataAt: Date | null
-    lastError: string | null
-    /** What the last attempt concluded and on what evidence. See ADR 0039. */
-    lastNote: string | null
-    lastHttpStatus: number | null
-    posts: number
-    metricRows: number
-    latestExport: string | null
+  totalObjects: number
+  media: { books: number; films: number; tv: number }
+  scrobbles: number
+  trips: number
+  linkedinPosts: number
+}
+
+const nf = new Intl.NumberFormat('nn-NO')
+const n = (v: number) => nf.format(v)
+
+/** The one number a category tile shows. */
+export function categoryKeys(d: DashboardData): Record<CategoryId, string> {
+  return {
+    lesing: `${n(d.media.books)} bøker`,
+    sjaaing: `${n(d.media.films + d.media.tv)} titlar`,
+    musikk: `${n(d.scrobbles)} scrobblar`,
+    reiser: `${n(d.trips)} turar`,
+    fediverse: `${n(d.totalObjects)} innlegg`,
+    linkedin: `${n(d.linkedinPosts)} innlegg`,
+    system: d.deliveryErrors24h > 0 ? `${n(d.deliveryErrors24h)} feil siste døgn` : 'Ingen feil siste døgn',
   }
 }
 
+function activityStatus(a: DashboardData['recentActivities'][number]) {
+  if (a.processingError) return <span class="badge badge-red" title={a.processingError}>Feil</span>
+  if (a.processed) return <span class="badge badge-green">OK</span>
+  return <span class="badge badge-yellow">Ventar</span>
+}
+
 export function DashboardPage({ data }: { data: DashboardData }) {
+  const problems = attentionItems(data)
+  const keys = categoryKeys(data)
   return (
-    <Layout title="Dashboard">
-      <h1>Dashboard</h1>
-      <div class="grid">
-        <div class="card">
-          <div class="num">{data.activitiesLast24h}</div>
-          <div class="label">Activities (24h)</div>
-        </div>
-        <div class="card">
-          <div class="num">{data.activitiesLast7d}</div>
-          <div class="label">Activities (7d)</div>
-        </div>
-        <div class="card">
-          <div class="num">{data.totalObjects}</div>
-          <div class="label">Stored Posts</div>
-        </div>
-        <div class="card">
-          <div class="num">{data.followsAccepted}</div>
-          <div class="label">Follows Accepted</div>
-        </div>
-        <div class="card">
-          <div class="num" style="color: #fbbf24">{data.followsPending}</div>
-          <div class="label">Follows Pending</div>
-        </div>
-        <div class="card">
-          <div class="num" style="color: #f87171">{data.deliveryErrors}</div>
-          <div class="label">Delivery Errors</div>
-        </div>
-      </div>
-
-      {/* Titles, not viewings — the Watched tab counts one row per viewing, so a
-          re-watched film is one here and two there. These count what the server actually
-          serves, so hidden rows are excluded from all but the last tile. */}
-      <div class="grid">
-        <a class="card" href="/admin/media?tab=books">
-          <div class="num">{data.media.books}</div>
-          <div class="label">Books (cached)</div>
-        </a>
-        <a class="card" href="/admin/media?tab=watched&category=movie">
-          <div class="num">{data.media.films}</div>
-          <div class="label">Films (titles)</div>
-        </a>
-        <a class="card" href="/admin/media?tab=watched&category=tv">
-          <div class="num">{data.media.tv}</div>
-          <div class="label">TV (titles)</div>
-        </a>
-        <a class="card" href="/admin/media?tab=gigs">
-          <div class="num">{data.media.gigs}</div>
-          <div class="label">Gigs</div>
-        </a>
-        <a class="card" href="/admin/media?tab=youtube">
-          <div class="num">{data.media.youtube}</div>
-          <div class="label">YouTube (watches)</div>
-        </a>
-        <a class="card" href="/admin/media?tab=other&health=failed">
-          <div class="num" style="color: #f87171">{data.media.failedEnrichment}</div>
-          <div class="label">Failed Enrichment</div>
-        </a>
-        <a class="card" href="/admin/media?tab=other&hidden=only">
-          <div class="num" style="color: #888">{data.media.hidden}</div>
-          <div class="label">Hidden</div>
-        </a>
-      </div>
-
-      {/* LinkedIn ingest health. Shown whenever there is LinkedIn data OR a token
-          configured, so a token that dies after the data landed stays visible
-          rather than the tile disappearing with it. */}
-      {(data.linkedin.enabled || data.linkedin.posts > 0 || data.linkedin.metricRows > 0) && (
-        <div class="section">
-          <h2>
-            LinkedIn{' '}
-            <SourceBadge
-              status={data.linkedin.status}
-              lastError={data.linkedin.lastError}
-              lastSuccessAt={data.linkedin.lastSuccessAt}
-              lastDataAt={data.linkedin.lastDataAt}
-            />
-          </h2>
-          <div class="grid">
-            <div class="card">
-              <div class="num">{data.linkedin.posts}</div>
-              <div class="label">Posts (from DMA API)</div>
-            </div>
-            <div class="card">
-              <div class="num">{data.linkedin.metricRows}</div>
-              <div class="label">Metric rows (from XLSX)</div>
-            </div>
-            <a class="card" href="/admin/import">
-              <div class="num" style="font-size: 20px;">
-                {data.linkedin.latestExport ?? '—'}
-              </div>
-              <div class="label">Latest export imported</div>
-            </a>
+    <Layout title="Oversikt" nav="oversikt">
+      <div class="stack">
+        <section class="group">
+          <div class="section-label">
+            Treng merksemd
+            {problems.length > 0 && <span class="count-pill">{problems.length}</span>}
           </div>
-          <p style="color: #888; margin-top: 8px; font-size: 12px;">
-            {data.linkedin.status === 'unauthorized' && (
-              <>
-                The DMA token is being refused — re-mint it (see the LinkedIn section of
-                the README) and run <code>npm run sync-linkedin</code>.{' '}
-              </>
-            )}
-            {data.linkedin.status === 'stale' && (
-              <>The poller has not completed in a while; post content is frozen. </>
-            )}
-            {data.linkedin.status === 'awaiting_data' && (
-              <>
-                The poller completes, but LinkedIn has not produced{' '}
-                <code>MEMBER_SHARE_INFO</code> yet — it collates the snapshot's activity
-                domains after the profile ones, and publishes no timing for it. The line
-                below says which of those the last run actually established: it probes{' '}
-                <code>PROFILE</code> on an empty crawl, so a refused token can no longer
-                sit here looking like patience. If that probe came back with data there is
-                nothing to fix, and re-minting would restart the wait rather than shorten
-                it. To look right now, run <code>npm run probe-linkedin</code>.{' '}
-              </>
-            )}
-            {!data.linkedin.enabled && <>LINKEDIN_DMA_TOKEN is unset, so the poller is off. </>}
-            Last successful sync:{' '}
-            {data.linkedin.lastSuccessAt ? data.linkedin.lastSuccessAt.toISOString() : 'never'}
-            {' · '}Posts last arrived:{' '}
-            {data.linkedin.lastDataAt ? data.linkedin.lastDataAt.toISOString() : 'never'}
-            {data.linkedin.lastHttpStatus !== null && (
-              <>{' · '}Last response: HTTP {data.linkedin.lastHttpStatus}</>
-            )}
-          </p>
-          {/* The evidence, not a paraphrase of it. Written on every attempt — a run
-              that never fails used to leave `last_error` null and say nothing at all. */}
-          {data.linkedin.lastNote && (
-            <p style="color: #888; margin-top: 4px; font-size: 12px; font-family: monospace;">
-              {data.linkedin.lastNote}
-            </p>
+          {problems.length === 0 && (
+            <div class="all-clear">
+              <span class="dot green" />
+              <div>Ingenting treng merksemd</div>
+            </div>
           )}
-        </div>
-      )}
+          {problems.map((p) => (
+            <div class="problem">
+              <HelpInput id={`help-${p.id}`} />
+              <div class="problem-head">
+                <span class={`dot ${p.tone}`} />
+                <div class="problem-text">
+                  <div class="problem-title">{p.title}</div>
+                  <div class="problem-sub">{p.sub}</div>
+                </div>
+                <HelpButton for={`help-${p.id}`} />
+              </div>
+              <HelpPanel>{p.help}</HelpPanel>
+              <div class="problem-act">
+                <a class="btn-soft" href={p.href}>{p.action} →</a>
+              </div>
+            </div>
+          ))}
+        </section>
 
-      {data.lastReceivedAt && (
-        <p style="color: #888; margin-bottom: 20px; font-size: 12px;">
-          Last activity received: {data.lastReceivedAt.toISOString()}
-        </p>
-      )}
-
-      <div class="section">
-        <h2>Recent Activities</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Type</th>
-              <th>Actor</th>
-              <th>Object Type</th>
-              <th>Received</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.recentActivities.map((a, i) => (
-              <tr key={i}>
-                <td><span class="badge badge-blue">{a.type}</span></td>
-                <td class="truncate mono">{a.actorApId}</td>
-                <td>{a.objectType ?? '—'}</td>
-                <td class="mono">{a.receivedAt.toISOString().slice(0, 19).replace('T', ' ')}</td>
-                <td>
-                  {a.processingError
-                    ? <span class="badge badge-red">Error</span>
-                    : a.processed
-                      ? <span class="badge badge-green">OK</span>
-                      : <span class="badge badge-yellow">Pending</span>
-                  }
-                </td>
-              </tr>
+        <section class="group">
+          <div class="section-label">Kategoriar</div>
+          <div class="tiles">
+            {CATEGORIES.map((c) => (
+              <a class="tile" href={c.href}>
+                <span class="tile-name">{c.label}</span>
+                <span class="tile-key">{keys[c.id]}</span>
+              </a>
             ))}
-            {data.recentActivities.length === 0 && (
-              <tr><td colspan={5} style="color: #666; text-align: center;">No activities yet</td></tr>
-            )}
-          </tbody>
-        </table>
-        <p style="margin-top: 8px;"><a href="/admin/activities">View all activities →</a></p>
+          </div>
+        </section>
+
+        <section class="group">
+          <div class="section-label">Aktivitet</div>
+          <div class="tiles">
+            <div class="stat">
+              <div class="stat-n">{n(data.activitiesLast24h)}</div>
+              <div class="stat-l">siste 24 t</div>
+            </div>
+            <div class="stat">
+              <div class="stat-n">{n(data.activitiesLast7d)}</div>
+              <div class="stat-l">siste 7 d</div>
+            </div>
+          </div>
+          <div class="panel">
+            {data.recentActivities.slice(0, 3).map((a) => (
+              <div class="row">
+                <div class="row-main">
+                  <div class="row-title">{a.objectType ? `${a.type} · ${a.objectType}` : a.type}</div>
+                  <div class="row-sub" title={a.actorApId}>{actorHandle(a.actorApId)}</div>
+                </div>
+                {activityStatus(a)}
+              </div>
+            ))}
+            {data.recentActivities.length === 0 && <div class="panel-empty">Ingen aktivitetar enno.</div>}
+            <a class="panel-more" href="/admin/activities">Alle aktivitetar →</a>
+          </div>
+        </section>
       </div>
     </Layout>
   )
