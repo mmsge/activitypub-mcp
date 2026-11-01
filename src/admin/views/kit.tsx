@@ -65,12 +65,14 @@ export const CategoryPage: FC<PropsWithChildren<CategoryPageProps>> = (p) => {
 
         <div class="hx-wrap">
           <HelpInput id={helpId} />
-          {p.search ? (
+          {p.search || p.filters ? (
             <form method="get" action={p.cat.href} class="search">
               <input type="hidden" name="tab" value={p.tab.id} />
               <div class="search-row">
-                <input type="search" name={p.search.name} value={p.search.value ?? ''}
-                  placeholder={p.search.placeholder} aria-label={p.search.placeholder} />
+                {p.search
+                  ? <input type="search" name={p.search.name} value={p.search.value ?? ''}
+                      placeholder={p.search.placeholder} aria-label={p.search.placeholder} />
+                  : <div class="lead">{p.lead}</div>}
                 <HelpButton for={helpId} label="Om denne fana" />
               </div>
               {p.filters && (

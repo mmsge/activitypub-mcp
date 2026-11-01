@@ -6,7 +6,8 @@
 **Contributors:** Markus (design handoff "Admin mobil v3"; decided: stacked PRs, dry-run
 imports as their own later phase, old URLs answer 301) + Claude (implemented)
 
-**Affects:** `src/admin/views/logs.tsx`, `src/admin/import-kinds.ts`, `src/admin/import-runs.ts`, `drizzle/0047_import_runs.sql`,
+**Affects:** `src/admin/views/data-tabs.tsx`, `src/jobs/job-runs.ts`, `src/jobs/scheduler.ts`,
+`src/admin/views/logs.tsx`, `src/admin/import-kinds.ts`, `src/admin/import-runs.ts`, `drizzle/0047_import_runs.sql`,
 `src/admin/views/import.tsx`, `src/admin/category-router.tsx`, `src/admin/views/kit.tsx`,
 `src/admin/views/media-tabs.tsx`, `src/admin/views/other-tabs.tsx`, `src/admin/media-router.tsx`,
 `src/admin/views/layout.tsx`, `src/admin/views/dashboard.tsx`,
@@ -99,6 +100,23 @@ pages that GET, and as little JavaScript as possible.
 - The list still polls every 10 s, and the trigger skips a tick while any card is open,
   so a body being read is never swapped away.
 - The delivery-error card on Oversikt links to `?f=ut`, the handoff's choice.
+
+### Data tabs added after the four phases
+
+- **Lesing → Lesingar** (`get_reading_events`, cursor-paged), **Reiser → Turar**
+  (`get_train_trips`) and **Ruter**, **LinkedIn → Innlegg** (`get_linkedin_posts`) and
+  **Statistikk** (`get_linkedin_stats`, `n` beside every weekday median), and
+  **System → Jobbar**. Each reads its MCP tool's own handler.
+- Turar shows a departed leg as **Gått** even when viaduct still says Planned (ADR 0031).
+- Ruter lists newest first and draws each route as a 56 px server-side SVG: one path per
+  segment, never bridged (ADR 0071), thinned to 60 points, scaled by cos(latitude). No map
+  library and no third-party tiles.
+- **Jobbar**: every scheduled job runs through `runJob`, which logs a failure as before
+  and records the run in `import_runs` as `job:<id>`. Rows are capped at the newest 20 per
+  job in the same call, because the delivery worker ticks every 30 s. A job switched off in
+  `.env` is listed as off with the variable that turns it on. A test holds the scheduler's
+  ids and the registry in `job-runs.ts` to each other.
+- LinkedIn's attention card now opens the Status tab, since Innlegg is first.
 
 ## Consequences
 

@@ -27,18 +27,19 @@ import { walkThreads } from './walk-threads.js'
 import { config } from '../config.js'
 import { activeRaces } from '../lib/races-config.js'
 import { logger } from '../lib/logger.js'
+import { runJob } from './job-runs.js'
 
 const SIX_HOURS_MS = 6 * 60 * 60_000
 
 export function startScheduler(): void {
   // Delivery queue — every 30 seconds
   setInterval(async () => {
-    try { await runDeliveryWorker() } catch (e) { logger.error(e, 'Delivery worker error') }
+    await runJob('delivery', 'Delivery worker error', () => runDeliveryWorker())
   }, 30_000)
 
   // Actor refresh — every hour
   setInterval(async () => {
-    try { await refreshStaleActors() } catch (e) { logger.error(e, 'Actor refresh error') }
+    await runJob('actor-refresh', 'Actor refresh error', () => refreshStaleActors())
   }, 60 * 60_000)
 
   // Last.fm scrobble sync — interval configurable via LASTFM_SYNC_INTERVAL_SECONDS
@@ -54,20 +55,18 @@ export function startScheduler(): void {
   // no ingest of any kind to react to.
   const scrobbleIntervalMs = config.LASTFM_SYNC_INTERVAL_SECONDS * 1_000
   setInterval(async () => {
-    try {
+    await runJob('scrobbles', 'Scrobble sync error', async () => {
       await syncScrobbles()
       await runScrobbleRace()
-    } catch (e) { logger.error(e, 'Scrobble sync error') }
-    try {
-      await runConvergenceWatch()
-    } catch (e) { logger.error(e, 'Convergence watch error') }
+    })
+    await runJob('convergence', 'Convergence watch error', () => runConvergenceWatch())
   }, scrobbleIntervalMs)
 
   // Live now-playing watch for the endgame of the scrobble race. Outside the endgame
   // this is one indexed row read and no API call, so a short interval is cheap.
   if (activeRaces().some(r => r.nowplayingGap > 0)) {
     setInterval(async () => {
-      try { await checkRaceNowPlaying() } catch (e) { logger.error(e, 'Scrobble race now-playing error') }
+      await runJob('race-nowplaying', 'Scrobble race now-playing error', () => checkRaceNowPlaying())
     }, config.RACE_NOWPLAYING_INTERVAL_SECONDS * 1_000)
   }
 
@@ -77,30 +76,30 @@ export function startScheduler(): void {
   // the same reason. The shelf pull is what tells a finished book from one put
   // down, and /api/v1/books?shelf= is unanswerable until it has run at least once.
   setInterval(async () => {
-    try {
+    await runJob('reading', 'Reading sync error', async () => {
       await syncReadingHistory()
       await syncBookwyrmShelves()
       await syncBookMetadata()
-    } catch (e) { logger.error(e, 'Reading sync error') }
+    })
   }, SIX_HOURS_MS)
 
   // NeoDB film/TV catalog metadata enrichment — every 6 hours, its own interval
   // and independent of the BookWyrm reading chain.
   setInterval(async () => {
-    try { await syncNeodbMetadata() } catch (e) { logger.error(e, 'NeoDB metadata sync error') }
+    await runJob('neodb', 'NeoDB metadata sync error', () => syncNeodbMetadata())
   }, SIX_HOURS_MS)
 
   // Gig catalogue enrichment — every 6 hours, its own interval alongside NeoDB's. A
   // gig's own facts do not move, but a setlist is typically filled in days after the
   // night, so the cache genuinely does need re-reading.
   setInterval(async () => {
-    try { await syncGigMetadata() } catch (e) { logger.error(e, 'Gig metadata sync error') }
+    await runJob('gigs', 'Gig metadata sync error', () => syncGigMetadata())
   }, SIX_HOURS_MS)
 
   // Garden note-body crawl — every 6 hours, its own interval so a slow or
   // failing Obsidian origin never couples with the reading chain.
   setInterval(async () => {
-    try { await syncGardenContent() } catch (e) { logger.error(e, 'Garden content sync error') }
+    await runJob('garden', 'Garden content sync error', () => syncGardenContent())
   }, SIX_HOURS_MS)
 
   // Engagement sampling for the owner's recent posts — skip_unchanged writes
@@ -112,9 +111,15 @@ export function startScheduler(): void {
   // would only add a window in which they read stale counts. Both are DB-only — the
   // fast lane below is the sole part of the feature that talks to remote instances.
   setInterval(async () => {
-    try { await sampleEngagement() } catch (e) { logger.error(e, 'Engagement sampling error') }
-    try { await runPostBreakout() } catch (e) { logger.error(e, 'Breakout check error') }
-    try { await runBreakoutDigest() } catch (e) { logger.error(e, 'Breakout digest error') }
+    // One recorded job, three steps that still fail independently: a sampling error
+    // must not stop the ladder reading what the sampler already wrote.
+    await runJob('engagement', null, async () => {
+      const errors: unknown[] = []
+      try { await sampleEngagement() } catch (e) { logger.error(e, 'Engagement sampling error'); errors.push(e) }
+      try { await runPostBreakout() } catch (e) { logger.error(e, 'Breakout check error'); errors.push(e) }
+      try { await runBreakoutDigest() } catch (e) { logger.error(e, 'Breakout digest error'); errors.push(e) }
+      if (errors.length) throw errors[0]
+    })
   }, config.ENGAGEMENT_SAMPLE_INTERVAL_MINUTES * 60_000)
 
   // The breakout fast lane — re-reads engagement for posts published in the last
@@ -123,7 +128,7 @@ export function startScheduler(): void {
   // nothing for the timer, and toggling the env off takes effect without a restart.
   if (config.BREAKOUT_FAST_LANE_MINUTES > 0) {
     setInterval(async () => {
-      try { await runBreakoutFastLane() } catch (e) { logger.error(e, 'Breakout fast lane error') }
+      await runJob('breakout-fast-lane', 'Breakout fast lane error', () => runBreakoutFastLane())
     }, config.BREAKOUT_FAST_LANE_MINUTES * 60_000)
   }
 
@@ -136,14 +141,14 @@ export function startScheduler(): void {
   // stage 2 stays off until YOUTUBE_SHORTS_PROBE_ENABLED says otherwise.
   if (config.YOUTUBE_SHORTS_INTERVAL_HOURS > 0) {
     setInterval(async () => {
-      try { await classifyYoutubeShorts() } catch (e) { logger.error(e, 'YouTube Shorts classification error') }
+      await runJob('youtube-shorts', 'YouTube Shorts classification error', () => classifyYoutubeShorts())
     }, config.YOUTUBE_SHORTS_INTERVAL_HOURS * 60 * 60_000)
   }
 
   // Request-log retention — every 6 hours. Cheap (one indexed DELETE) and keeps the
   // "we store nothing about actors we don't follow" claim on the profile honest.
   setInterval(async () => {
-    try { await pruneActivityLog() } catch (e) { logger.error(e, 'Activity-log prune error') }
+    await runJob('prune-log', 'Activity-log prune error', () => pruneActivityLog())
   }, SIX_HOURS_MS)
 
   // The bot's own notes. Checked hourly rather than on the publishing interval itself,
@@ -151,7 +156,7 @@ export function startScheduler(): void {
   // floor between status notes, not the tick rate — and the pinned intro should pick up
   // a config change without waiting out a whole week.
   setInterval(async () => {
-    try { await publishStatusNote() } catch (e) { logger.error(e, 'Status-note publish error') }
+    await runJob('status-note', 'Status-note publish error', () => publishStatusNote())
   }, 60 * 60_000)
 
   // Bind posts to the trips they were posted on — hourly. Both sides move: a post
@@ -159,7 +164,7 @@ export function startScheduler(): void {
   // re-classifies the posts around it. The job is diff-based, so a tick with
   // nothing to do writes nothing (ADR 0023).
   setInterval(async () => {
-    try { await linkTripPosts() } catch (e) { logger.error(e, 'Trip/post linking error') }
+    await runJob('trip-posts', 'Trip/post linking error', () => linkTripPosts())
   }, 60 * 60_000)
 
   // Station geocoding, then the weather at them — every 6 hours, chained so the
@@ -167,10 +172,10 @@ export function startScheduler(): void {
   // bounded bite per run: Nominatim allows one request a second, and the whole
   // backfill is 115 stations with no deadline (ADR 0028).
   setInterval(async () => {
-    try {
+    await runJob('stations', 'Station/weather sync error', async () => {
       await syncStations()
       await syncStationWeather()
-    } catch (e) { logger.error(e, 'Station/weather sync error') }
+    })
   }, SIX_HOURS_MS)
 
   // Attribute trips to the named lines they ran on — hourly, alongside the trip/post
@@ -178,7 +183,7 @@ export function startScheduler(): void {
   // distance. No external call and no bounded bite here, so a tick either finds
   // stale trips and recomputes them outright or writes nothing (ADR 0035).
   setInterval(async () => {
-    try { await resolveTripLines() } catch (e) { logger.error(e, 'Line resolution error') }
+    await runJob('trip-lines', 'Line resolution error', () => resolveTripLines())
   }, 60 * 60_000)
 
   // LinkedIn posts from the DMA snapshot — weekly by default. The snapshot is
@@ -191,7 +196,7 @@ export function startScheduler(): void {
   // for a week.
   if (config.LINKEDIN_DMA_TOKEN) {
     setInterval(async () => {
-      try { await syncLinkedinPosts() } catch (e) { logger.error(e, 'LinkedIn sync error') }
+      await runJob('linkedin', 'LinkedIn sync error', () => syncLinkedinPosts())
     }, config.LINKEDIN_SYNC_INTERVAL_HOURS * 60 * 60_000)
   }
 
@@ -204,7 +209,7 @@ export function startScheduler(): void {
   // shows a result immediately rather than an interval later. See ADR 0062.
   if (config.STORYGRAPH_API_URL && config.STORYGRAPH_API_TOKEN) {
     setInterval(async () => {
-      try { await syncStorygraph() } catch (e) { logger.error(e, 'StoryGraph sync error') }
+      await runJob('storygraph', 'StoryGraph sync error', () => syncStorygraph())
     }, config.STORYGRAPH_SYNC_INTERVAL_MINUTES * 60_000)
   }
 
@@ -222,7 +227,7 @@ export function startScheduler(): void {
   // large the backlog is (ADR 0057).
   if (config.THREAD_WALK_INTERVAL_HOURS > 0) {
     setInterval(async () => {
-      try { await walkThreads({ mode: 'incremental' }) } catch (e) { logger.error(e, 'Thread walk error') }
+      await runJob('threads', 'Thread walk error', () => walkThreads({ mode: 'incremental' }))
     }, config.THREAD_WALK_INTERVAL_HOURS * 60 * 60_000)
   }
 

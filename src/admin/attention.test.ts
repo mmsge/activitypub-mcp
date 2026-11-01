@@ -17,7 +17,7 @@ describe('attentionItems', () => {
 
   it('flags a refused LinkedIn token red, with when it last worked and the status', () => {
     const [li] = attentionItems({ ...quiet, linkedinStatus: 'unauthorized', linkedinLastHttpStatus: 401 })
-    expect(li).toMatchObject({ id: 'linkedin', tone: 'red', href: '/admin/k/linkedin' })
+    expect(li).toMatchObject({ id: 'linkedin', tone: 'red', href: '/admin/k/linkedin?tab=status' })
     expect(li!.sub).toBe('Sist OK 28. okt. · HTTP 401')
   })
 
