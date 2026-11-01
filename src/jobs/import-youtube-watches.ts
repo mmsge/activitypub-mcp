@@ -112,14 +112,18 @@ export async function importYoutubeWatches(
 
   // .returning() is what makes "inserted" honest: onConflictDoNothing reports nothing
   // about how many rows it skipped, so the accepted ids are the only true count.
+  //
+  // Each INSERT in its own transaction: outside a dry run that is the statement's own,
+  // and inside one (ADR 0073) it is a savepoint, so a rejected batch rolls back to it and
+  // the row-by-row retry below still has a usable transaction.
   const insertRows = async (batch: WatchRow[]) =>
-    (await db
+    db.transaction(async (tx) => (await tx
       .insert(youtubeWatches)
       .values(batch.map(valuesFor) as never)
       .onConflictDoNothing({
         target: [youtubeWatches.account, youtubeWatches.videoId, youtubeWatches.watchedAtLocal],
       })
-      .returning({ id: youtubeWatches.id })).length
+      .returning({ id: youtubeWatches.id })).length)
 
   for (let i = 0; i < unique.length; i += batchSize) {
     const chunk = unique.slice(i, i + batchSize)

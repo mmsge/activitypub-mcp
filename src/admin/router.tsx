@@ -25,6 +25,8 @@ import {
 import { mediaRouter } from './media-router.js'
 import { importKind } from './import-kinds.js'
 import { recordImportRun, lastImportRuns } from './import-runs.js'
+import { stashUpload, takeUpload, notePending, type FormBody } from './import-pending.js'
+import { dryRun } from '../db/client.js'
 import { categoryRouter, linkedinStaleMs } from './category-router.js'
 import { categoryHref, redirectFor } from './categories.js'
 import { mediaCounts } from './media-query.js'
@@ -293,11 +295,9 @@ app.post(
   },
 )
 
-app.post(
-  '/import/trips',
-  bodyLimit({ maxSize: 25 * 1024 * 1024 }),
-  async (c) => {
-    const body = await c.req.parseBody()
+const tripsImport = async (c: Context) => {
+    const body = await importBody(c, 'trips')
+    if (!body) return fail(c, 'trips', EXPIRED)
     const file = body['file']
     if (!file || typeof file === 'string') {
       return fail(c, 'trips', "Inga fil lasta opp")
@@ -364,10 +364,27 @@ app.post(
     // this export no longer contains is the substance of the report and will not
     // survive a query string. Re-POSTing on refresh is harmless — the import is
     // idempotent, and the page deletes nothing on its own.
-    await recordImportRun('trips', { ok: true, summary: `${result.inserted} nye, ${result.updated} oppdaterte, ${result.prune.candidates.length} manglar i fila` })
-    return c.html(<TripImportResultPage result={result} />)
-  },
-)
+    const preview = previewOf(c)
+    if (preview) notePending(preview.token, { pruneIds: result.prune.candidates.map((t) => t.id) })
+
+    // The preview's opt-in: remove what it listed as missing, and only that. The plan
+    // is the one THIS import just drew, so its range, threshold and moment are current,
+    // and the ids are narrowed to the ones the preview showed.
+    let pruned: Awaited<ReturnType<typeof applyTripPrune>> | undefined
+    const mode = importModes.get(c.req.raw)
+    if (!preview && mode?.prune && mode.pruneIds?.length && result.prune.window && result.prune.refusal === null) {
+      const shown = new Set(mode.pruneIds)
+      const ids = result.prune.candidates.map((t) => t.id).filter((id) => shown.has(id))
+      if (ids.length) {
+        pruned = await applyTripPrune({ ids, window: result.prune.window, derivedAt: result.derivedAt })
+        await afterPrune(pruned.deleted)
+      }
+    }
+
+    await recordImportRun('trips', { ok: true, summary: `${result.inserted} nye, ${result.updated} oppdaterte${pruned ? `, ${pruned.deleted} fjerna` : `, ${result.prune.candidates.length} manglar i fila`}` })
+    return c.html(<TripImportResultPage result={result} preview={preview} pruned={pruned} />)
+}
+app.post('/import/trips', bodyLimit({ maxSize: 25 * 1024 * 1024 }), tripsImport)
 
 // Step two, and the only route that can delete a trip. The ids come from the result
 // page the admin has just read; every guarantee that page made — the export's range,
@@ -402,29 +419,28 @@ app.post(
       derivedAt,
     })
 
-    // A prune is a change like any other, and the one that matters most to the
-    // receiver: a phantom future leg is exactly what it would be advertising as
-    // "Neste togtur".
-    await notifyTripsChanged(result.deleted)
-
-    // And msge.no, for the same reason and then some: a pruned future leg is what
-    // /tog and the "Akkurat no" countdown are advertising as the next train, and
-    // both re-derive `upcoming` from a schedule this deletion just invalidated.
-    // Left alone it would count down to a train that no longer exists for six hours.
-    await notifyMsgeChanged('tog', result.deleted)
-
-    // A deletion rewrites the past exactly as an insertion does — the kilometres those
-    // legs contributed are gone from every total after them, so a crossing derived from
-    // them is no longer true. Full recompute, same reasoning as the import above.
-    try {
-      await runConvergenceWatch({ recompute: true })
-    } catch (e) {
-      logger.error(e, 'Convergence watch failed after trip prune')
-    }
+    await afterPrune(result.deleted)
 
     return c.html(<TripPruneResultPage result={result} />)
   },
 )
+
+/**
+ * What follows a deletion of trips, from the prune route or a confirmed import that
+ * opted in. A prune is a change like any other, and the one that matters most to the
+ * receivers: a phantom future leg is exactly what bartenderen and msge.no's /tog would
+ * be advertising as the next train. And a deletion rewrites the past exactly as an
+ * insertion does, so the convergence watcher recomputes in full.
+ */
+async function afterPrune(deleted: number): Promise<void> {
+  await notifyTripsChanged(deleted)
+  await notifyMsgeChanged('tog', deleted)
+  try {
+    await runConvergenceWatch({ recompute: true })
+  } catch (e) {
+    logger.error(e, 'Convergence watch failed after trip prune')
+  }
+}
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -439,11 +455,9 @@ function parseInstant(value: unknown): Date | null {
 // Its own upload, separate from the CSV: the two are different files, and neither import
 // writes the other's tables. The GPX is the complete set, so this one replaces rather
 // than merges. No webhook: nothing downstream reads track geometry yet. See ADR 0070.
-app.post(
-  '/import/trip-tracks',
-  bodyLimit({ maxSize: 50 * 1024 * 1024 }),
-  async (c) => {
-    const body = await c.req.parseBody()
+const tripTracksImport = async (c: Context) => {
+    const body = await importBody(c, 'trip-tracks')
+    if (!body) return fail(c, 'trip-tracks', EXPIRED)
     const file = body['file']
     if (!file || typeof file === 'string') {
       return fail(c, 'trip-tracks', "Inga fil lasta opp")
@@ -462,19 +476,17 @@ app.post(
       return fail(c, 'trip-tracks', e instanceof Error ? e.message : String(e))
     }
     await recordImportRun('trip-tracks', { ok: true, summary: `${report.tracksInFile} ruter, ${report.unmatched.length} utan tur` })
-    return c.html(<TripTrackImportResultPage report={report} />)
-  },
-)
+    return c.html(<TripTrackImportResultPage report={report} preview={previewOf(c)} />)
+}
+app.post('/import/trip-tracks', bodyLimit({ maxSize: 50 * 1024 * 1024 }), tripTracksImport)
 
 // StoryGraph library export → read dates that fill BookWyrm's gaps. An upload for the
 // same reason as the others here: StoryGraph has no API, and sidetal's scrape covers the
 // reading journal, not the library. Rendered rather than redirected, like the trips
 // import: the conflicts and unmatched books are the report. See ADR 0063.
-app.post(
-  '/import/storygraph',
-  bodyLimit({ maxSize: 25 * 1024 * 1024 }),
-  async (c) => {
-    const body = await c.req.parseBody()
+const storygraphImport = async (c: Context) => {
+    const body = await importBody(c, 'storygraph')
+    if (!body) return fail(c, 'storygraph', EXPIRED)
     const file = body['file']
     if (!file || typeof file === 'string') {
       return fail(c, 'storygraph', "Inga fil lasta opp")
@@ -509,19 +521,17 @@ app.post(
 
     const report = await importStorygraphReads(rows, actor.apId)
     await recordImportRun('storygraph', { ok: true, summary: `${report.booksMatched} bøker kopla, ${report.conflicts.length} konfliktar` })
-    return c.html(<StorygraphImportResultPage report={report} />)
-  },
-)
+    return c.html(<StorygraphImportResultPage report={report} preview={previewOf(c)} />)
+}
+app.post('/import/storygraph', bodyLimit({ maxSize: 25 * 1024 * 1024 }), storygraphImport)
 
 // LinkedIn monthly analytics export. An upload rather than a watched directory:
 // the file is produced by hand on Markus' laptop once a month, so the browser he
 // exported it in is where it already is, and docker-compose deliberately uses
 // named volumes with no bind mount for the app to watch. See ADR 0033.
-app.post(
-  '/import/linkedin',
-  bodyLimit({ maxSize: 25 * 1024 * 1024 }),
-  async (c) => {
-    const body = await c.req.parseBody()
+const linkedinImport = async (c: Context) => {
+    const body = await importBody(c, 'linkedin')
+    if (!body) return fail(c, 'linkedin', EXPIRED)
     const file = body['file']
     if (!file || typeof file === 'string') {
       return fail(c, 'linkedin', "Inga fil lasta opp")
@@ -554,10 +564,15 @@ app.post(
       errorCount: '0',
     })
     params.set('kind', 'linkedin')
+    const preview = previewOf(c)
+    if (preview) {
+      return c.html(<ImportResultPage kind="linkedin" actor={params.get('actor') ?? ''} preview={preview}
+        result={{ total: result.total, imported: result.inserted, skipped: result.skipped, errors: [] }} />)
+    }
     await recordImportRun('linkedin', { ok: true, summary: `${params.get('imported')} importerte, ${params.get('skipped')} fanst frå før` })
     return c.redirect(`/admin/import/result?${params}`)
-  },
-)
+}
+app.post('/import/linkedin', bodyLimit({ maxSize: 25 * 1024 * 1024 }), linkedinImport)
 
 // YouTube watch history. An upload rather than a sync: there is no API to poll, only a
 // file exported by hand — same reasoning as the LinkedIn analytics import above.
@@ -567,11 +582,9 @@ app.post(
 // process, so a file big enough to exhaust the heap takes the server down with it, where
 // `npm run import-youtube-watches` only loses its own process. This form is for the
 // incremental exports that follow the first one.
-app.post(
-  '/import/youtube',
-  bodyLimit({ maxSize: 64 * 1024 * 1024 }),
-  async (c) => {
-    const body = await c.req.parseBody()
+const youtubeImport = async (c: Context) => {
+    const body = await importBody(c, 'youtube')
+    if (!body) return fail(c, 'youtube', EXPIRED)
     const file = body['file']
     if (!file || typeof file === 'string') {
       return fail(c, 'youtube', "Inga fil lasta opp")
@@ -622,6 +635,7 @@ app.post(
     // idempotent, so a resubmit inserts zero.
     return c.html(
       <YoutubeImportResultPage
+        preview={previewOf(c)}
         total={total}
         parsed={rows.length}
         inserted={result.inserted}
@@ -631,8 +645,8 @@ app.post(
         failed={result.failed}
       />,
     )
-  },
-)
+}
+app.post('/import/youtube', bodyLimit({ maxSize: 64 * 1024 * 1024 }), youtubeImport)
 
 app.post('/import/crawl', async (c) => {
   const body = await c.req.parseBody()
@@ -716,6 +730,64 @@ app.get('/import/result', (c) => {
       : [],
   }
   return c.html(<ImportResultPage result={result} actor={actor} kind={kind} />)
+})
+
+// --- Dry run (ADR 0073) -------------------------------------------------------------
+
+/**
+ * How a file import is being run. A preview runs the handler inside `dryRun` with the
+ * upload it was given; a confirm runs it for real on the upload the preview stashed.
+ * Keyed on the request, so nothing leaks between two in flight.
+ */
+interface ImportMode {
+  body: FormBody
+  preview?: { token: string; kind: string }
+  /** Confirm only: the ids the preview listed as missing, and whether to remove them. */
+  pruneIds?: string[]
+  prune?: boolean
+}
+const importModes = new WeakMap<Request, ImportMode>()
+
+const EXPIRED = 'Førehandsvisinga har gått ut eller er alt brukt. Last opp fila på nytt.'
+
+const previewOf = (c: Context) => importModes.get(c.req.raw)?.preview
+
+/**
+ * The upload a file-import handler works on: the preview's, the stashed one named by a
+ * confirm's token, or the request's own (a direct POST, as before dry run existed).
+ * Null when a token names nothing: expired, used, or for another import.
+ */
+async function importBody(c: Context, kind: string): Promise<FormBody | null> {
+  const mode = importModes.get(c.req.raw)
+  if (mode) return mode.body
+  const body = (await c.req.parseBody()) as FormBody
+  const token = typeof body['token'] === 'string' ? body['token'] : ''
+  if (!token) return body
+  const pending = takeUpload(token, kind)
+  if (!pending) return null
+  importModes.set(c.req.raw, { body: pending.body, pruneIds: pending.pruneIds, prune: body['prune'] === '1' })
+  return pending.body
+}
+
+const PREVIEWABLE: Record<string, (c: Context) => Promise<Response>> = {
+  trips: tripsImport,
+  'trip-tracks': tripTracksImport,
+  storygraph: storygraphImport,
+  linkedin: linkedinImport,
+  youtube: youtubeImport,
+}
+
+// The preview: the same handler, inside a transaction that is always rolled back, so the
+// page shows exactly what the import would do. Only for imports whose every effect is in
+// this database; the Mastodon archive fetches and queues, and keeps its one step.
+app.post('/import/:kind/preview', bodyLimit({ maxSize: 64 * 1024 * 1024 }), async (c) => {
+  const kind = c.req.param('kind')
+  const handler = PREVIEWABLE[kind]
+  if (!handler) return c.notFound()
+  const body = (await c.req.parseBody()) as FormBody
+  const token = stashUpload(kind, body)
+  importModes.set(c.req.raw, { body, preview: { token, kind } })
+  return dryRun(() => handler(c))
 })
 
 // After /import/result, so that path is never read as an import's name.
