@@ -1,4 +1,5 @@
 import { logger } from './logger.js'
+import { inDryRun } from '../db/dry-run.js'
 
 /**
  * The one implementation of "wake another service on this box".
@@ -39,6 +40,9 @@ export interface WebhookPost {
 
 /** POST the wake signal. True on a 2xx, false on anything else. Never throws. */
 export async function postWebhook(opts: WebhookPost): Promise<boolean> {
+  // An import preview (ADR 0073) runs the real handler in a rolled-back transaction. Its
+  // writes never happened, so nobody may be told they did.
+  if (inDryRun()) return false
   const headers: Record<string, string> = { [opts.headerName]: opts.secret }
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
 

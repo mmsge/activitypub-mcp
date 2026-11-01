@@ -31,6 +31,11 @@ export interface ImportKind {
   help: string[]
   /** The primary button's label. */
   primary: string
+  /**
+   * Shown as a preview first: run in a rolled-back transaction, then confirmed. Only for
+   * imports whose every effect is in this database (ADR 0073).
+   */
+  preview?: boolean
 }
 
 export const IMPORT_KINDS: ImportKind[] = [
@@ -47,7 +52,8 @@ export const IMPORT_KINDS: ImportKind[] = [
       'Last ned frå StoryGraph: Manage account → Export StoryGraph library. Kvart intervall i «Dates Read» blir ei eiga lesing, kopla til BookWyrm-boka med ISBN-13, elles tittel og forfattar.',
       'Ein StoryGraph-dato fyller berre det BookWyrm manglar. Er dei usamde, vinn BookWyrm, og resultatet listar konflikten. Berre datoar blir lesne. Same fil på nytt endrar ingenting (ADR 0063).',
     ],
-    primary: 'Importer',
+    primary: 'Førehandsvis',
+    preview: true,
   },
   {
     id: 'youtube',
@@ -65,7 +71,8 @@ export const IMPORT_KINDS: ImportKind[] = [
       'watch-history.json frå Takeout (YouTube og YouTube Music → historikk). Idempotent på konto, video og lokalt minutt, så ein overlappande eksport legg berre til det som manglar.',
       'Det fulle arkivet på ~46 MB bør gå via kommandolinja: npm run import-youtube-watches -- <sti>. Opplastinga her blir lesen inne i tenaren, så ei stor nok fil kan ta tenaren ned med seg.',
     ],
-    primary: 'Importer',
+    primary: 'Førehandsvis',
+    preview: true,
   },
   {
     id: 'repair-neodb',
@@ -91,7 +98,8 @@ export const IMPORT_KINDS: ImportKind[] = [
       'Ein tur er kjend på avgangstid og dei to stasjonane, så ein ny eksport etter reisa oppdaterer den lagra turen i staden for å lagre han to gonger. Ein uendra eksport skriv ingenting.',
       'Resultatet listar òg lagra turar som manglar i fila. Ingenting blir sletta før du stadfestar det der, og berre turar mellom første og siste avgang i fila kan fjernast (ADR 0054).',
     ],
-    primary: 'Importer',
+    primary: 'Førehandsvis',
+    preview: true,
   },
   {
     id: 'trip-tracks',
@@ -105,7 +113,8 @@ export const IMPORT_KINDS: ImportKind[] = [
       'GPX-eksporten med alle år. Kvart spor er lina éin etappe teikna, kopla til CSV-turen med same stasjonar og lokale avgangstid. Stasjonspunkta blir lagra ved sida av, ikkje over, dei geokoda stasjonane.',
       'Fila er heile settet: ei rute eller eit punkt som ikkje lenger er med, blir fjerna. Ei fil utan lesbare spor blir avvist (ADR 0070).',
     ],
-    primary: 'Importer',
+    primary: 'Førehandsvis',
+    preview: true,
   },
   {
     id: 'archive',
@@ -117,6 +126,7 @@ export const IMPORT_KINDS: ImportKind[] = [
     accept: '.json',
     help: [
       'Be om arkivet under Mastodon → Innstillingar → Eksport. Pakk ut .tar.gz-fila og last opp outbox.json.',
+      'Denne importen har inga førehandsvising: han hentar aktørar og set i gang berikingar medan han køyrer, og det kan ikkje rullast tilbake.',
     ],
     primary: 'Importer',
   },
@@ -155,7 +165,8 @@ export const IMPORT_KINDS: ImportKind[] = [
       'Content-eksporten frå analysepanelet (siste 90 dagar er ei god standard). Visningar og engasjement per innlegg blir lesne frå arket TOP POSTS og lagra éi rad per innlegg per eksport.',
       'Eksporten er datert etter sitt eige rapportvindauge, så same fil to gonger er trygt.',
     ],
-    primary: 'Importer',
+    primary: 'Førehandsvis',
+    preview: true,
   },
 ]
 

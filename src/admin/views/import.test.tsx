@@ -124,7 +124,7 @@ const sgReport = (over: Partial<StorygraphImportReport> = {}): StorygraphImportR
 describe('StoryGraph read dates import', () => {
   it('offers the upload with the configured BookWyrm actor prefilled', () => {
     const html = String(<ImportKindPage kind={importKind('storygraph')!} bookwyrmActors={['@mvrkws@bookwyrm.social']} />)
-    expect(html).toContain('action="/admin/import/storygraph"')
+    expect(html).toContain('action="/admin/import/storygraph/preview"')
     expect(html).toContain('value="@mvrkws@bookwyrm.social"')
   })
 
@@ -170,8 +170,8 @@ const gpxReport = (over: Partial<TripTrackImportReport> = {}): TripTrackImportRe
 
 describe('GPX import', () => {
   it('has its own form, separate from the CSV one', () => {
-    expect(String(ImportKindPage({ kind: importKind('trip-tracks')! }))).toContain('action="/admin/import/trip-tracks"')
-    expect(String(ImportKindPage({ kind: importKind('trips')! }))).toContain('action="/admin/import/trips"')
+    expect(String(ImportKindPage({ kind: importKind('trip-tracks')! }))).toContain('action="/admin/import/trip-tracks/preview"')
+    expect(String(ImportKindPage({ kind: importKind('trips')! }))).toContain('action="/admin/import/trips/preview"')
   })
 
   it('lists the routes with no trip to join', () => {
@@ -236,5 +236,44 @@ describe('an import page', () => {
     const html = String(ImportKindPage({ kind: importKind('trips')!, error: 'Inga fil lasta opp' }))
     expect(html).toContain('Importen feila. Ingenting vart lagra.')
     expect(html).toContain('Inga fil lasta opp')
+  })
+})
+
+describe('the preview', () => {
+  const preview = { token: 'tok123', kind: 'trips' }
+
+  it('says nothing is stored yet and confirms the stashed upload by its token', () => {
+    const html = render({ ...result(), inserted: 3 } as TripImportResult).replace(/^/, '')
+    expect(html).not.toContain('Ingenting er lagra enno')
+    const p = String(TripImportResultPage({ result: result(), preview }))
+    expect(p).toContain('Ingenting er lagra enno. Dette vil skje:')
+    expect(p).toContain('action="/admin/import/trips"')
+    expect(p).toContain('name="token" value="tok123"')
+    expect(p).toContain('>Sjå over</div>')
+  })
+
+  it('offers the prune as an opt-in, off by default, and not as its own form', () => {
+    const p = String(TripImportResultPage({ result: result(), preview }))
+    expect(p).toContain('<input type="checkbox" name="prune" value="1"')
+    expect(p).not.toMatch(/name="prune" value="1"[^>]*checked=""/)
+    expect(p).toContain('Fjern òg dei 1 tur som manglar i fila')
+    expect(p).not.toContain('/admin/import/trips/prune')
+  })
+
+  it('offers no opt-in when the threshold refused', () => {
+    const p = String(TripImportResultPage({ result: result({ refusal: 'too many' }), preview }))
+    expect(p).not.toContain('name="prune"')
+  })
+
+  it('says what the confirm removed', () => {
+    const p = String(TripImportResultPage({ result: result(), pruned: { deleted: 1, refusal: null, rejected: [], orphaned: [] } }))
+    expect(p).toContain('1 tur er fjerna')
+    expect(p).not.toContain('/admin/import/trips/prune')
+  })
+
+  it('leaves the Mastodon archive as one step', () => {
+    const html = String(ImportKindPage({ kind: importKind('archive')! }))
+    expect(html).toContain('action="/admin/import/archive"')
+    expect(html).not.toContain('Sjå over')
   })
 })

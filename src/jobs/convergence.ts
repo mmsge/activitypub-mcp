@@ -1,5 +1,6 @@
 import { config, convergenceEnabled } from '../config.js'
 import { logger } from '../lib/logger.js'
+import { inDryRun } from '../db/dry-run.js'
 import { publishNtfy, type Notifier, type NtfyTarget } from '../lib/ntfy.js'
 import {
   composeMessage,
@@ -59,6 +60,9 @@ export async function runConvergenceWatch(
   opts: ConvergenceRunOptions = {},
   notify: Notifier = publishNtfy,
 ): Promise<ConvergenceRunKind> {
+  // Never inside an import preview (ADR 0073): the legs it would count are rolled back,
+  // and a crossing recorded from them would be announced for real.
+  if (inDryRun()) return 'disabled'
   // Refuse to run a watcher that cannot notify. Recording a crossing while every push
   // 401s is worse here than a missed milestone: the row IS the "already announced"
   // mark, so a crossing written now can never be announced later.

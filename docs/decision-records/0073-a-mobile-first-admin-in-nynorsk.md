@@ -6,7 +6,8 @@
 **Contributors:** Markus (design handoff "Admin mobil v3"; decided: stacked PRs, dry-run
 imports as their own later phase, old URLs answer 301) + Claude (implemented)
 
-**Affects:** `src/admin/views/data-tabs.tsx`, `src/jobs/job-runs.ts`, `src/jobs/scheduler.ts`,
+**Affects:** `src/db/client.ts`, `src/db/dry-run.ts`, `src/admin/import-pending.ts`,
+`src/admin/views/data-tabs.tsx`, `src/jobs/job-runs.ts`, `src/jobs/scheduler.ts`,
 `src/admin/views/logs.tsx`, `src/admin/import-kinds.ts`, `src/admin/import-runs.ts`, `drizzle/0047_import_runs.sql`,
 `src/admin/views/import.tsx`, `src/admin/category-router.tsx`, `src/admin/views/kit.tsx`,
 `src/admin/views/media-tabs.tsx`, `src/admin/views/other-tabs.tsx`, `src/admin/media-router.tsx`,
@@ -117,6 +118,33 @@ pages that GET, and as little JavaScript as possible.
   `.env` is listed as off with the variable that turns it on. A test holds the scheduler's
   ids and the registry in `job-runs.ts` to each other.
 - LinkedIn's attention card now opens the Status tab, since Innlegg is first.
+
+### Dry run for file imports
+
+- **The real importer, rolled back.** `dryRun(fn)` runs `fn` in a transaction that is always
+  rolled back, and `getDb()` answers with that transaction for everything awaited inside it
+  (an `AsyncLocalStorage`). So the preview is the import itself, not a second
+  implementation that could disagree with it. A nested `db.transaction` becomes a savepoint,
+  and the YouTube importer now puts each batch in one, so a rejected batch still leaves the
+  preview's transaction usable.
+- **Only database-only imports.** StoryGraph, YouTube, Togturar, Togruter and LinkedIn. The
+  Mastodon archive fetches actors, queues enrichment and fires webhooks while it runs, which a
+  rollback cannot undo, so it keeps its one step and says why.
+- **Nobody is told about a preview.** `postWebhook` and `runConvergenceWatch` return at once
+  inside one (`inDryRun()`, in its own module so mocks of the client cannot hide it). The
+  import-run row a preview writes is rolled back with everything else.
+- **The upload is held, not re-sent.** The preview stashes the form body, File included,
+  under a one-time token for ten minutes (at most four, oldest out). "Importer" posts the
+  token to the import's ordinary route, which runs the same handler on the same bytes. An
+  expired or used token is refused with a request to upload again. A direct POST with a file
+  still imports in one step.
+- **Trips: the prune is an opt-in.** The preview lists the stored trips the export no longer
+  contains with an unticked "Fjern òg …"; ticked, the button reads "Importer og fjern N". The
+  confirm removes only ids the preview listed and the import's own fresh plan still
+  contains, through `applyTripPrune` with that plan's range and moment, so the threshold and
+  range checks are the ones they always were. The separate prune route stays for a direct
+  import.
+- The step bar is Vel fil → Sjå over → Ferdig wherever a preview exists.
 
 ## Consequences
 

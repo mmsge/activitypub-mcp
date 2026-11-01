@@ -66,12 +66,22 @@ export const ImportListPage: FC<{ runs: Map<string, ImportRun>; now?: Date }> = 
 
 // --- one import ------------------------------------------------------------------
 
-const Steps: FC<{ at: 'form' | 'done' }> = ({ at }) => (
-  <div class="steps" aria-label="Steg">
-    <div class={`step${at === 'form' ? ' on' : ' past'}`}><div class="step-bar" /><div class="step-l">Vel fil</div></div>
-    <div class={`step${at === 'done' ? ' on' : ''}`}><div class="step-bar" /><div class="step-l">Ferdig</div></div>
-  </div>
-)
+type Step = 'form' | 'preview' | 'done'
+
+/** Vel fil → (Sjå over →) Ferdig. The middle step exists only where a preview does. */
+const Steps: FC<{ at: Step; withPreview?: boolean }> = ({ at, withPreview }) => {
+  const steps: Array<[Step, string]> = withPreview
+    ? [['form', 'Vel fil'], ['preview', 'Sjå over'], ['done', 'Ferdig']]
+    : [['form', 'Vel fil'], ['done', 'Ferdig']]
+  const index = steps.findIndex(([id]) => id === at)
+  return (
+    <div class="steps" aria-label="Steg">
+      {steps.map(([id, label], i) => (
+        <div class={`step${id === at ? ' on' : i < index ? ' past' : ''}`}><div class="step-bar" /><div class="step-l">{label}</div></div>
+      ))}
+    </div>
+  )
+}
 
 const KindHead: FC<{ kind: ImportKind }> = ({ kind }) => (
   <div class="hx-wrap">
@@ -114,14 +124,14 @@ export const ImportKindPage: FC<{ kind: ImportKind; error?: string; bookwyrmActo
     <Layout title={kind.label} nav="import" back={{ href: '/admin/import', label: 'Import' }}>
       <div class="stack imp">
         <KindHead kind={kind} />
-        {kind.fileField && <Steps at="form" />}
+        {kind.fileField && <Steps at="form" withPreview={kind.preview} />}
         {error && (
           <div class="banner-error" role="alert">
             <div class="banner-title">Importen feila. Ingenting vart lagra.</div>
             <div class="banner-reason">{error}</div>
           </div>
         )}
-        <form class="imp-form" method="post" action={`/admin/import/${kind.id}`}
+        <form class="imp-form" method="post" action={kind.preview ? `/admin/import/${kind.id}/preview` : `/admin/import/${kind.id}`}
           enctype={kind.fileField ? 'multipart/form-data' : undefined}>
           {kind.fileField && (
             <label class="picker" data-accept={kind.accept}>
@@ -141,7 +151,7 @@ export const ImportKindPage: FC<{ kind: ImportKind; error?: string; bookwyrmActo
             </label>
           ))}
           <button type="submit" class="btn-primary"
-            data-busy={kind.fileField ? 'Les fila …' : 'Køyrer …'}>{kind.primary}</button>
+            data-busy={kind.preview ? 'Les fila …' : kind.fileField ? 'Importerer …' : 'Køyrer …'}>{kind.primary}</button>
         </form>
       </div>
       <script dangerouslySetInnerHTML={{ __html: IMPORT_JS }} />
@@ -151,41 +161,79 @@ export const ImportKindPage: FC<{ kind: ImportKind; error?: string; bookwyrmActo
 
 // --- results ---------------------------------------------------------------------
 
-/** The end of the flow: a green banner, the figures, the detail, and the way back. */
+/** A preview's handle on its stashed upload, for the confirm form. */
+export interface PreviewInfo {
+  token: string
+  kind: string
+}
+
+/**
+ * The end of the flow, or its middle. As a result: a green banner, the figures, the
+ * detail and the way back. As a preview: nothing is stored yet, the same figures say
+ * what would happen, and the confirm posts the stashed upload by its token.
+ */
 const Done: FC<PropsWithChildren<{
   kindId: string
   title?: string
   banner: Child
   tone?: 'green' | 'yellow' | 'red'
   note?: Child
-}>> = ({ kindId, title, banner, tone = 'green', note, children }) => {
+  preview?: PreviewInfo
+  /** Preview only: a checkbox the confirm carries (the trips prune). */
+  optIn?: { name: string; label: string; confirmLabel: string }
+}>> = ({ kindId, title, banner, tone = 'green', note, preview, optIn, children }) => {
   const kind = importKind(kindId)
   const cat = kind ? category(kind.category) : undefined
   return (
     <Layout title={title ?? kind?.label ?? 'Import'} nav="import" back={{ href: '/admin/import', label: 'Import' }}>
       <div class="stack imp">
-        {kind?.fileField && <Steps at="done" />}
-        <div class={`done-banner tone-bg-${tone}`} role="status">
-          <div class="done-title">{banner}</div>
-          {note && <div class="done-note">{note}</div>}
-        </div>
+        {kind?.fileField && <Steps at={preview ? 'preview' : 'done'} withPreview={kind.preview} />}
+        {preview ? (
+          <div class="done-banner tone-bg-blue" role="status">
+            <div class="done-title">Ingenting er lagra enno. Dette vil skje:</div>
+            {note && <div class="done-note">{note}</div>}
+          </div>
+        ) : (
+          <div class={`done-banner tone-bg-${tone}`} role="status">
+            <div class="done-title">{banner}</div>
+            {note && <div class="done-note">{note}</div>}
+          </div>
+        )}
         {children}
-        <div class="done-actions">
-          {cat && <a class="btn btn-ghost" href={cat.href}>Tilbake til {cat.label}</a>}
-          <a class="btn btn-ghost" href="/admin">Til oversikt</a>
-        </div>
+        {preview ? (
+          <form class="imp-form confirm" method="post" action={`/admin/import/${preview.kind}`}>
+            <input type="hidden" name="token" value={preview.token} />
+            {optIn && (
+              <label class="opt-in">
+                <input type="checkbox" name={optIn.name} value="1"
+                  onchange={`this.form.querySelector('button[type=submit]').textContent=this.checked?${JSON.stringify(optIn.confirmLabel)}:'Importer'`} />
+                <span>{optIn.label}</span>
+              </label>
+            )}
+            <div class="done-actions">
+              <a class="btn btn-ghost" href={`/admin/import/${preview.kind}`}>Avbryt</a>
+              <button type="submit" class="btn-primary" data-busy="Importerer …">Importer</button>
+            </div>
+          </form>
+        ) : (
+          <div class="done-actions">
+            {cat && <a class="btn btn-ghost" href={cat.href}>Tilbake til {cat.label}</a>}
+            <a class="btn btn-ghost" href="/admin">Til oversikt</a>
+          </div>
+        )}
       </div>
+      {preview && <script dangerouslySetInnerHTML={{ __html: IMPORT_JS }} />}
     </Layout>
   )
 }
 
 /** Generic result for the archive, the crawl and the two maintenance runs. */
-export const ImportResultPage: FC<{ result: ImportResult; actor: string; kind?: string }> = ({ result, actor, kind = 'archive' }) => (
-  <Done kindId={kind} banner={result.errors.length ? `Ferdig, med ${nf(result.errors.length)} feil` : 'Ferdig'}
+export const ImportResultPage: FC<{ result: ImportResult; actor: string; kind?: string; preview?: PreviewInfo }> = ({ result, actor, kind = 'archive', preview }) => (
+  <Done kindId={kind} preview={preview} banner={result.errors.length ? `Ferdig, med ${nf(result.errors.length)} feil` : 'Ferdig'}
     tone={result.errors.length ? 'yellow' : 'green'} note={actor || undefined}>
     <Stats items={[
       { n: nf(result.total), label: 'totalt' },
-      { n: nf(result.imported), label: 'importerte', tone: 'green' },
+      { n: nf(result.imported), label: preview ? 'blir importerte' : 'importerte', tone: 'green' },
       { n: nf(result.skipped), label: 'fanst frå før' },
       { n: nf(result.errors.length), label: 'feil', tone: result.errors.length ? 'red' : undefined },
     ]} />
@@ -219,12 +267,13 @@ export const YoutubeImportResultPage: FC<{
   problems: ParseProblem[]
   normalisations: ParseNormalisation[]
   failed: RowFailure[]
-}> = ({ total, parsed, inserted, skipped, problems, normalisations, failed }) => (
-  <Done kindId="youtube" banner={`${nf(inserted)} nye visningar`} note={`${nf(parsed)} av ${nf(total)} oppføringar lesne`}
+  preview?: PreviewInfo
+}> = ({ total, parsed, inserted, skipped, problems, normalisations, failed, preview }) => (
+  <Done kindId="youtube" preview={preview} banner={`${nf(inserted)} nye visningar`} note={`${nf(parsed)} av ${nf(total)} oppføringar lesne`}
     tone={problems.length + failed.length ? 'yellow' : 'green'}>
     <Stats items={[
       { n: nf(total), label: 'oppføringar i fila' },
-      { n: nf(inserted), label: 'lagt til', tone: 'green' },
+      { n: nf(inserted), label: preview ? 'blir lagt til' : 'lagt til', tone: 'green' },
       { n: nf(skipped), label: 'fanst frå før' },
       { n: nf(normalisations.length), label: 'normaliserte', tone: normalisations.length ? 'blue' : undefined },
       { n: nf(problems.length + failed.length), label: 'ikkje importerte', tone: problems.length + failed.length ? 'red' : undefined },
@@ -259,19 +308,28 @@ export const YoutubeImportResultPage: FC<{
  * page has been deleted: the confirm form is the only route to `applyTripPrune`, and it
  * is rendered only when the plan is one the threshold would accept. See ADR 0054.
  */
-export const TripImportResultPage: FC<{ result: TripImportResult }> = ({ result }) => {
+export const TripImportResultPage: FC<{ result: TripImportResult; preview?: PreviewInfo; pruned?: ApplyPruneResult }> = ({ result, preview, pruned }) => {
   const { prune } = result
-  const canConfirm = prune.refusal === null && prune.candidates.length > 0
+  const canConfirm = prune.refusal === null && prune.candidates.length > 0 && !pruned
   const n = prune.candidates.length
+  const turar = (k: number) => `${k} ${k === 1 ? 'tur' : 'turar'}`
   return (
-    <Done kindId="trips" banner={`${nf(result.inserted)} nye, ${nf(result.updated)} oppdaterte`}
-      note="viaduct.world, CSV" tone={n ? 'yellow' : 'green'}>
+    <Done kindId="trips" preview={preview}
+      banner={`${nf(result.inserted)} nye, ${nf(result.updated)} oppdaterte${pruned ? `, ${turar(pruned.deleted)} fjerna` : ''}`}
+      note="viaduct.world, CSV" tone={pruned?.refusal ? 'red' : n && !pruned ? 'yellow' : 'green'}
+      optIn={preview && canConfirm ? { name: 'prune', label: `Fjern òg dei ${turar(n)} som manglar i fila`, confirmLabel: `Importer og fjern ${n}` } : undefined}>
       <Stats items={[
         { n: nf(result.total), label: 'rader i fila' },
-        { n: nf(result.inserted), label: 'nye', tone: 'green' },
-        { n: nf(result.updated), label: 'oppdaterte', tone: 'blue' },
+        { n: nf(result.inserted), label: preview ? 'blir nye' : 'nye', tone: 'green' },
+        { n: nf(result.updated), label: preview ? 'blir oppdaterte' : 'oppdaterte', tone: 'blue' },
         { n: nf(result.unchanged), label: 'uendra' },
       ]} />
+      {pruned?.refusal && (
+        <div class="banner-error" role="alert">
+          <div class="banner-title">Ingenting vart fjerna</div>
+          <div class="banner-reason">{pruned.refusal}</div>
+        </div>
+      )}
       {prune.window && (
         <p class="muted">
           Eksporten dekkjer <strong class="mono">{prune.window.fromKey}</strong> til{' '}
@@ -297,9 +355,13 @@ export const TripImportResultPage: FC<{ result: TripImportResult }> = ({ result 
         <section class="sec sec-warn">
           <div class="sec-head"><div class="sec-title tone-yellow">Ikkje i denne eksporten</div></div>
           <p class="muted">
-            Ingenting her er sletta. {canConfirm
-              ? 'Les lista, og stadfest under for å fjerne dei. Innlegg knytte til ein fjerna tur blir knytte til rett tur på nytt.'
-              : 'Fjerninga vart avvist, så det er ingenting å stadfeste.'}
+            {pruned
+              ? `${turar(pruned.deleted)} er fjerna. Innlegg knytte til dei er knytte til rett tur på nytt.`
+              : preview && canConfirm
+                ? 'Desse blir ikkje fjerna med mindre du kryssar av under. Innlegg knytte til ein fjerna tur blir knytte til rett tur på nytt.'
+                : canConfirm
+                  ? 'Ingenting her er sletta. Les lista, og stadfest under for å fjerne dei. Innlegg knytte til ein fjerna tur blir knytte til rett tur på nytt.'
+                  : 'Ingenting her er sletta. Fjerninga vart avvist, så det er ingenting å stadfeste.'}
           </p>
           <div class="panel">
             {prune.candidates.map((t) => (
@@ -309,7 +371,7 @@ export const TripImportResultPage: FC<{ result: TripImportResult }> = ({ result 
                 metric={t.distanceKm != null ? `${t.distanceKm} km` : undefined} />
             ))}
           </div>
-          {canConfirm && prune.window && (
+          {canConfirm && !preview && prune.window && (
             // The trips are posted back by id, and every guarantee this page makes is
             // re-established server-side before anything is deleted, so this list can
             // only ever narrow what goes.
@@ -361,8 +423,8 @@ export const TripPruneResultPage: FC<{ result: ApplyPruneResult }> = ({ result }
 )
 
 /** The outcome of a viaduct.world GPX import. See ADR 0070. */
-export const TripTrackImportResultPage: FC<{ report: TripTrackImportReport }> = ({ report }) => (
-  <Done kindId="trip-tracks" banner={`${nf(report.tracksInFile)} ruter lesne`} note="viaduct.world, GPX"
+export const TripTrackImportResultPage: FC<{ report: TripTrackImportReport; preview?: PreviewInfo }> = ({ report, preview }) => (
+  <Done kindId="trip-tracks" preview={preview} banner={`${nf(report.tracksInFile)} ruter lesne`} note="viaduct.world, GPX"
     tone={report.unmatched.length || report.problems.length ? 'yellow' : 'green'}>
     <Stats items={[
       { n: nf(report.tracksInserted), label: 'nye', tone: 'green' },
@@ -399,8 +461,8 @@ const CONFLICT: Record<string, string> = {
 }
 
 /** The outcome of a StoryGraph read-dates import. See ADR 0063. */
-export const StorygraphImportResultPage: FC<{ report: StorygraphImportReport }> = ({ report }) => (
-  <Done kindId="storygraph" banner={`${nf(report.booksMatched)} bøker kopla`}
+export const StorygraphImportResultPage: FC<{ report: StorygraphImportReport; preview?: PreviewInfo }> = ({ report, preview }) => (
+  <Done kindId="storygraph" preview={preview} banner={`${nf(report.booksMatched)} bøker kopla`}
     note={<>Mot <span class="mono">{report.actorApId}</span>: {nf(report.readsInserted)} lesingar lagt til, {nf(report.readsUpdated)} oppdaterte, {nf(report.readsUnchanged)} uendra, {nf(report.readsDeleted)} fjerna fordi StoryGraph ikkje lenger listar dei.</>}
     tone={report.conflicts.length || report.unmatched.length ? 'yellow' : 'green'}>
     <Stats items={[

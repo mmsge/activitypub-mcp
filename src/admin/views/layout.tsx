@@ -372,6 +372,9 @@ a.is-row:hover { text-decoration: none; background: rgba(139, 124, 255, 0.05); }
 .done-note { margin-top: 4px; font-size: 13px; overflow-wrap: anywhere; }
 .tone-bg-green { background: var(--green-bg); color: #e6f8ee; } .tone-bg-green .done-note { color: var(--green); }
 .tone-bg-yellow { background: var(--yellow-bg); color: #fbefcf; } .tone-bg-yellow .done-note { color: var(--yellow); }
+.tone-bg-blue { background: var(--accent-tint); color: var(--ink); } .tone-bg-blue .done-note { color: var(--accent-ink); }
+.opt-in { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 0 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--yellow-bg); font-size: 14px; cursor: pointer; }
+.opt-in input { width: 20px; height: 20px; min-height: 0; accent-color: var(--accent); }
 .tone-bg-red { background: var(--red-bg); color: #ffdede; } .tone-bg-red .done-note { color: #ffbcbc; }
 .done-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .done-actions .btn { flex: 1 1 160px; height: 48px; }
