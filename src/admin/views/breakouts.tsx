@@ -77,7 +77,6 @@ export function BreakoutsPage({ report }: Props) {
 
   return (
     <Layout title="Breakouts">
-      <h1>Breakouts</h1>
 
       <div class="grid">
         <div class="card">

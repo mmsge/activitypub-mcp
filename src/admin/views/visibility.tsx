@@ -76,7 +76,6 @@ export function VisibilityPage(props: Props) {
 
   return (
     <Layout title="Visibility">
-      <h1>Visibility</h1>
 
       <div class="card" style="margin-bottom:24px">
         <p style="margin:0 0 8px">

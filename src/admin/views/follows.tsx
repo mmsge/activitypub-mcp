@@ -14,7 +14,6 @@ interface Follow {
 export function FollowsPage({ follows }: { follows: Follow[] }) {
   return (
     <Layout title="Follows">
-      <h1>Follows</h1>
       <p style="color:#888; margin-bottom:20px; font-size:13px">
         Follows are managed via the <code>FOLLOW_ACTORS</code> environment variable and synced on server startup.
       </p>

@@ -22,7 +22,6 @@ const Shell: FC<PropsWithChildren<{
   returnTo: string
 }>> = ({ tab, total, notice, returnTo, children }) => (
   <Layout title="Media">
-    <h1>Media</h1>
     {notice && <div class="notice">{notice}</div>}
     <Tabs active={tab} />
     <div class="filters" style="margin-bottom:20px">

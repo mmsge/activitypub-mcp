@@ -1,38 +1,44 @@
 /** @jsxImportSource hono/jsx */
+import { FontLinks, TOKENS } from './layout.js'
 
+// Full-screen login from the mobile redesign: no header and no bar. Same POST.
 export function LoginPage({ error }: { error?: string }) {
   return (
-    <html lang="en">
+    <html lang="nn">
       <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Admin Login</title>
-        <style dangerouslySetInnerHTML={{ __html: `
-          * { box-sizing: border-box; margin: 0; padding: 0; }
-          body { font-family: system-ui, sans-serif; background: #0f0f0f; color: #e0e0e0; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
-          .box { background: #1a1a1a; border: 1px solid #333; border-radius: 12px; padding: 40px; width: 360px; }
-          h1 { font-size: 22px; margin-bottom: 8px; color: #fff; }
-          p { color: #888; margin-bottom: 28px; font-size: 14px; }
-          label { display: block; color: #aaa; font-size: 12px; margin-bottom: 6px; }
-          input { width: 100%; background: #222; border: 1px solid #444; color: #e0e0e0; padding: 10px 14px; border-radius: 6px; font-size: 14px; margin-bottom: 16px; }
-          input:focus { outline: none; border-color: #7c6ef7; }
-          button { width: 100%; background: #7c6ef7; color: #fff; border: none; padding: 11px; border-radius: 6px; cursor: pointer; font-size: 15px; font-weight: 600; }
-          button:hover { background: #6b5ce7; }
-          .error { color: #f87171; background: #3a1a1a; padding: 10px 14px; border-radius: 6px; margin-bottom: 16px; font-size: 13px; }
-        ` }} />
+        <meta name="theme-color" content="#14121f" />
+        <title>Logg inn · AP Admin</title>
+        <FontLinks />
+        <style dangerouslySetInnerHTML={{ __html: TOKENS + LOGIN_CSS }} />
       </head>
       <body>
-        <div class="box">
+        <form class="login" method="post" action="/admin/login">
           <h1>AP Admin</h1>
-          <p>Sign in to manage your ActivityPub server</p>
-          {error && <div class="error">{error}</div>}
-          <form method="post" action="/admin/login">
-            <label for="password">Password</label>
-            <input type="password" id="password" name="password" autofocus required />
-            <button type="submit">Sign in</button>
-          </form>
-        </div>
+          {error && <div class="login-error" role="alert">{error}</div>}
+          <label>
+            <span>Passord</span>
+            <input type="password" name="password" autocomplete="current-password" autofocus required />
+          </label>
+          <button type="submit">Logg inn</button>
+        </form>
       </body>
     </html>
   )
 }
+
+const LOGIN_CSS = `
+body { min-height: 100vh; min-height: 100dvh; display: flex; }
+.login { flex: 1; max-width: 420px; margin: 0 auto; display: flex; flex-direction: column; justify-content: center; gap: 20px; padding: 24px; }
+.login h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; }
+.login-error { padding: 12px 14px; border-radius: 12px; background: var(--red-bg); color: #ffbcbc; font-size: 14px; }
+.login label { display: flex; flex-direction: column; gap: 6px; }
+.login label span { font-size: 13px; color: var(--muted); }
+.login input { height: 52px; width: 100%; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line-strong);
+  background: var(--input); color: var(--ink); font-size: 16px; }
+.login input:focus { outline: none; border-color: var(--accent); }
+.login button { height: 52px; border: none; border-radius: 14px; background: var(--accent); color: var(--on-accent);
+  font-size: 16px; font-weight: 600; cursor: pointer; }
+.login button:hover { filter: brightness(1.08); }
+`

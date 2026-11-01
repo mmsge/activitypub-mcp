@@ -45,7 +45,6 @@ export function ThreadsPage({ report, failures }: Props) {
 
   return (
     <Layout title="Threads">
-      <h1>Threads</h1>
 
       <div class="grid">
         <div class="card">

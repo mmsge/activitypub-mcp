@@ -14,8 +14,7 @@ export const ImportPage: FC<{ error?: string; bookwyrmActors?: string[] }> = ({
   error,
   bookwyrmActors = getBookwyrmActors(),
 }) => (
-  <Layout title="Import">
-    <h1>Import Historical Activities</h1>
+  <Layout title="Import" nav="import">
 
     {error && <div class="error">{error}</div>}
 
@@ -219,8 +218,7 @@ export const ImportResultPage: FC<{
   result: ImportResult
   actor: string
 }> = ({ result, actor }) => (
-  <Layout title="Import Result">
-    <h1>Import Complete</h1>
+  <Layout title="Import Complete" nav="import">
     {actor && <p style="color: #888; margin-bottom: 20px;">{actor}</p>}
 
     <div class="grid" style="margin-bottom: 24px;">
@@ -251,7 +249,7 @@ export const ImportResultPage: FC<{
 
     <div class="filters">
       <a href="/admin/import" class="btn">Import More</a>
-      <a href="/admin/objects" class="btn" style="background: #333;">View Posts</a>
+      <a href="/admin/objects" class="btn btn-ghost">View Posts</a>
     </div>
   </Layout>
 )
@@ -281,8 +279,7 @@ export const YoutubeImportResultPage: FC<{
   }
 
   return (
-    <Layout title="Import Result">
-      <h1>Watch History Imported</h1>
+    <Layout title="Watch History Imported" nav="import">
       <p style="color: #888; margin-bottom: 20px;">
         {parsed} of {total} entries parsed
       </p>
@@ -356,7 +353,7 @@ export const YoutubeImportResultPage: FC<{
 
       <div class="filters">
         <a href="/admin/import" class="btn">Import More</a>
-        <a href="/admin/media?tab=youtube" class="btn" style="background: #333;">View Watch History</a>
+        <a href="/admin/media?tab=youtube" class="btn btn-ghost">View Watch History</a>
       </div>
     </Layout>
   )
@@ -377,8 +374,7 @@ export const TripImportResultPage: FC<{ result: TripImportResult }> = ({ result 
   const canConfirm = prune.refusal === null && prune.candidates.length > 0
 
   return (
-    <Layout title="Import Result">
-      <h1>Train Trips Imported</h1>
+    <Layout title="Train Trips Imported" nav="import">
       <p style="color: #888; margin-bottom: 20px;">viaduct.world CSV export</p>
 
       <div class="grid" style="margin-bottom: 24px;">
@@ -496,7 +492,7 @@ export const TripImportResultPage: FC<{ result: TripImportResult }> = ({ result 
 
       <div class="filters">
         <a href="/admin/import" class="btn">Import More</a>
-        <a href="/admin/objects" class="btn" style="background: #333;">View Posts</a>
+        <a href="/admin/objects" class="btn btn-ghost">View Posts</a>
       </div>
     </Layout>
   )
@@ -504,8 +500,7 @@ export const TripImportResultPage: FC<{ result: TripImportResult }> = ({ result 
 
 /** The outcome of a confirmed prune. */
 export const TripPruneResultPage: FC<{ result: ApplyPruneResult }> = ({ result }) => (
-  <Layout title="Trips Pruned">
-    <h1>{result.deleted > 0 ? 'Trips Pruned' : 'Nothing Pruned'}</h1>
+  <Layout title={result.deleted > 0 ? 'Trips Pruned' : 'Nothing Pruned'} nav="import">
 
     {result.refusal && <div class="error">{result.refusal}</div>}
 
@@ -559,15 +554,14 @@ export const TripPruneResultPage: FC<{ result: ApplyPruneResult }> = ({ result }
 
     <div class="filters">
       <a href="/admin/import" class="btn">Import More</a>
-      <a href="/admin/objects" class="btn" style="background: #333;">View Posts</a>
+      <a href="/admin/objects" class="btn btn-ghost">View Posts</a>
     </div>
   </Layout>
 )
 
 /** The outcome of a viaduct.world GPX import. See ADR 0070. */
 export const TripTrackImportResultPage: FC<{ report: TripTrackImportReport }> = ({ report }) => (
-  <Layout title="Import Result">
-    <h1>Train Routes Imported</h1>
+  <Layout title="Train Routes Imported" nav="import">
     <p style="color: #888; margin-bottom: 20px;">viaduct.world GPX export</p>
 
     <div class="grid" style="margin-bottom: 24px;">
@@ -670,8 +664,7 @@ const range = (r: StorygraphReadRange): string => `${r.started ?? '?'} → ${r.f
 
 /** The outcome of a StoryGraph read-dates import. See ADR 0063. */
 export const StorygraphImportResultPage: FC<{ report: StorygraphImportReport }> = ({ report }) => (
-  <Layout title="Import Result">
-    <h1>StoryGraph Read Dates Imported</h1>
+  <Layout title="StoryGraph Read Dates Imported" nav="import">
     <p style="color: #888; margin-bottom: 20px;">
       Matched against <span class="mono">{report.actorApId}</span>
     </p>
