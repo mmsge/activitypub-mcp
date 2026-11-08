@@ -5,8 +5,8 @@ import { bodyLimit } from 'hono/body-limit'
 import { requireAuth } from './middleware.js'
 import { verifyAdminPassword, createSession, deleteSession } from './auth.js'
 import { getDb } from '../db/client.js'
-import { activities, objects, follows, activityLog, linkedinPosts, scrobbles, trainTrips } from '../db/schema.js'
-import { and, desc, eq, gt, gte, count, isNull, isNotNull, or } from 'drizzle-orm'
+import { activities, objects, follows, activityLog, linkedinPosts, scrobbles, trainTrips, actors } from '../db/schema.js'
+import { and, desc, eq, gt, gte, count, isNull, isNotNull, or, sql } from 'drizzle-orm'
 import { LoginPage } from './views/login.js'
 import { DashboardPage } from './views/dashboard.js'
 import { LogsPage, LogRows, logFilterOf } from './views/logs.js'
@@ -55,6 +55,7 @@ import { notifyMsgeChanged } from '../lib/msge-webhook.js'
 import { runConvergenceWatch } from '../jobs/convergence.js'
 import { applyTripPrune } from './prune-trips.js'
 import { resolveActorByHandle } from '../lib/fetch-actor.js'
+import { followFromAdmin, retryFollowFromAdmin, unfollowFromAdmin, type FollowOutcome } from './follow-admin.js'
 import { logger } from '../lib/logger.js'
 
 const app = new Hono()
@@ -179,6 +180,31 @@ app.post('/stations/pin', bodyLimit({ maxSize: 16 * 1024 }), async (c) => {
     ? `; landet tømt, ${result.weatherDropped} vêrdagar sletta og blir henta på nytt`
     : ''
   return back('notice', `${result.name} festa til viaduct-posisjonen (${moved}${extra}).`)
+})
+
+// Follow, retry and unfollow (ADR 0074). Each answers on the Følgjer tab with a notice
+// or an error. The session cookie is SameSite=Strict, so another site cannot post here.
+const followsBack = (c: Context, r: FollowOutcome) =>
+  c.redirect(categoryHref('fediverse', 'folgjer', { [r.ok ? 'notice' : 'error']: r.message }))
+
+app.post('/follows/follow', bodyLimit({ maxSize: 4 * 1024 }), async (c) => {
+  const body = await c.req.parseBody()
+  const handle = typeof body['handle'] === 'string' ? body['handle'] : ''
+  return followsBack(c, await followFromAdmin(handle))
+})
+
+app.post('/follows/retry', bodyLimit({ maxSize: 4 * 1024 }), async (c) => {
+  const body = await c.req.parseBody()
+  const apId = typeof body['actor'] === 'string' ? body['actor'] : ''
+  if (!apId) return followsBack(c, { ok: false, message: 'Mangla aktøren' })
+  return followsBack(c, await retryFollowFromAdmin(apId))
+})
+
+app.post('/follows/unfollow', bodyLimit({ maxSize: 4 * 1024 }), async (c) => {
+  const body = await c.req.parseBody()
+  const apId = typeof body['actor'] === 'string' ? body['actor'] : ''
+  if (!apId) return followsBack(c, { ok: false, message: 'Mangla aktøren' })
+  return followsBack(c, await unfollowFromAdmin(apId))
 })
 
 // Logs. The page and its 10s poll run the same query, so it lives in one place.
@@ -718,7 +744,7 @@ app.post('/import/repair-neodb', async (c) => {
   return c.redirect(`/admin/import/result?${params}`)
 })
 
-app.get('/import/result', (c) => {
+app.get('/import/result', async (c) => {
   const actor = c.req.query('actor') ?? ''
   const kind = c.req.query('kind') ?? 'archive'
   const result = {
@@ -729,8 +755,25 @@ app.get('/import/result', (c) => {
       ? [`${c.req.query('errorCount')} feil, sjå serverloggen for detaljar`]
       : [],
   }
-  return c.html(<ImportResultPage result={result} actor={actor} kind={kind} />)
+  const follow = kind === 'crawl' ? await crawledFollowState(actor) : undefined
+  return c.html(<ImportResultPage result={result} actor={actor} kind={kind} follow={follow} />)
 })
+
+/**
+ * Whether the actor whose outbox was just read is followed, from the database alone. The
+ * crawl stored the actor, so no request leaves this box to draw the button.
+ */
+async function crawledFollowState(handle: string) {
+  const h = `@${handle.trim().replace(/^@/, '')}`.toLowerCase()
+  if (!/^@[^@]+@[^@]+$/.test(h)) return undefined
+  const [row] = await getDb()
+    .select({ apId: actors.apId, handle: actors.handle, status: follows.status })
+    .from(actors)
+    .leftJoin(follows, eq(follows.actorApId, actors.apId))
+    .where(sql`lower(${actors.handle}) = ${h}`)
+    .limit(1)
+  return row ? { handle: row.handle ?? h, actorApId: row.apId, status: row.status ?? null } : undefined
+}
 
 // --- Dry run (ADR 0073) -------------------------------------------------------------
 

@@ -1,6 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import { describe, it, expect } from 'vitest'
-import { ImportKindPage, ImportListPage, StorygraphImportResultPage, TripImportResultPage, TripTrackImportResultPage, lastRunText } from './import.js'
+import { ImportKindPage, ImportListPage, ImportResultPage, StorygraphImportResultPage, TripImportResultPage, TripTrackImportResultPage, lastRunText } from './import.js'
 import { importKind } from '../import-kinds.js'
 import type { TripTrackImportReport } from '../../jobs/import-trip-tracks.js'
 import type { StorygraphImportReport } from '../../jobs/import-storygraph-reads.js'
@@ -275,5 +275,32 @@ describe('the preview', () => {
     const html = String(ImportKindPage({ kind: importKind('archive')! }))
     expect(html).toContain('action="/admin/import/archive"')
     expect(html).not.toContain('Sjå over')
+  })
+})
+
+describe('outbox crawl result', () => {
+  const result = { total: 0, imported: 0, skipped: 0, errors: [] }
+  const page = (status: string | null) => String(ImportResultPage({
+    result, actor: '@markus@neodb.social', kind: 'crawl',
+    follow: { handle: '@markus@neodb.social', actorApId: 'https://neodb.social/users/markus', status },
+  }))
+
+  it('offers to follow an actor that is not followed', () => {
+    const html = page(null)
+    expect(html).toContain('action="/admin/follows/follow"')
+    expect(html).toContain('name="handle" value="https://neodb.social/users/markus"')
+    expect(html).toContain('Følgjer ikkje')
+  })
+
+  it('offers a retry on a pending or rejected follow, and nothing on an accepted one', () => {
+    expect(page('pending')).toContain('action="/admin/follows/retry"')
+    expect(page('rejected')).toContain('action="/admin/follows/retry"')
+    const accepted = page('accepted')
+    expect(accepted).not.toContain('/admin/follows/')
+    expect(accepted).toContain('Godkjend')
+  })
+
+  it('shows no follow panel on other imports', () => {
+    expect(String(ImportResultPage({ result, actor: 'x', kind: 'archive' }))).not.toContain('/admin/follows/')
   })
 })
