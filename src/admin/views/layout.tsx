@@ -309,6 +309,14 @@ details.r { margin-top: 0; }
 .r-act { min-height: 36px; padding: 0 12px; margin-right: 6px; border-radius: 10px; background: var(--panel);
   border: 1px solid var(--line-strong); color: var(--accent-ink); font-size: 13px; font-weight: 600; white-space: nowrap; flex: none; }
 .r-act:hover { color: var(--accent-ink); }
+.r-act-danger, .r-act-danger:hover { color: var(--red); }
+.follow-add { padding: 12px 14px; }
+.follow-form { display: flex; gap: 8px; margin: 0; }
+.follow-form input { flex: 1; min-width: 0; }
+.follow-form button { flex: none; padding: 0 18px; }
+.follow-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; flex: none; }
+.follow-acts form { margin: 0; }
+.follow-acts .r-act { margin-right: 0; }
 .r-dots { width: 44px; height: 44px; min-height: 44px; flex: none; padding: 0; background: none; border: none;
   color: var(--ink-2); font-size: 20px; font-weight: 700; border-radius: 10px; }
 .r-dots:hover { color: var(--ink); background: var(--panel); }

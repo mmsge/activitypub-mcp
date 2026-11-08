@@ -20,11 +20,17 @@ export async function sendFollow(actorApId: string, inboxUrl: string): Promise<v
     to: actorApId,
   }
 
+  // A re-send (a rejected follow on boot, or "Prøv igjen" in the admin) resets the row to
+  // the new Follow: pending again, with this id, so the table says what was last asked.
+  const now = new Date()
   await db.insert(follows).values({
     actorApId,
     followActivityId: followId,
     status: 'pending',
-  }).onConflictDoNothing()
+  }).onConflictDoUpdate({
+    target: follows.actorApId,
+    set: { followActivityId: followId, status: 'pending', followedAt: now, acceptedAt: null, rejectedAt: null },
+  })
 
   // Deliver directed activities to the actor's PERSONAL inbox, not the shared
   // inbox. A Follow has a single recipient, so the shared inbox buys nothing —

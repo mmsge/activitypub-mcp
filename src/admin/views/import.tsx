@@ -227,8 +227,49 @@ const Done: FC<PropsWithChildren<{
   )
 }
 
+/** The crawled actor's follow state, read from the database by the result route. */
+export interface CrawlFollow {
+  handle: string
+  actorApId: string
+  /** Null when not followed at all. */
+  status: string | null
+}
+
+const CRAWL_FOLLOW: Record<string, { sub: string; badge: [string, 'green' | 'yellow' | 'red'] }> = {
+  accepted: { sub: 'Nye innlegg kjem inn av seg sjølv.', badge: ['Godkjend', 'green'] },
+  pending: { sub: 'Ventar på svar frå tenaren. Nye innlegg kjem når han godkjenner.', badge: ['Ventar', 'yellow'] },
+  rejected: { sub: 'Tenaren avviste følginga. Nye innlegg kjem ikkje inn.', badge: ['Avvist', 'red'] },
+}
+
+/**
+ * Reading an outbox is a one-off. Only a follow keeps new posts coming, so the crawl's
+ * result says whether that is in place and offers it when it is not (ADR 0074).
+ */
+const CrawlFollowPanel: FC<{ follow: CrawlFollow }> = ({ follow }) => {
+  const state = follow.status ? CRAWL_FOLLOW[follow.status] : undefined
+  const action = follow.status === 'accepted' ? undefined : follow.status ? (
+    <form method="post" action="/admin/follows/retry" style="margin:0">
+      <input type="hidden" name="actor" value={follow.actorApId} />
+      <button type="submit" class="r-act">Prøv igjen</button>
+    </form>
+  ) : (
+    <form method="post" action="/admin/follows/follow" style="margin:0">
+      <input type="hidden" name="handle" value={follow.actorApId} />
+      <button type="submit" class="r-act">Følg</button>
+    </form>
+  )
+  return (
+    <Section title="Følging" id="follow">
+      <Row title={follow.handle}
+        sub={state?.sub ?? 'Følgjer ikkje. Utboksen er lesen éin gong, men nye innlegg kjem berre inn frå ein konto som blir følgd.'}
+        badges={state ? [state.badge] : [['Følgjer ikkje', 'grey']]}
+        action={action} />
+    </Section>
+  )
+}
+
 /** Generic result for the archive, the crawl and the two maintenance runs. */
-export const ImportResultPage: FC<{ result: ImportResult; actor: string; kind?: string; preview?: PreviewInfo }> = ({ result, actor, kind = 'archive', preview }) => (
+export const ImportResultPage: FC<{ result: ImportResult; actor: string; kind?: string; preview?: PreviewInfo; follow?: CrawlFollow }> = ({ result, actor, kind = 'archive', preview, follow }) => (
   <Done kindId={kind} preview={preview} banner={result.errors.length ? `Ferdig, med ${nf(result.errors.length)} feil` : 'Ferdig'}
     tone={result.errors.length ? 'yellow' : 'green'} note={actor || undefined}>
     <Stats items={[
@@ -242,6 +283,7 @@ export const ImportResultPage: FC<{ result: ImportResult; actor: string; kind?: 
         <Row title="Detaljar" sub="Trykk for å sjå" raw={result.errors.slice(0, 20).join('\n')} />
       </Section>
     )}
+    {follow && <CrawlFollowPanel follow={follow} />}
   </Done>
 )
 

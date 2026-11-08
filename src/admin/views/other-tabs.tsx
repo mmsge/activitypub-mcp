@@ -122,6 +122,8 @@ export interface FollowRow {
   handle: string | null
   displayName: string | null
   iconUrl: string | null
+  /** Listed in FOLLOW_ACTORS, so an unfollow here comes back on the next boot. */
+  inEnv: boolean
 }
 
 const FOLLOW_BADGE: Record<string, BadgeDef> = {
@@ -130,17 +132,54 @@ const FOLLOW_BADGE: Record<string, BadgeDef> = {
   rejected: ['Avvist', 'red'],
 }
 
+/** The add form, shared by the Følgjer tab and the outbox result page. */
+export const FollowForm: FC<{ value?: string }> = ({ value }) => (
+  <form method="post" action="/admin/follows/follow" class="follow-form">
+    <input name="handle" value={value ?? ''} placeholder="@brukar@tenar eller aktør-URL" required
+      aria-label="Konto å følgje" autocapitalize="off" autocorrect="off" spellcheck={false} />
+    <button type="submit">Følg</button>
+  </form>
+)
+
+const unfollowConfirm = (f: FollowRow) => {
+  const who = f.handle ?? actorHandle(f.actorApId)
+  const env = f.inEnv ? ' Kontoen står i FOLLOW_ACTORS og blir følgd att ved neste omstart.' : ''
+  return `return confirm(${JSON.stringify(`Slutte å følgje ${who}? Det som alt er lagra, blir verande.${env}`)})`
+}
+
+const FollowActions: FC<{ f: FollowRow }> = ({ f }) => (
+  <div class="follow-acts">
+    {f.status !== 'accepted' && (
+      <form method="post" action="/admin/follows/retry">
+        <input type="hidden" name="actor" value={f.actorApId} />
+        <button type="submit" class="r-act" title="Send følgjeførespurnaden på nytt">Prøv igjen</button>
+      </form>
+    )}
+    <form method="post" action="/admin/follows/unfollow" onsubmit={unfollowConfirm(f)}>
+      <input type="hidden" name="actor" value={f.actorApId} />
+      <button type="submit" class="r-act r-act-danger">Avfølg</button>
+    </form>
+  </div>
+)
+
 export const FollowsView: FC<{ ctx: TabCtx; rows: FollowRow[] }> = ({ ctx, rows }) => (
   <CategoryPage {...ctx}
     lead={`${nf(rows.filter((f) => f.status === 'accepted').length)} godkjende, ${nf(rows.filter((f) => f.status === 'pending').length)} ventar`}
-    help={<>Styrt av miljøvariabelen <code>FOLLOW_ACTORS</code> og synka når tenaren startar. Ein ventande følgjar kan ta frå nokre minutt til nokre timar.</>}
+    help={<>Følg ein konto med skjemaet under, eller list han i <code>FOLLOW_ACTORS</code>, som blir synka når tenaren startar. Ein ventande følgjar kan ta frå nokre minutt til nokre timar. Står han fast, bruk «Prøv igjen». «Avfølg» sender ei Undo og stoppar nye innlegg; det som alt er lagra, blir verande. Ein konto merkt «FOLLOW_ACTORS» blir følgd att ved neste omstart til han er fjerna der.</>}
   >
-    <Section isEmpty={rows.length === 0} empty="Ingen følgjer enno. Legg handtak i FOLLOW_ACTORS og start på nytt.">
-      {rows.map((f) => (
-        <Row title={f.displayName ?? f.handle ?? f.actorApId}
-          sub={<span class="mono">{f.handle ?? actorHandle(f.actorApId)} · sidan {nnDate(f.followedAt)}</span>}
-          badges={[FOLLOW_BADGE[f.status] ?? [f.status, 'grey']]} />
-      ))}
+    <Section title="Følg ein konto" id="follow-add">
+      <div class="follow-add"><FollowForm /></div>
+    </Section>
+    <Section title="Følgjer" id="follows" isEmpty={rows.length === 0} empty="Ingen følgjer enno. Følg ein konto over.">
+      {rows.map((f) => {
+        const badges: BadgeDef[] = [FOLLOW_BADGE[f.status] ?? [f.status, 'grey']]
+        if (f.inEnv) badges.push(['FOLLOW_ACTORS', 'grey', 'Står i miljøvariabelen og blir følgd att ved omstart'])
+        return (
+          <Row title={f.displayName ?? f.handle ?? f.actorApId}
+            sub={<span class="mono">{f.handle ?? actorHandle(f.actorApId)} · sidan {nnDate(f.followedAt)}</span>}
+            badges={badges} action={<FollowActions f={f} />} />
+        )
+      })}
     </Section>
   </CategoryPage>
 )

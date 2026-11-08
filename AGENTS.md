@@ -62,6 +62,17 @@ The one rule not to "simplify" back: every score is the post's **peak** across i
 snapshot history, never the latest snapshot. Engagement counts go down, and reading the
 latest one would let an un-favourite lower the record every other post is measured against.
 
+## Follows
+
+Follows are rows in `follows`, and that table is what the inbox gate reads. Two ways in:
+`FOLLOW_ACTORS` (synced on boot) and **Admin → Fediverse → Følgjer**, which can follow by
+handle or actor URL, retry a pending or rejected follow, and unfollow. The **Hent utboks**
+result offers to follow the actor it just read. See ADR 0074.
+
+- **`FOLLOW_ACTORS` wins on boot.** An unfollow of a listed account comes back at the next
+  restart; the admin badges those rows and says so. Remove it from `/srv/bot/.env` too.
+- **A follow is still not a sampling permission** (ADR 0058).
+
 ## Engagement sampling reaches other people's servers
 
 The hourly sampler and the ten-minute breakout fast lane are the only jobs here that poll

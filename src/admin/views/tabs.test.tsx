@@ -1,6 +1,6 @@
 /** @jsxImportSource hono/jsx */
 import { describe, it, expect } from 'vitest'
-import { StationsView } from './other-tabs.js'
+import { StationsView, FollowsView, type FollowRow } from './other-tabs.js'
 import { BooksView, type TabCtx } from './media-tabs.js'
 import { resolveTab } from '../categories.js'
 import { statusLabel } from './kit.js'
@@ -103,5 +103,38 @@ describe('statusLabel', () => {
     expect(statusLabel('wishlist', 'movie')).toBe('Vil sjå')
     expect(statusLabel('went')).toBe('Var der')
     expect(statusLabel(null)).toBeNull()
+  })
+})
+
+const follow = (over: Partial<FollowRow> = {}): FollowRow => ({
+  actorApId: 'https://neodb.social/users/markus', status: 'accepted', followedAt: new Date('2026-11-08T13:41:00Z'),
+  acceptedAt: null, handle: '@markus@neodb.social', displayName: 'Markus', iconUrl: null, inEnv: false, ...over,
+})
+
+describe('FollowsView', () => {
+  it('has a form to follow a new account', () => {
+    const html = String(FollowsView({ ctx: ctxFor('fediverse', 'folgjer'), rows: [] }))
+    expect(html).toContain('action="/admin/follows/follow"')
+    expect(html).toContain('name="handle"')
+    expect(html).toContain('Følg ein konto over')
+  })
+
+  it('offers a retry only on a follow that is not accepted', () => {
+    const accepted = String(FollowsView({ ctx: ctxFor('fediverse', 'folgjer'), rows: [follow()] }))
+    expect(accepted).not.toContain('/admin/follows/retry')
+    expect(accepted).toContain('/admin/follows/unfollow')
+    for (const status of ['pending', 'rejected']) {
+      const html = String(FollowsView({ ctx: ctxFor('fediverse', 'folgjer'), rows: [follow({ status })] }))
+      expect(html).toContain('action="/admin/follows/retry"')
+      expect(html).toContain('name="actor" value="https://neodb.social/users/markus"')
+    }
+  })
+
+  it('warns that an unfollow of an env-listed account comes back on boot', () => {
+    const html = String(FollowsView({ ctx: ctxFor('fediverse', 'folgjer'), rows: [follow({ inEnv: true })] }))
+    expect(html).toContain('Står i miljøvariabelen')
+    expect(html).toContain('blir følgd att ved neste omstart')
+    const plain = String(FollowsView({ ctx: ctxFor('fediverse', 'folgjer'), rows: [follow()] }))
+    expect(plain).not.toContain('Står i miljøvariabelen')
   })
 })

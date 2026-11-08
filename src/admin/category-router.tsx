@@ -4,7 +4,8 @@ import type { FC } from 'hono/jsx'
 import { and, desc, eq, isNull, like, or, sql, count, type SQL } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
 import { activities, objects, follows, actors, neodbMarks, linkedinPosts, linkedinPostMetrics } from '../db/schema.js'
-import { config } from '../config.js'
+import { config, getFollowActors } from '../config.js'
+import { isEnvFollow } from './follow-admin.js'
 import { resolveTab, type Category, type TabDef } from './categories.js'
 import {
   queryBooks, queryWatched, queryOther, queryScrobbles, queryYoutubeWatches, youtubeAccounts,
@@ -226,7 +227,8 @@ const LOADERS: Record<string, Loader> = {
       .from(follows)
       .leftJoin(actors, eq(follows.actorApId, actors.apId))
       .orderBy(desc(follows.followedAt))
-    return c.html(<FollowsView ctx={ctx} rows={rows} />)
+    const envList = getFollowActors()
+    return c.html(<FollowsView ctx={ctx} rows={rows.map((r) => ({ ...r, inEnv: isEnvFollow(r.handle, envList) }))} />)
   },
   // No scope passed: the admin IS the owner, so unlisted roots are included (ADR 0026).
   'fediverse/traadar': async (c, ctx) => {
