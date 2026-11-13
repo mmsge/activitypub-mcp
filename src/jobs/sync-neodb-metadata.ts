@@ -4,7 +4,9 @@ import { fetchNeodbItem, isUrlTitle, type NeodbItemMetadata } from '../lib/fetch
 import { normalizeIsbn, isbn10to13 } from '../lib/isbn.js'
 import { logger } from '../lib/logger.js'
 import { config } from '../config.js'
-import { sql, and, eq, or } from 'drizzle-orm'
+import { sql, and, eq, ne, or, type SQL } from 'drizzle-orm'
+import { backfillWorkKeys } from './backfill-work-keys.js'
+import { matchKeys, ownWorkKey, preferKey, type WorkKeyRow } from '../lib/work-key.js'
 
 const MAX_PER_RUN = 200 // bound a single pass so a backfill doesn't hammer NeoDB
 const FETCH_DELAY_MS = 200
@@ -172,11 +174,61 @@ async function upsertCatalogMetadata(meta: NeodbItemMetadata): Promise<void> {
   const sourceMap = markTitles.length
     ? { ...meta.sourceMap, mark_titles: 'activitypub' }
     : meta.sourceMap
-  const values = catalogUpsertValues(meta, markTitles, sourceMap, now)
+  const workKey = await resolveWorkKey(meta)
+  const values = catalogUpsertValues(meta, markTitles, sourceMap, now, workKey)
   await db
     .insert(catalogMetadata)
     .values(values)
     .onConflictDoUpdate({ target: catalogMetadata.itemUrl, set: values })
+}
+
+/**
+ * The work this item belongs to (ADR 0075): the key of an already-stored row it shares a
+ * TMDB link or IMDb id with, else its own. Candidates are narrowed in SQL with a loose
+ * match and confirmed in JS with the same `matchKeys` the backfill uses, so the season
+ * rule has one spelling.
+ *
+ * An item that bridges two works already stored apart (its TMDB link matches one, its
+ * IMDb id the other) joins one of them here; `npm run backfill-work-keys` is what folds
+ * the two together, since that needs the whole set.
+ */
+export async function resolveWorkKey(meta: Pick<NeodbItemMetadata, 'itemUrl' | 'category' | 'itemType' | 'tmdbUrl' | 'imdb'>): Promise<string> {
+  const self: WorkKeyRow = {
+    itemUrl: meta.itemUrl, category: meta.category, itemType: meta.itemType,
+    tmdbUrl: meta.tmdbUrl, imdb: meta.imdb,
+  }
+  const own = ownWorkKey(self)
+  const keys = new Set(matchKeys(self))
+  if (!keys.size) return own
+
+  const loose: SQL[] = []
+  for (const key of keys) {
+    if (key.startsWith('tmdb:')) {
+      const [type, id] = key.slice('tmdb:'.length).split('/')
+      loose.push(sql`${catalogMetadata.tmdbUrl} LIKE ${`%themoviedb.org/${type}/${id}%`}`)
+    } else if (key.startsWith('imdb:')) {
+      loose.push(eq(catalogMetadata.imdb, key.slice(key.indexOf('/') + 1)))
+    }
+  }
+  const rows = await getDb()
+    .select({
+      itemUrl: catalogMetadata.itemUrl,
+      category: catalogMetadata.category,
+      itemType: catalogMetadata.itemType,
+      tmdbUrl: catalogMetadata.tmdbUrl,
+      imdb: catalogMetadata.imdb,
+      workKey: catalogMetadata.workKey,
+    })
+    .from(catalogMetadata)
+    .where(and(ne(catalogMetadata.itemUrl, meta.itemUrl), or(...loose)))
+
+  let found: string | null = null
+  for (const row of rows) {
+    if (!matchKeys(row).some((k) => keys.has(k))) continue
+    found = found ? preferKey(found, row.workKey) : row.workKey
+  }
+  if (found) logger.info({ itemUrl: meta.itemUrl, workKey: found }, 'Catalogue item joins a work already stored')
+  return found ?? own
 }
 
 // Written as fetch_error when NeoDB still titled the item with a URL. The row itself is
@@ -198,9 +250,11 @@ export function catalogUpsertValues(
   markTitles: string[],
   sourceMap: unknown,
   now: Date,
+  workKey: string = ownWorkKey(meta),
 ) {
   return {
     itemUrl: meta.itemUrl,
+    workKey,
     category: meta.category,
     itemType: meta.itemType,
     title: meta.title,
@@ -246,6 +300,9 @@ async function recordFailure(itemUrl: string, hint: { category?: string | null; 
     .insert(catalogMetadata)
     .values({
       itemUrl,
+      // A stub has nothing to match on yet, so it is its own work until a fetch succeeds.
+      // The conflict arm below leaves an existing row's key alone.
+      workKey: `url:${itemUrl}`,
       category: hint.category ?? null,
       itemType: hint.itemType ?? null,
       raw: {},
@@ -428,5 +485,14 @@ export async function syncNeodbMetadata(force = config.NEODB_BACKFILL): Promise<
     }
   }
 
-  logger.info({ enriched, failed, byCategory, aliasSynced }, 'NeoDB metadata sync complete')
+  // Regroup the whole catalogue into works (ADR 0075). The upsert already joins a new
+  // row to a stored twin; this pass is what folds two works together when a later row
+  // bridges them, and it is how the first deploy merges the duplicates already stored.
+  // Local-only and a no-op when nothing changed.
+  let works: Awaited<ReturnType<typeof backfillWorkKeys>> | null = null
+  try { works = await backfillWorkKeys() } catch (e) {
+    logger.warn({ error: e }, 'Work-key regrouping failed (non-fatal)')
+  }
+
+  logger.info({ enriched, failed, byCategory, aliasSynced, workKeysUpdated: works?.updated ?? null }, 'NeoDB metadata sync complete')
 }

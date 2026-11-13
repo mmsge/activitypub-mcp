@@ -5115,6 +5115,18 @@ components:
       type: object
       properties:
         item_url: { type: string }
+        work_key:
+          type: string
+          description: >
+            The work this row stands for (ADR 0075): `tmdb:…`, `imdb:…`, or `url:<item_url>`
+            when nothing matched. A title marked on several NeoDB instances is one row.
+        item_urls:
+          type: array
+          items: { type: string }
+          description: >
+            Every NeoDB instance URL the work was marked on, oldest enrichment first. Marks,
+            dates, comments and status are merged across all of them; either URL resolves
+            to this row in catalogue-details.
         category: { type: [string, "null"] }
         item_type: { type: [string, "null"] }
         title: { type: [string, "null"] }
@@ -5648,6 +5660,18 @@ components:
       description: One NeoDB catalogue item's full cached record, incl. per-field provenance.
       properties:
         item_url: { type: string }
+        work_key:
+          type: string
+          description: >
+            The work this row stands for (ADR 0075): `tmdb:…`, `imdb:…`, or `url:<item_url>`
+            when nothing matched. A title marked on several NeoDB instances is one row.
+        item_urls:
+          type: array
+          items: { type: string }
+          description: >
+            Every NeoDB instance URL the work was marked on, oldest enrichment first. Marks,
+            dates, comments and status are merged across all of them; either URL resolves
+            to this row in catalogue-details.
         category: { type: [string, "null"] }
         item_type: { type: [string, "null"] }
         title: { type: [string, "null"] }
