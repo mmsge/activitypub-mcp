@@ -338,6 +338,14 @@ export const catalogMetadata = pgTable('catalog_metadata', {
   // `url:<item_url>`: a row with nothing to match on is its own work. Written by the
   // enrichment upsert and by `npm run backfill-work-keys`, never derived at read time.
   workKey: text('work_key').notNull(),
+  // TMDB refiner bookkeeping (ADR 0076). `tmdbRefinedAt` is the last enrichment pass that
+  // took fields from TMDB, cleared by any pass that did not; `tmdbError`/`tmdbAttempts`
+  // mirror fetchError/fetchAttempts so a failed TMDB call is visible and retried, never
+  // blocking. `tmdbRaw` holds TMDB's responses as delivered.
+  tmdbRefinedAt: timestamp('tmdb_refined_at', { withTimezone: true }),
+  tmdbError: text('tmdb_error'),
+  tmdbAttempts: integer('tmdb_attempts').notNull().default(0),
+  tmdbRaw: jsonb('tmdb_raw'),
 }, (t) => [
   index('catalog_metadata_item_url_idx').on(t.itemUrl),
   index('catalog_metadata_work_key_idx').on(t.workKey),

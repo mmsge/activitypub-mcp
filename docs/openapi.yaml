@@ -5659,6 +5659,16 @@ components:
       type: object
       description: One NeoDB catalogue item's full cached record, incl. per-field provenance.
       properties:
+        tmdb_refined_at:
+          type: [string, "null"]
+          format: date-time
+          description: >
+            When English metadata was last laid over NeoDB's from TMDB (ADR 0076). Fields
+            it set say `tmdb` in source_map. Null when not refined on the last pass.
+        tmdb_error:
+          type: [string, "null"]
+          description: Why the last TMDB call failed; retried by the periodic sync.
+        tmdb_attempts: { type: integer }
         item_url: { type: string }
         work_key:
           type: string

@@ -742,5 +742,10 @@ export async function getCatalogueDetails(input: CatalogueDetailsInput) {
     fetch_error: r.fetchError ?? null,
     fetch_attempts: r.fetchAttempts,
     last_attempt_at: r.lastAttemptAt?.toISOString() ?? null,
+    // The TMDB refiner (ADR 0076): when English metadata was last laid over NeoDB's, and
+    // why it was not when it failed. Fields it set say 'tmdb' in source_map.
+    tmdb_refined_at: r.tmdbRefinedAt?.toISOString() ?? null,
+    tmdb_error: r.tmdbError ?? null,
+    tmdb_attempts: r.tmdbAttempts,
   }
 }

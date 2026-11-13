@@ -170,6 +170,15 @@ const schema = z.object({
   // staleness window and re-enriches every referenced catalog item on its next run, so
   // newly-added fields/categories backfill immediately after a deploy. Unset once run.
   NEODB_BACKFILL: z.coerce.boolean().default(false),
+  // TMDB API credential for the English-metadata refiner (ADR 0076). Every film and TV
+  // item with a TMDB link is re-read from TMDB in en-US after NeoDB enrichment, so
+  // credits and descriptions read in English whichever instance the mark came from
+  // (neodb.social often fills them from Douban, in Chinese). Either a v4 read access
+  // token (a JWT, sent as a Bearer header) or a v3 API key (sent as `api_key`). Blank
+  // disables the refiner and leaves NeoDB's values as they are. The same key the
+  // Streaming Guide service on the box uses.
+  TMDB_API_TOKEN: z.string().default(''),
+  TMDB_API_URL: z.string().url().default('https://api.themoviedb.org/3'),
   // LinkedIn DMA access token, for the Member Snapshot API. Blank disables the
   // poller entirely; the .xlsx import path keeps working without it.
   //

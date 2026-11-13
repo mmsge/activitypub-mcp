@@ -6,6 +6,7 @@ import { logger } from '../lib/logger.js'
 import { config } from '../config.js'
 import { sql, and, eq, ne, or, type SQL } from 'drizzle-orm'
 import { backfillWorkKeys } from './backfill-work-keys.js'
+import { refineWithTmdb, tmdbTargetOf, TMDB_MAX_ATTEMPTS, type TmdbOutcome } from '../lib/tmdb-refine.js'
 import { matchKeys, ownWorkKey, preferKey, type WorkKeyRow } from '../lib/work-key.js'
 
 const MAX_PER_RUN = 200 // bound a single pass so a backfill doesn't hammer NeoDB
@@ -165,7 +166,7 @@ async function dedupeBookAgainstBookwyrm(meta: NeodbItemMetadata): Promise<void>
 
 // --- Persistence -------------------------------------------------------------
 
-async function upsertCatalogMetadata(meta: NeodbItemMetadata): Promise<void> {
+async function upsertCatalogMetadata(meta: NeodbItemMetadata, tmdb: TmdbOutcome = { status: 'skipped' }): Promise<void> {
   const db = getDb()
   const now = new Date()
   // Retain the name(s) the mark(s) federated with alongside NeoDB's (localized) title,
@@ -175,11 +176,16 @@ async function upsertCatalogMetadata(meta: NeodbItemMetadata): Promise<void> {
     ? { ...meta.sourceMap, mark_titles: 'activitypub' }
     : meta.sourceMap
   const workKey = await resolveWorkKey(meta)
-  const values = catalogUpsertValues(meta, markTitles, sourceMap, now, workKey)
+  const values = catalogUpsertValues(meta, markTitles, sourceMap, now, workKey, tmdb)
+  // A retryable TMDB failure counts up from the stored attempts; the insert arm starts
+  // at the value catalogUpsertValues gives.
+  const set = tmdb.status === 'failed' && tmdb.retry
+    ? { ...values, tmdbAttempts: sql`${catalogMetadata.tmdbAttempts} + 1` }
+    : values
   await db
     .insert(catalogMetadata)
     .values(values)
-    .onConflictDoUpdate({ target: catalogMetadata.itemUrl, set: values })
+    .onConflictDoUpdate({ target: catalogMetadata.itemUrl, set })
 }
 
 /**
@@ -251,6 +257,7 @@ export function catalogUpsertValues(
   sourceMap: unknown,
   now: Date,
   workKey: string = ownWorkKey(meta),
+  tmdb: TmdbOutcome = { status: 'skipped' },
 ) {
   return {
     itemUrl: meta.itemUrl,
@@ -286,6 +293,14 @@ export function catalogUpsertValues(
     fetchError: meta.titlePlaceholder ? TITLE_PLACEHOLDER_ERROR : null,
     fetchAttempts: meta.titlePlaceholder ? 1 : 0,
     lastAttemptAt: now,
+    // TMDB refiner bookkeeping (ADR 0076). Every pass writes all four, so a pass that did
+    // not refine (refiner off, no TMDB link) clears a refinement NeoDB's values have just
+    // overwritten instead of leaving it claimed. A 404 is final: attempts jump to the
+    // cap so the sync stops asking.
+    tmdbRefinedAt: tmdb.status === 'refined' ? now : null,
+    tmdbError: tmdb.status === 'failed' ? tmdb.error : null,
+    tmdbAttempts: tmdb.status === 'failed' ? (tmdb.retry ? 1 : TMDB_MAX_ATTEMPTS) : 0,
+    tmdbRaw: (tmdb.status === 'refined' ? tmdb.raw : null) as Record<string, unknown> | null,
   }
 }
 
@@ -337,7 +352,11 @@ export async function enrichOne(itemUrl: string, hint: { category?: string | nul
   if (meta.category === 'book' || meta.itemType === 'Edition') {
     try { await dedupeBookAgainstBookwyrm(meta) } catch (e) { logger.warn({ itemUrl, error: e }, 'Book dedup failed (non-fatal)') }
   }
-  await upsertCatalogMetadata(meta)
+  // English metadata from TMDB for film and TV (ADR 0076). Never throws and never blocks:
+  // a failure keeps NeoDB's values and is recorded for the periodic sync to retry.
+  const tmdb = await refineWithTmdb(meta)
+  if (tmdb.status === 'failed') logger.warn({ itemUrl, error: tmdb.error, retry: tmdb.retry }, 'TMDB refinement failed (non-fatal)')
+  await upsertCatalogMetadata(meta, tmdb)
   return meta
 }
 
@@ -384,6 +403,26 @@ async function enrichIfNeeded(itemUrl: string): Promise<void> {
 }
 
 // --- Periodic sync -----------------------------------------------------------
+
+/**
+ * True when the TMDB refiner owes this stored row English metadata: the refiner is on,
+ * the row has a TMDB link naming its own kind, it has not been refined since its last
+ * NeoDB pass, and it has attempts left. A 404 spends them all at once.
+ */
+export function tmdbOwed(r: {
+  itemUrl: string; category: string | null; itemType: string | null
+  tmdbUrl: string | null; imdb: string | null
+  tmdbRefinedAt: Date | null; tmdbAttempts: number
+}, enabled = Boolean(config.TMDB_API_TOKEN)): boolean {
+  if (!enabled || r.tmdbRefinedAt) return false
+  if (r.tmdbAttempts >= TMDB_MAX_ATTEMPTS) return false
+  return tmdbTargetOf(r) != null
+}
+
+/** Chinese, Japanese or Korean script anywhere in the string. */
+export function hasCjk(v: string | null | undefined): boolean {
+  return typeof v === 'string' && /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/.test(v)
+}
 
 /**
  * Every NeoDB catalog URL referenced by a stored mark: the tag hrefs on `objects`
@@ -439,18 +478,33 @@ export async function syncNeodbMetadata(force = config.NEODB_BACKFILL): Promise<
           fetchError: catalogMetadata.fetchError,
           title: catalogMetadata.title,
           displayTitle: catalogMetadata.displayTitle,
+          category: catalogMetadata.category,
+          itemType: catalogMetadata.itemType,
+          tmdbUrl: catalogMetadata.tmdbUrl,
+          imdb: catalogMetadata.imdb,
+          tmdbRefinedAt: catalogMetadata.tmdbRefinedAt,
+          tmdbAttempts: catalogMetadata.tmdbAttempts,
+          description: catalogMetadata.description,
         })
         .from(catalogMetadata)
   // A row whose stored title is a URL is never fresh, however recent: it was enriched
-  // before the placeholder guard existed, and re-reading it is the whole repair.
+  // before the placeholder guard existed, and re-reading it is the whole repair. Nor is
+  // one TMDB still owes English metadata, which is how the refiner backfills.
+  const owed = new Set(freshRows.filter((r) => tmdbOwed(r)).map((r) => r.itemUrl))
   const fresh = new Set(
     freshRows
       .filter((r) => r.enrichedAt && !r.fetchError && r.enrichedAt >= cutoff)
       .filter((r) => !isUrlTitle(r.title) && !isUrlTitle(r.displayTitle))
+      .filter((r) => !owed.has(r.itemUrl))
       .map((r) => r.itemUrl),
   )
+  // Rows still carrying CJK text go first, so the neodb.social items the refiner exists
+  // for are fixed before the MinReol ones that are only owed a provenance change.
+  const cjk = new Set(freshRows.filter((r) => hasCjk(r.description) || hasCjk(r.title)).map((r) => r.itemUrl))
 
-  const todo = referenced.filter((r) => !fresh.has(r.itemUrl))
+  const todo = referenced
+    .filter((r) => !fresh.has(r.itemUrl))
+    .sort((a, b) => Number(cjk.has(b.itemUrl)) - Number(cjk.has(a.itemUrl)))
   const cap = force ? todo.length : MAX_PER_RUN
   const batch = todo.slice(0, cap)
 
