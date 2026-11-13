@@ -438,23 +438,32 @@ function buildSourceMap(m: NeodbItemMetadata): Record<string, string> {
  * silently dropped.
  */
 export async function fetchNeodbItem(itemUrl: string): Promise<NeodbItemMetadata | null> {
+  return (await fetchNeodbItemResult(itemUrl)).meta
+}
+
+/**
+ * The same fetch, with the HTTP status kept: null for a network error, a timeout or a
+ * body that will not parse. A 404 is how an instance says the item is gone, which the
+ * enrichment step treats differently from a transient failure (ADR 0077).
+ */
+export async function fetchNeodbItemResult(itemUrl: string): Promise<{ meta: NeodbItemMetadata | null; status: number | null }> {
   let res: Response
   try {
     res = await fetch(itemUrl, { headers: NEODB_AP_HEADERS, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) })
   } catch (e) {
     logger.warn({ itemUrl, error: String(e) }, 'NeoDB item fetch failed')
-    return null
+    return { meta: null, status: null }
   }
   if (!res.ok) {
     logger.warn({ itemUrl, status: res.status }, 'NeoDB item fetch non-OK')
-    return null
+    return { meta: null, status: res.status }
   }
   let data: AnyObject
   try {
     data = (await res.json()) as AnyObject
   } catch (e) {
     logger.warn({ itemUrl, error: String(e) }, 'NeoDB item JSON parse failed')
-    return null
+    return { meta: null, status: null }
   }
-  return mapNeodbItem(itemUrl, data)
+  return { meta: mapNeodbItem(itemUrl, data), status: res.status }
 }

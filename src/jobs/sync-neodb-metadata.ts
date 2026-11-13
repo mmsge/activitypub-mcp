@@ -1,12 +1,13 @@
 import { getDb } from '../db/client.js'
 import { catalogMetadata, bookMetadata } from '../db/schema.js'
-import { fetchNeodbItem, isUrlTitle, type NeodbItemMetadata } from '../lib/fetch-neodb-item.js'
+import { fetchNeodbItemResult, isUrlTitle, type NeodbItemMetadata } from '../lib/fetch-neodb-item.js'
 import { normalizeIsbn, isbn10to13 } from '../lib/isbn.js'
 import { logger } from '../lib/logger.js'
 import { config } from '../config.js'
-import { sql, and, eq, ne, or, type SQL } from 'drizzle-orm'
+import { sql, and, eq, ne, or, isNotNull, type SQL } from 'drizzle-orm'
 import { backfillWorkKeys } from './backfill-work-keys.js'
-import { refineWithTmdb, tmdbTargetOf, TMDB_MAX_ATTEMPTS, type TmdbOutcome } from '../lib/tmdb-refine.js'
+import { refineWithTmdb, TMDB_MAX_ATTEMPTS, type TmdbOutcome } from '../lib/tmdb-refine.js'
+import { refineOwedItems } from './refine-tmdb.js'
 import { matchKeys, ownWorkKey, preferKey, type WorkKeyRow } from '../lib/work-key.js'
 
 const MAX_PER_RUN = 200 // bound a single pass so a backfill doesn't hammer NeoDB
@@ -301,6 +302,8 @@ export function catalogUpsertValues(
     tmdbError: tmdb.status === 'failed' ? tmdb.error : null,
     tmdbAttempts: tmdb.status === 'failed' ? (tmdb.retry ? 1 : TMDB_MAX_ATTEMPTS) : 0,
     tmdbRaw: (tmdb.status === 'refined' ? tmdb.raw : null) as Record<string, unknown> | null,
+    // A successful fetch means the instance has the item again (ADR 0077).
+    sourceGoneAt: null,
   }
 }
 
@@ -339,13 +342,33 @@ async function recordFailure(itemUrl: string, hint: { category?: string | null; 
   logger.warn({ itemUrl, error }, 'Recorded failed NeoDB enrichment (retryable)')
 }
 
+/**
+ * Record that the instance answered 404 for an item already stored with its data
+ * (ADR 0077). A stamp, not an error: the row keeps its record, drops out of the failed
+ * list, and is asked again only once per NEODB_STALE_DAYS. Returns false for a row
+ * that never enriched, which stays an ordinary failure.
+ */
+async function markSourceGone(itemUrl: string): Promise<boolean> {
+  const now = new Date()
+  const rows = await getDb()
+    .update(catalogMetadata)
+    .set({ sourceGoneAt: now, fetchError: null, fetchAttempts: 0, lastAttemptAt: now, fetchedAt: now })
+    .where(and(eq(catalogMetadata.itemUrl, itemUrl), isNotNull(catalogMetadata.enrichedAt)))
+    .returning({ itemUrl: catalogMetadata.itemUrl })
+  if (rows.length) logger.info({ itemUrl }, 'NeoDB no longer has this item; keeping the stored record')
+  return rows.length > 0
+}
+
 // Fetch, dedup (books), and persist one item — recording a failure row if the fetch
 // yields nothing. Returns the mapped metadata on success, else null. Exported as
 // `enrichCatalogueItem` for the repair job, which needs an awaited, per-item result
 // rather than the fire-and-forget ingest queue.
 export async function enrichOne(itemUrl: string, hint: { category?: string | null; itemType?: string | null }): Promise<NeodbItemMetadata | null> {
-  const meta = await fetchNeodbItem(itemUrl)
+  const { meta, status } = await fetchNeodbItemResult(itemUrl)
   if (!meta) {
+    // A 404 on a row that already has its data: the instance has dropped the item, and
+    // the stored record stands (ADR 0077). Anything else is transient and retried.
+    if (status === 404 && await markSourceGone(itemUrl)) return null
     await recordFailure(itemUrl, hint, 'fetch failed or returned no JSON')
     return null
   }
@@ -404,25 +427,7 @@ async function enrichIfNeeded(itemUrl: string): Promise<void> {
 
 // --- Periodic sync -----------------------------------------------------------
 
-/**
- * True when the TMDB refiner owes this stored row English metadata: the refiner is on,
- * the row has a TMDB link naming its own kind, it has not been refined since its last
- * NeoDB pass, and it has attempts left. A 404 spends them all at once.
- */
-export function tmdbOwed(r: {
-  itemUrl: string; category: string | null; itemType: string | null
-  tmdbUrl: string | null; imdb: string | null
-  tmdbRefinedAt: Date | null; tmdbAttempts: number
-}, enabled = Boolean(config.TMDB_API_TOKEN)): boolean {
-  if (!enabled || r.tmdbRefinedAt) return false
-  if (r.tmdbAttempts >= TMDB_MAX_ATTEMPTS) return false
-  return tmdbTargetOf(r) != null
-}
-
-/** Chinese, Japanese or Korean script anywhere in the string. */
-export function hasCjk(v: string | null | undefined): boolean {
-  return typeof v === 'string' && /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/.test(v)
-}
+export { tmdbOwed, hasCjk } from './refine-tmdb.js'
 
 /**
  * Every NeoDB catalog URL referenced by a stored mark: the tag hrefs on `objects`
@@ -478,33 +483,23 @@ export async function syncNeodbMetadata(force = config.NEODB_BACKFILL): Promise<
           fetchError: catalogMetadata.fetchError,
           title: catalogMetadata.title,
           displayTitle: catalogMetadata.displayTitle,
-          category: catalogMetadata.category,
-          itemType: catalogMetadata.itemType,
-          tmdbUrl: catalogMetadata.tmdbUrl,
-          imdb: catalogMetadata.imdb,
-          tmdbRefinedAt: catalogMetadata.tmdbRefinedAt,
-          tmdbAttempts: catalogMetadata.tmdbAttempts,
-          description: catalogMetadata.description,
+          sourceGoneAt: catalogMetadata.sourceGoneAt,
         })
         .from(catalogMetadata)
   // A row whose stored title is a URL is never fresh, however recent: it was enriched
-  // before the placeholder guard existed, and re-reading it is the whole repair. Nor is
-  // one TMDB still owes English metadata, which is how the refiner backfills.
-  const owed = new Set(freshRows.filter((r) => tmdbOwed(r)).map((r) => r.itemUrl))
+  // before the placeholder guard existed, and re-reading it is the whole repair. A row
+  // the instance answered 404 for counts as fresh for a staleness window from that
+  // answer, so a dropped item is asked about once a window, not every pass (ADR 0077).
   const fresh = new Set(
     freshRows
-      .filter((r) => r.enrichedAt && !r.fetchError && r.enrichedAt >= cutoff)
+      .filter((r) =>
+        (r.enrichedAt && !r.fetchError && r.enrichedAt >= cutoff) ||
+        (r.sourceGoneAt != null && r.sourceGoneAt >= cutoff))
       .filter((r) => !isUrlTitle(r.title) && !isUrlTitle(r.displayTitle))
-      .filter((r) => !owed.has(r.itemUrl))
       .map((r) => r.itemUrl),
   )
-  // Rows still carrying CJK text go first, so the neodb.social items the refiner exists
-  // for are fixed before the MinReol ones that are only owed a provenance change.
-  const cjk = new Set(freshRows.filter((r) => hasCjk(r.description) || hasCjk(r.title)).map((r) => r.itemUrl))
 
-  const todo = referenced
-    .filter((r) => !fresh.has(r.itemUrl))
-    .sort((a, b) => Number(cjk.has(b.itemUrl)) - Number(cjk.has(a.itemUrl)))
+  const todo = referenced.filter((r) => !fresh.has(r.itemUrl))
   const cap = force ? todo.length : MAX_PER_RUN
   const batch = todo.slice(0, cap)
 
@@ -539,6 +534,13 @@ export async function syncNeodbMetadata(force = config.NEODB_BACKFILL): Promise<
     }
   }
 
+  // English metadata for rows TMDB still owes (ADR 0076), refined from the stored row so
+  // NeoDB is not asked again for data already here (ADR 0077). Bounded like the batch.
+  let tmdbRefined: number | null = null
+  try { tmdbRefined = (await refineOwedItems({ limit: MAX_PER_RUN })).refined } catch (e) {
+    logger.warn({ error: e }, 'TMDB refinement pass failed (non-fatal)')
+  }
+
   // Regroup the whole catalogue into works (ADR 0075). The upsert already joins a new
   // row to a stored twin; this pass is what folds two works together when a later row
   // bridges them, and it is how the first deploy merges the duplicates already stored.
@@ -548,5 +550,5 @@ export async function syncNeodbMetadata(force = config.NEODB_BACKFILL): Promise<
     logger.warn({ error: e }, 'Work-key regrouping failed (non-fatal)')
   }
 
-  logger.info({ enriched, failed, byCategory, aliasSynced, workKeysUpdated: works?.updated ?? null }, 'NeoDB metadata sync complete')
+  logger.info({ enriched, failed, byCategory, aliasSynced, tmdbRefined, workKeysUpdated: works?.updated ?? null }, 'NeoDB metadata sync complete')
 }

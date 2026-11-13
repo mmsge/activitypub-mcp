@@ -346,6 +346,12 @@ export const catalogMetadata = pgTable('catalog_metadata', {
   tmdbError: text('tmdb_error'),
   tmdbAttempts: integer('tmdb_attempts').notNull().default(0),
   tmdbRaw: jsonb('tmdb_raw'),
+  // Set when the NeoDB instance answered 404 for a row that already has its data
+  // (ADR 0077): the instance has dropped or lost the item, and the stored record stands.
+  // A stamp, not an error, so the row is neither retried every pass nor listed as a
+  // failed enrichment; it is asked again once per NEODB_STALE_DAYS, and a successful
+  // fetch clears it.
+  sourceGoneAt: timestamp('source_gone_at', { withTimezone: true }),
 }, (t) => [
   index('catalog_metadata_item_url_idx').on(t.itemUrl),
   index('catalog_metadata_work_key_idx').on(t.workKey),
