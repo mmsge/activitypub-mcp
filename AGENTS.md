@@ -375,6 +375,11 @@ Rules not to "simplify" back:
   alone, through the same `tmdbKey` as ADR 0075.
 - **Every pass writes `tmdb_refined_at`.** A pass that did not refine clears it, so it never
   claims a refinement NeoDB's values have since overwritten.
+- **The refiner reads the stored row, never NeoDB** (ADR 0077). `refine-tmdb` and the sync's
+  refine pass ask TMDB only. Going through `enrichOne` re-fetched every item from NeoDB first,
+  and minreol.dk answers 404 for all of them.
+- **A NeoDB 404 on a stored row is `source_gone_at`, not `fetch_error`.** The record stands and
+  is asked about once per `NEODB_STALE_DAYS`. As an error it was re-fetched every pass.
 
 ## Theatre
 
