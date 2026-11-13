@@ -7,21 +7,79 @@ import { visibleCatalog } from '../../lib/hidden.js'
 
 // ---- shared helpers --------------------------------------------------------
 
+/**
+ * Every instance URL of the work the outer `catalog_metadata` row belongs to (ADR 0075).
+ * A season marked on minreol.dk and again on neodb.social is two catalogue rows sharing a
+ * `work_key`, and the marks on both belong to the one row served. Every mark expression
+ * below correlates through this rather than on the row's own URL.
+ *
+ * Written table-qualified by hand and aliased `w`, for the reason `markCommentsExpr`
+ * gives: Drizzle renders a bare column inside a select-list expression, and a bare
+ * `work_key` in here would bind to the inner table and match every row.
+ */
+export const WORK_ITEM_URLS = sql.raw(
+  '(SELECT w.item_url FROM catalog_metadata w WHERE w.work_key = catalog_metadata.work_key)',
+)
+
+/** `m.item_url` is one of the outer row's work's instance URLs. */
+const MARK_IN_WORK = sql.raw(
+  'm.item_url IN (SELECT w.item_url FROM catalog_metadata w WHERE w.work_key = catalog_metadata.work_key)',
+)
+
+/** Every instance URL of the work, oldest enrichment first, so the original stays first. */
+export const workItemUrlsExpr = sql<string[]>`(
+  SELECT coalesce(jsonb_agg(w.item_url ORDER BY w.enriched_at ASC NULLS LAST, w.item_url), '[]'::jsonb)
+  FROM catalog_metadata w
+  WHERE w.work_key = catalog_metadata.work_key
+)`
+
+/**
+ * Keep only the row that stands for its work. An enriched member beats a stub, and among
+ * equals the lowest item URL wins. "Eligible" follows the request's own visibility
+ * options, so hiding one instance's row leaves the other to stand for the work.
+ *
+ * Deliberately NOT "most recently enriched". Each twin is refreshed on its own
+ * `NEODB_STALE_DAYS` clock, so that rule would swap which row (and which `item_url`) is
+ * served every few days. The marks, dates, comments and status are merged across every
+ * member either way; only the catalogue fields come from the representative.
+ */
+export function workRepresentative(opts: { includeHidden?: boolean; includeUnenriched?: boolean } = {}): SQL {
+  const eligible: string[] = []
+  if (!opts.includeHidden) eligible.push('r.hidden_at IS NULL')
+  if (!opts.includeUnenriched) eligible.push('r.enriched_at IS NOT NULL')
+  const extra = eligible.length ? ' AND ' + eligible.join(' AND ') : ''
+  // Row comparison reads "r is better": r is enriched and the outer row is not, or both
+  // are alike and r's URL sorts first.
+  return sql.raw(`NOT EXISTS (
+    SELECT 1 FROM catalog_metadata r
+    WHERE r.work_key = catalog_metadata.work_key
+      AND r.id <> catalog_metadata.id${extra}
+      AND ((r.enriched_at IS NOT NULL)::int, catalog_metadata.item_url)
+        > ((catalog_metadata.enriched_at IS NOT NULL)::int, r.item_url)
+  )`)
+}
+
 // Case-insensitive, partial title match across the enriched `title` and the retained
 // mark-supplied aliases (`mark_titles`). NeoDB overwrites the title with the localized
 // name (e.g. "Konflikt"), so the name a mark actually federated with (e.g. "Conflict")
-// only lives in mark_titles — either must find the row. The jsonb-array arm mirrors the
-// genre filter below.
-function titleMatch(title: string): SQL {
+// only lives in mark_titles — either must find the row. Matched across every instance row
+// of the work (ADR 0075), so a title only the minreol.dk row carries still finds the row
+// served for it. Hand-qualified on the `w` alias: an interpolated column would bind to
+// the outer row.
+export function titleMatch(title: string): SQL {
   const pat = `%${title}%`
-  return sql`(
-    ${catalogMetadata.title} ILIKE ${pat}
-    OR (
-      jsonb_typeof(${catalogMetadata.markTitles}) = 'array' AND EXISTS (
-        SELECT 1 FROM jsonb_array_elements_text(${catalogMetadata.markTitles}) AS mt(name)
-        WHERE mt.name ILIKE ${pat}
+  return sql`EXISTS (
+    SELECT 1 FROM catalog_metadata w
+    WHERE w.work_key = catalog_metadata.work_key
+      AND (
+        w.title ILIKE ${pat}
+        OR (
+          jsonb_typeof(w.mark_titles) = 'array' AND EXISTS (
+            SELECT 1 FROM jsonb_array_elements_text(w.mark_titles) AS mt(name)
+            WHERE mt.name ILIKE ${pat}
+          )
+        )
       )
-    )
   )`
 }
 
@@ -45,7 +103,7 @@ export const markCommentsExpr = sql<string[]>`(
   FROM (
     SELECT DISTINCT ON (m.comment) m.comment, m.published_at
     FROM neodb_marks m
-    WHERE m.item_url = catalog_metadata.item_url
+    WHERE ${MARK_IN_WORK}
       AND m.deleted_at IS NULL
       AND coalesce(m.comment, '') <> ''
     ORDER BY m.comment, m.published_at DESC NULLS LAST
@@ -69,14 +127,14 @@ export const markCommentsExpr = sql<string[]>`(
 export const markStatusesExpr = sql<string[]>`(
   SELECT coalesce(jsonb_agg(m.status ORDER BY m.published_at DESC NULLS LAST), '[]'::jsonb)
   FROM neodb_marks m
-  WHERE m.item_url = catalog_metadata.item_url
+  WHERE ${MARK_IN_WORK}
     AND m.deleted_at IS NULL AND m.status IS NOT NULL
 )`
 
 /** The newest live mark's canonical status — the item's current shelf state. */
 export const latestMarkStatusExpr = sql<string | null>`(
   SELECT m.status FROM neodb_marks m
-  WHERE m.item_url = catalog_metadata.item_url
+  WHERE ${MARK_IN_WORK}
     AND m.deleted_at IS NULL AND m.status IS NOT NULL
   ORDER BY m.published_at DESC NULLS LAST LIMIT 1
 )`
@@ -84,7 +142,7 @@ export const latestMarkStatusExpr = sql<string | null>`(
 /** The same mark's verb exactly as NeoDB sent it. */
 export const latestMarkStatusRawExpr = sql<string | null>`(
   SELECT m.status_raw FROM neodb_marks m
-  WHERE m.item_url = catalog_metadata.item_url
+  WHERE ${MARK_IN_WORK}
     AND m.deleted_at IS NULL AND m.status IS NOT NULL
   ORDER BY m.published_at DESC NULLS LAST LIMIT 1
 )`
@@ -98,7 +156,7 @@ export const latestMarkStatusRawExpr = sql<string | null>`(
 export function markStatusMatch(status: string): SQL {
   return sql`(
     SELECT m.status FROM neodb_marks m
-    WHERE m.item_url = ${catalogMetadata.itemUrl}
+    WHERE ${MARK_IN_WORK}
       AND m.deleted_at IS NULL AND m.status IS NOT NULL
     ORDER BY m.published_at DESC NULLS LAST LIMIT 1
   ) = ${status}`
@@ -127,7 +185,7 @@ export function markStatusMatch(status: string): SQL {
 export function markStatusExcluded(statuses: string[]): SQL {
   return sql`coalesce((
     SELECT m.status FROM neodb_marks m
-    WHERE m.item_url = ${catalogMetadata.itemUrl}
+    WHERE ${MARK_IN_WORK}
       AND m.deleted_at IS NULL AND m.status IS NOT NULL
     ORDER BY m.published_at DESC NULLS LAST LIMIT 1
   ), '') NOT IN ${statuses}`
@@ -138,7 +196,7 @@ export function markStatusExcluded(statuses: string[]): SQL {
 function markCommentMatch(needle: string): SQL {
   return sql`EXISTS (
     SELECT 1 FROM neodb_marks m
-    WHERE m.item_url = ${catalogMetadata.itemUrl}
+    WHERE ${MARK_IN_WORK}
       AND m.deleted_at IS NULL
       AND m.comment ILIKE ${'%' + needle + '%'}
   )`
@@ -165,7 +223,7 @@ export const markWatchedDatesExpr = sql<string[]>`(
   FROM (
     SELECT DISTINCT m.watched_at
     FROM neodb_marks m
-    WHERE m.item_url = catalog_metadata.item_url
+    WHERE ${MARK_IN_WORK}
       AND m.deleted_at IS NULL
       AND m.watched_at IS NOT NULL
   ) w
@@ -183,7 +241,7 @@ export const markWatchedDatesExpr = sql<string[]>`(
 export const latestWatchedAtExpr = sql<Date | null>`(
   SELECT max(m.watched_at)
   FROM neodb_marks m
-  WHERE m.item_url = catalog_metadata.item_url
+  WHERE ${MARK_IN_WORK}
     AND m.deleted_at IS NULL
 )`
 
@@ -198,7 +256,7 @@ export const latestWatchedAtExpr = sql<Date | null>`(
  */
 export const markWatchedDateUnknownExpr = sql<boolean>`EXISTS (
   SELECT 1 FROM neodb_marks m
-  WHERE m.item_url = catalog_metadata.item_url
+  WHERE ${MARK_IN_WORK}
     AND m.deleted_at IS NULL
     AND m.watched_date_unknown
 )`
@@ -212,7 +270,7 @@ export const markWatchedDateUnknownExpr = sql<boolean>`EXISTS (
 export function watchedDateUnknownMatch(value: boolean): SQL {
   const exists = sql`EXISTS (
     SELECT 1 FROM neodb_marks m
-    WHERE m.item_url = ${catalogMetadata.itemUrl}
+    WHERE ${MARK_IN_WORK}
       AND m.deleted_at IS NULL
       AND m.watched_date_unknown
   )`
@@ -268,7 +326,7 @@ export function watchedRangeMatch(from: WatchedBound | null, to: WatchedBound | 
   }
   return sql`EXISTS (
     SELECT 1 FROM neodb_marks m
-    WHERE m.item_url = ${catalogMetadata.itemUrl}
+    WHERE ${MARK_IN_WORK}
       AND m.deleted_at IS NULL
       AND m.watched_at IS NOT NULL
       AND ${sql.join(bounds, sql` AND `)}
@@ -325,6 +383,11 @@ function buildConditions(input: {
   // Admin-hidden rows are out by default; `include_hidden` opts back in, exactly as
   // `include_unenriched` does below. See ADR 0013.
   if (!input.include_hidden) conditions.push(visibleCatalog())
+  // One row per work (ADR 0075): the other instances' rows are folded into this one.
+  conditions.push(workRepresentative({
+    includeHidden: input.include_hidden,
+    includeUnenriched: input.include_unenriched,
+  }))
   if (input.title) conditions.push(titleMatch(input.title))
   if (input.mark_comment) conditions.push(markCommentMatch(input.mark_comment))
   if (input.status) conditions.push(markStatusMatch(input.status))
@@ -334,7 +397,12 @@ function buildConditions(input: {
   if (input.watched_date_unknown != null) conditions.push(watchedDateUnknownMatch(input.watched_date_unknown))
   if (input.category) conditions.push(eq(catalogMetadata.category, input.category))
   if (input.item_type) conditions.push(eq(catalogMetadata.itemType, input.item_type))
-  if (input.imdb) conditions.push(eq(catalogMetadata.imdb, input.imdb))
+  if (input.imdb) {
+    conditions.push(sql`EXISTS (
+      SELECT 1 FROM catalog_metadata w
+      WHERE w.work_key = catalog_metadata.work_key AND w.imdb = ${input.imdb}
+    )`)
+  }
   if (input.genre) {
     // genre is a jsonb string[]; match any element, case-insensitive partial.
     conditions.push(sql`(
@@ -356,8 +424,8 @@ function buildConditions(input: {
   // (enriched by a path that predates the mark store) are grandfathered in, so this never
   // hides a title that has no delete behind it.
   conditions.push(sql`(
-    NOT EXISTS (SELECT 1 FROM neodb_marks m WHERE m.item_url = ${catalogMetadata.itemUrl})
-    OR EXISTS (SELECT 1 FROM neodb_marks m WHERE m.item_url = ${catalogMetadata.itemUrl} AND m.deleted_at IS NULL)
+    NOT EXISTS (SELECT 1 FROM neodb_marks m WHERE ${MARK_IN_WORK})
+    OR EXISTS (SELECT 1 FROM neodb_marks m WHERE ${MARK_IN_WORK} AND m.deleted_at IS NULL)
   )`)
   return conditions
 }
@@ -436,6 +504,8 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
     .select({
       id: catalogMetadata.id,
       itemUrl: catalogMetadata.itemUrl,
+      workKey: catalogMetadata.workKey,
+      itemUrls: workItemUrlsExpr,
       category: catalogMetadata.category,
       itemType: catalogMetadata.itemType,
       title: catalogMetadata.title,
@@ -520,6 +590,11 @@ export async function getWatched(input: z.infer<typeof getWatchedSchema>) {
     },
     titles: rows.map((r) => ({
       item_url: r.itemUrl,
+      // One row per work (ADR 0075). `item_urls` is every NeoDB instance URL the work was
+      // marked on, oldest first, so the original minreol.dk item stays traceable after a
+      // move; the marks, dates, comments and status below are merged across all of them.
+      work_key: r.workKey,
+      item_urls: asArray(r.itemUrls) ?? [r.itemUrl],
       category: r.category,
       item_type: r.itemType,
       title: r.title,
@@ -594,13 +669,21 @@ export async function getCatalogueDetails(input: CatalogueDetailsInput) {
   const conditions: SQL[] = []
   // A hidden item must not stay reachable by exact URL just because the listing dropped it.
   if (!input.include_hidden) conditions.push(visibleCatalog())
-  if (input.item_url) conditions.push(eq(catalogMetadata.itemUrl, input.item_url))
+  // Either instance's URL resolves to the work, and the work to the row that stands for
+  // it (ADR 0075), so the minreol.dk URL and the neodb.social one give the same answer.
+  if (input.item_url) {
+    conditions.push(sql`catalog_metadata.work_key = (
+      SELECT w.work_key FROM catalog_metadata w WHERE w.item_url = ${input.item_url}
+    )`)
+  }
+  conditions.push(workRepresentative({ includeHidden: input.include_hidden, includeUnenriched: true }))
   if (input.title) conditions.push(titleMatch(input.title))
   if (input.category) conditions.push(eq(catalogMetadata.category, input.category))
 
   const rows = await db
     .select({
       ...getTableColumns(catalogMetadata),
+      itemUrls: workItemUrlsExpr,
       markComments: markCommentsExpr,
       watchedDates: markWatchedDatesExpr,
       markStatus: latestMarkStatusExpr,
@@ -619,6 +702,8 @@ export async function getCatalogueDetails(input: CatalogueDetailsInput) {
 
   return {
     item_url: r.itemUrl,
+    work_key: r.workKey,
+    item_urls: asArray(r.itemUrls) ?? [r.itemUrl],
     category: r.category,
     item_type: r.itemType,
     title: r.title,

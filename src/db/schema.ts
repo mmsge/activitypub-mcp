@@ -332,8 +332,15 @@ export const catalogMetadata = pgTable('catalog_metadata', {
   // the upsert's values object: see ADR 0013 for why adding it there would unhide the row
   // on every refresh.
   hiddenAt: timestamp('hidden_at', { withTimezone: true }),
+  // The work this row is one instance of (ADR 0075). Rows sharing a TMDB link, or an IMDb
+  // id when both are films or both whole shows, share a key, so a season marked on two
+  // NeoDB instances is served as one row. `tmdb:…` / `imdb:…` when matched, else
+  // `url:<item_url>`: a row with nothing to match on is its own work. Written by the
+  // enrichment upsert and by `npm run backfill-work-keys`, never derived at read time.
+  workKey: text('work_key').notNull(),
 }, (t) => [
   index('catalog_metadata_item_url_idx').on(t.itemUrl),
+  index('catalog_metadata_work_key_idx').on(t.workKey),
   index('catalog_metadata_category_idx').on(t.category),
   index('catalog_metadata_imdb_idx').on(t.imdb),
   index('catalog_metadata_bookwyrm_idx').on(t.bookwyrmBookUrl),

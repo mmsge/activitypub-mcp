@@ -15,6 +15,10 @@ import {
   parseWatchedBound,
   resolveWatchedWindow,
   watchedRangeMatch,
+  workRepresentative,
+  workItemUrlsExpr,
+  titleMatch,
+  WORK_ITEM_URLS,
 } from './watched.js'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { getDb } from '../../db/client.js'
@@ -27,12 +31,12 @@ describe('mark_comments correlation', () => {
   // that binds to neodb_marks' own column — an always-true self-comparison that silently
   // hands every catalogue row every comment in the table. It throws no error and the
   // response shape looks right, so only the rendered SQL catches a regression.
-  it('correlates on catalog_metadata.item_url, table-qualified', () => {
+  it('correlates on the work of catalog_metadata, table-qualified', () => {
     const { sql } = getDb()
       .select({ markComments: markCommentsExpr })
       .from(catalogMetadata)
       .toSQL()
-    expect(sql).toContain('m.item_url = catalog_metadata.item_url')
+    expect(sql).toContain('m.item_url IN (SELECT w.item_url FROM catalog_metadata w WHERE w.work_key = catalog_metadata.work_key)')
     expect(sql).not.toMatch(/m\.item_url = "?item_url"?/)
   })
 })
@@ -41,12 +45,12 @@ describe('mark_comments correlation', () => {
 // neodb_marks' own column, turning the correlation into an always-true self-comparison —
 // which would hand every catalogue row every watch date in the table.
 describe('watch-date correlation', () => {
-  it('correlates both watch-date expressions on catalog_metadata.item_url, table-qualified', () => {
+  it('correlates both watch-date expressions on the work of catalog_metadata, table-qualified', () => {
     const { sql } = getDb()
       .select({ watchedDates: markWatchedDatesExpr, latestWatchedAt: latestWatchedAtExpr })
       .from(catalogMetadata)
       .toSQL()
-    expect(sql).toContain('m.item_url = catalog_metadata.item_url')
+    expect(sql).toContain('m.item_url IN (SELECT w.item_url FROM catalog_metadata w WHERE w.work_key = catalog_metadata.work_key)')
     expect(sql).not.toMatch(/m\.item_url = "?item_url"?/)
   })
 
@@ -69,9 +73,9 @@ describe('watch-date correlation', () => {
 // The "date unknown" sentinel (ADR 0060) is decoded to a null watched_at, so the flag is
 // the only thing that tells a deliberate unknown apart from a mark that carried no date.
 describe('watched_date_unknown', () => {
-  it('correlates on catalog_metadata.item_url, table-qualified, over live marks only', () => {
+  it('correlates on the work of catalog_metadata, table-qualified, over live marks only', () => {
     const { sql } = getDb().select({ unknown: markWatchedDateUnknownExpr }).from(catalogMetadata).toSQL()
-    expect(sql).toContain('m.item_url = catalog_metadata.item_url')
+    expect(sql).toContain('m.item_url IN (SELECT w.item_url FROM catalog_metadata w WHERE w.work_key = catalog_metadata.work_key)')
     expect(sql).not.toMatch(/m\.item_url = "?item_url"?/)
     expect(sql).toContain('m.deleted_at IS NULL')
     expect(sql).toContain('m.watched_date_unknown')
@@ -84,7 +88,7 @@ describe('watched_date_unknown', () => {
     expect(yes).toMatch(/^EXISTS \(/)
     expect(no).toMatch(/^NOT EXISTS \(/)
     for (const s of [yes, no]) {
-      expect(s).toContain('"catalog_metadata"."item_url"')
+      expect(s).toContain('m.item_url IN (SELECT w.item_url FROM catalog_metadata w WHERE w.work_key = catalog_metadata.work_key)')
       expect(s).toContain('m.watched_date_unknown')
     }
   })
@@ -292,7 +296,7 @@ describe('the mark status filters', () => {
     // an always-true self-comparison that hands every row every mark in the table.
     // The same trap markCommentsExpr documents.
     for (const expr of [markStatusesExpr, latestMarkStatusExpr, latestMarkStatusRawExpr]) {
-      expect(render(expr)).toContain('m.item_url = catalog_metadata.item_url')
+      expect(render(expr)).toContain('m.item_url IN (SELECT w.item_url FROM catalog_metadata w WHERE w.work_key = catalog_metadata.work_key)')
       expect(render(expr)).toContain('m.deleted_at IS NULL')
     }
   })
@@ -367,7 +371,47 @@ describe('the status predicates render as valid SQL', () => {
 
   it('correlates both predicates table-qualified', () => {
     for (const p of [markStatusMatch('complete'), markStatusExcluded(['dropped'])]) {
-      expect(render(p).sql).toContain('"catalog_metadata"."item_url"')
+      expect(render(p).sql).toContain('m.item_url IN (SELECT w.item_url FROM catalog_metadata w WHERE w.work_key = catalog_metadata.work_key)')
     }
+  })
+})
+
+// One work per title (ADR 0075): two instance rows sharing a work_key are served as one.
+describe('one row per work', () => {
+  const render = (s: ReturnType<typeof workRepresentative>) => new PgDialect().sqlToQuery(s).sql
+
+  it('keeps one stable member per work: enriched first, then the lowest URL', () => {
+    const s = render(workRepresentative())
+    expect(s).toContain('r.work_key = catalog_metadata.work_key')
+    expect(s).toContain('r.id <> catalog_metadata.id')
+    expect(s).toContain('r.hidden_at IS NULL')
+    expect(s).toContain('AND r.enriched_at IS NOT NULL')
+    // Never on enriched_at itself: twins refresh on separate clocks, and that would swap
+    // the served row every few days.
+    expect(s).toMatch(/\(\(r\.enriched_at IS NOT NULL\)::int, catalog_metadata\.item_url\)\s*> \(\(catalog_metadata\.enriched_at IS NOT NULL\)::int, r\.item_url\)/)
+  })
+
+  it('follows the request: a hidden or unenriched member competes only when asked for', () => {
+    const s = render(workRepresentative({ includeHidden: true, includeUnenriched: true }))
+    expect(s).not.toContain('r.hidden_at IS NULL')
+    expect(s).not.toContain('AND r.enriched_at IS NOT NULL')
+  })
+
+  it('lists every instance URL of the work, oldest first', () => {
+    const { sql } = getDb().select({ urls: workItemUrlsExpr }).from(catalogMetadata).toSQL()
+    expect(sql).toContain('w.work_key = catalog_metadata.work_key')
+    expect(sql).toContain('ORDER BY w.enriched_at ASC NULLS LAST')
+  })
+
+  it('matches a title on any instance row of the work, hand-qualified on w', () => {
+    const s = new PgDialect().sqlToQuery(titleMatch('Vision')).sql
+    expect(s).toContain('w.work_key = catalog_metadata.work_key')
+    expect(s).toContain('w.title ILIKE')
+    expect(s).not.toContain('"catalog_metadata"."title"')
+  })
+
+  it('pins the one spelling every mark expression correlates through', () => {
+    expect(new PgDialect().sqlToQuery(WORK_ITEM_URLS).sql)
+      .toBe('(SELECT w.item_url FROM catalog_metadata w WHERE w.work_key = catalog_metadata.work_key)')
   })
 })

@@ -1,6 +1,6 @@
 {
   "name": "activitypub-mcp",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "description": "",
   "scripts": {
     "dev": "tsx watch src/index.ts",
@@ -30,6 +30,7 @@
     "recover-legacy-images": "tsx scripts/recover-legacy-images.ts",
     "post-breakouts": "tsx scripts/post-breakouts.ts",
     "walk-threads": "tsx scripts/walk-threads.ts",
+    "backfill-work-keys": "tsx scripts/backfill-work-keys.ts",
     "lint:openapi": "redocly lint docs/openapi.yaml",
     "format:check": "prettier --check docs/openapi.yaml",
     "format": "prettier --write docs/openapi.yaml",

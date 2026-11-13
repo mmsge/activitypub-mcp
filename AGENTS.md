@@ -341,6 +341,24 @@ Rules not to "simplify" back:
 - **"0 rows decoded" on deploy is correct.** Verified empty on 2026-09-25; here the suspicious
   number would be anything else.
 
+## One work per title
+
+Markus marks on more than one NeoDB instance (`minreol.dk`, then `neodb.social` from
+13 November 2026), and each gives a title its own catalogue URL. `catalog_metadata.work_key`
+says which rows are one work, and `get_watched` / `get_catalogue_details` serve one row per
+work with marks merged across instances and every instance URL in `item_urls`. See ADR 0075.
+
+Rules not to "simplify" back:
+
+- **A season never matches on IMDb.** NeoDB gives seasons the show's IMDb id, so an IMDb
+  match would fold season 1, season 2 and the show into one row. A season matches only on
+  a TMDB link naming its own season.
+- **Nothing merges on title.** A row with no TMDB link or IMDb id is its own work.
+- **The representative is stable, not "newest".** Enriched beats a stub, then the lowest
+  item URL. Twins refresh on separate clocks, so newest-enriched would swap the served row.
+- **The regrouping runs at the end of every metadata sync pass.** The upsert can only join
+  one stored twin; folding two works a later row bridges needs the whole table.
+
 ## Theatre
 
 Markus logs theatre on minreol as NeoDB `Performance` (a play) and `PerformanceProduction`
