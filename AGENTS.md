@@ -359,6 +359,23 @@ Rules not to "simplify" back:
 - **The regrouping runs at the end of every metadata sync pass.** The upsert can only join
   one stored twin; folding two works a later row bridges needs the whole table.
 
+## English metadata from TMDB
+
+neodb.social fills film and TV credits and descriptions from Douban, in Chinese. After NeoDB
+enrichment, every item with a TMDB link is re-read from the TMDB API in `en-US`, and TMDB's
+values win where present (`source_map` says `tmdb`). `TMDB_API_TOKEN` (Streaming Guide's
+key) blank disables it; `npm run refine-tmdb` backfills. See ADR 0076.
+
+Rules not to "simplify" back:
+
+- **A failed TMDB call never blocks the mark.** NeoDB's values are stored, `tmdb_error` is
+  set and the periodic sync retries, up to 5 attempts. A 404 is final.
+- **A season reads the season AND the show.** Genres and creators live only on the show.
+- **Only a link naming the item's own kind.** A season carrying the show's TMDB link is left
+  alone, through the same `tmdbKey` as ADR 0075.
+- **Every pass writes `tmdb_refined_at`.** A pass that did not refine clears it, so it never
+  claims a refinement NeoDB's values have since overwritten.
+
 ## Theatre
 
 Markus logs theatre on minreol as NeoDB `Performance` (a play) and `PerformanceProduction`
