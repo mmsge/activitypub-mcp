@@ -22,6 +22,14 @@ describe('parseSources', () => {
     expect(sources[0]).toEqual({ handle: '@markus@skvip.lol', platform: 'mastodon', apId: null })
   })
 
+  it('takes two accounts on one platform (neodb.social and the older minreol.dk)', () => {
+    const sources = parseSources('@markus@neodb.social|neodb,@markus@minreol.dk|neodb')
+    expect(sources.map((s) => [s.handle, s.platform])).toEqual([
+      ['@markus@neodb.social', 'neodb'],
+      ['@markus@minreol.dk', 'neodb'],
+    ])
+  })
+
   it('tolerates whitespace and a missing leading @', () => {
     expect(parseSources(' markus@skvip.lol | mastodon ')[0].handle).toBe('@markus@skvip.lol')
   })

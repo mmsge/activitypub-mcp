@@ -19,7 +19,7 @@ const REAL = 'https://cdn.masto.host/skviplol/media_attachments/files/1.jpeg'
 describe('isAllowedImageHost', () => {
   it('accepts the exact hosts', () => {
     for (const h of ['cdn.masto.host', 'skvip.lol', 'pixelfed.babb.no', 'loops.video',
-      'bookwyrm.social', 'minreol.dk', 'rullen.no', 'lastfm.freetls.fastly.net']) {
+      'bookwyrm.social', 'minreol.dk', 'neodb.social', 'rullen.no', 'lastfm.freetls.fastly.net']) {
       expect([h, isAllowedImageHost(h)]).toEqual([h, true])
     }
   })

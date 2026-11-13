@@ -52,6 +52,9 @@ export const IMAGE_HOSTS: readonly string[] = [
   'bookwyrm.social',
   '*.digitaloceanspaces.com',
   'minreol.dk',
+  // neodb.social serves covers from its own origin (/m/…), and is the main NeoDB
+  // account from 13 November 2026; minreol.dk stays for the older marks.
+  'neodb.social',
   // Rullen serves its clip posters from its own origin (MEDIA_FORCE_PROXY), not from
   // the object-storage bucket its .env.example points at.
   'rullen.no',
