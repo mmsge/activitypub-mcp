@@ -8,7 +8,7 @@ import { config } from '../config.js'
 import { logger } from '../lib/logger.js'
 import { encodeCursor } from '../mcp/tools/pagination.js'
 import { stripHtml } from '../lib/strip-html.js'
-import { normalizeReadingStatus } from '../lib/bookwyrm-reading.js'
+import { normalizeReadingStatus, resolveProgress } from '../lib/bookwyrm-reading.js'
 import { mergedCandidateSql, idArray, type LaneContext } from './lanes.js'
 import { sanitizeHtml } from './sanitize-html.js'
 import { toEmojis } from './emoji.js'
@@ -396,7 +396,8 @@ async function hydrateBooks(cands: Candidate[]): Promise<Map<string, Entry>> {
     // so does a `read`-shelved comment — neither of which produces a "finished
     // reading" note anywhere. Whether the card then says so is the view's call.
     const marksFinish = c.kind === 'book_finished' || c.kind === 'book_review' || status === 'read'
-    const progress = row.progress ? Number(row.progress) : null
+    const { progress, progressMode } = resolveProgress(
+      row.apId, row.content ? stripHtml(row.content) : null, row.progress, row.progressMode)
     const entry: BookEntry = {
       refId: c.refId,
       eventAt: c.eventAt,
@@ -417,8 +418,8 @@ async function hydrateBooks(cands: Candidate[]): Promise<Map<string, Entry>> {
       series: m?.series ?? null,
       bookUrl,
       contentWarning: row.summary || null,
-      progress: progress != null && Number.isFinite(progress) ? progress : null,
-      progressMode: row.progressMode,
+      progress,
+      progressMode,
       finishedAt: marksFinish ? (parsePartialDate(row.finishedDate) ?? c.eventAt) : null,
     }
     out.set(c.refId, entry)
