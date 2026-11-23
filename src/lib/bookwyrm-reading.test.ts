@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import {
   classifyReadingEvent,
+  pageFromPureComment,
   collapseReadingEvents,
   deriveReadingCycles,
   indexCollapsedBooks,
@@ -320,6 +321,47 @@ describe('classifyReadingEvent — review title and progress', () => {
     const junk = classifyReadingEvent({ apId: `${AP}/comment/6`, content: 'x', tags: [], attachments: [], progress: 'abc' })
     expect(none?.progress).toBeNull()
     expect(junk?.progress).toBeNull()
+  })
+
+  // What bookwyrm.social actually delivers to a non-BookWyrm inbox: no
+  // progress fields, the page only in the generated citation (comment/13129271).
+  it('reads the page back out of a pure-serialized comment citation', () => {
+    const ev = classifyReadingEvent({
+      apId: `${AP}/comment/13129271`,
+      content: 'For ei bok å skulle diskutere med kollegaer.\n(comment on Uten en tråd, p. 16)',
+      tags: [],
+      attachments: [],
+      inReplyToBook: 'https://bookwyrm.social/book/2435027',
+    })
+    expect(ev?.event_type).toBe('comment')
+    expect(ev?.progress).toBe(16)
+    expect(ev?.progress_mode).toBe('PG')
+  })
+
+  it('prefers the structured fields over the citation', () => {
+    const ev = classifyReadingEvent({
+      apId: `${AP}/comment/7`,
+      content: 'x\n(comment on Book, p. 16)',
+      tags: [],
+      attachments: [],
+      progress: '40',
+      progressMode: 'PCT',
+    })
+    expect(ev?.progress).toBe(40)
+    expect(ev?.progress_mode).toBe('PCT')
+  })
+
+  it('finds no page in a citation without one, or outside a comment', () => {
+    expect(pageFromPureComment('nice\n(comment on Book)')).toBeNull()
+    expect(pageFromPureComment('see p. 16 later')).toBeNull()
+    expect(pageFromPureComment('x\n(comment on A, p. 3, B, p. 120)')).toBe(120)
+    const quote = classifyReadingEvent({
+      apId: `${AP}/quotation/8`,
+      content: '"words" — A: Book, p. 16',
+      tags: [],
+      attachments: [],
+    })
+    expect(quote?.progress).toBeNull()
   })
 })
 
