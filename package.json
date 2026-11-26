@@ -27,6 +27,8 @@
     "youtube-import-verify": "tsx scripts/youtube-import-verify.ts",
     "classify-youtube-shorts": "tsx scripts/classify-youtube-shorts.ts",
     "import-twitter-archive": "tsx scripts/import-twitter-archive.ts",
+    "build-tiktok-archive": "tsx scripts/build-tiktok-archive.ts",
+    "import-tiktok-archive": "tsx scripts/import-tiktok-archive.ts",
     "recover-legacy-images": "tsx scripts/recover-legacy-images.ts",
     "post-breakouts": "tsx scripts/post-breakouts.ts",
     "walk-threads": "tsx scripts/walk-threads.ts",

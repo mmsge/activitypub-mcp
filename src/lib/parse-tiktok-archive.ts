@@ -130,7 +130,12 @@ function optCount(v: unknown, field: string): number | null {
  * posts array); that is a wrong upload and nothing should be written. A single post that
  * does not check out is a problem, listed and left out, and the rest are kept.
  */
-export function parseTiktokArchive(input: unknown): { archive: TiktokArchive; problems: PostProblem[] } {
+export function parseTiktokArchive(input: unknown): {
+  archive: TiktokArchive
+  problems: PostProblem[]
+  /** Each kept post's position in the file, in step with `archive.posts`. */
+  positions: number[]
+} {
   if (!isObj(input)) throw new TiktokArchiveError('Not a TikTok archive: expected a JSON object')
   if (input.format !== TIKTOK_ARCHIVE_FORMAT) {
     throw new TiktokArchiveError(
@@ -150,17 +155,19 @@ export function parseTiktokArchive(input: unknown): { archive: TiktokArchive; pr
     : null
 
   const posts: TiktokArchivePost[] = []
+  const positions: number[] = []
   const problems: PostProblem[] = []
   input.posts.forEach((raw, index) => {
     const postedAtRaw = isObj(raw) && typeof raw.postedAt === 'string' ? raw.postedAt : null
     try {
       posts.push(checkPost(raw, username))
+      positions.push(index)
     } catch (e) {
       problems.push({ index, postedAt: postedAtRaw, reason: e instanceof Error ? e.message : String(e) })
     }
   })
 
-  return { archive: { format: TIKTOK_ARCHIVE_FORMAT, account: { username, displayName }, generatedAt, posts }, problems }
+  return { archive: { format: TIKTOK_ARCHIVE_FORMAT, account: { username, displayName }, generatedAt, posts }, problems, positions }
 }
 
 function checkPost(raw: unknown, username: string): TiktokArchivePost {

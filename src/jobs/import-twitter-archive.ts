@@ -1,14 +1,9 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { sql } from 'drizzle-orm'
 import { getDb } from '../db/client.js'
-import { actors, objects } from '../db/schema.js'
+import { actors } from '../db/schema.js'
 import { logger } from '../lib/logger.js'
-import { stripHtml } from '../lib/strip-html.js'
-import { extractContent } from '../lib/object-content.js'
-import { extractAttachments, extractLanguage, extractTags } from '../lib/object-fields.js'
-import { resolveRef } from '../lib/ap-object.js'
-import { dbReason } from './import-youtube-watches.js'
+import { objectRow, upsertObjectRows } from './archive-objects.js'
 import {
   TWITTER_DOMAIN,
   buildActor,
@@ -218,28 +213,8 @@ export function copyRecovered(toDir: string, files: readonly RecoveredFile[]): M
   return out
 }
 
-/** The columns of an `objects` row, derived exactly as `ingestObject` derives them. */
-export function objectRow(actorApId: string, built: BuiltTweet) {
-  const obj = built.object
-  const content = extractContent(obj) ?? ''
-  return {
-    apId: built.apId,
-    type: built.type,
-    actorApId,
-    content,
-    contentText: content ? stripHtml(content) : '',
-    summary: null as string | null,
-    url: resolveRef(obj.url),
-    inReplyTo: resolveRef(obj.inReplyTo),
-    publishedAt: new Date(obj.published as string),
-    updatedAtAp: null as Date | null,
-    attachments: extractAttachments(obj),
-    tags: extractTags(obj),
-    sensitive: Boolean(obj.sensitive),
-    language: extractLanguage(obj),
-    raw: obj,
-  }
-}
+// The row derivation and the batched upsert are shared with the TikTok importer.
+export { objectRow } from './archive-objects.js'
 
 export interface ImportOptions {
   /** Where files go. Required unless `copyFiles` is false. */
@@ -299,33 +274,6 @@ async function upsertActor(actor: BuiltActor): Promise<void> {
   })
 }
 
-const EXCLUDED = (col: string) => sql.raw(`excluded."${col}"`)
-
-async function upsertBatch(batch: ReturnType<typeof objectRow>[]): Promise<{ inserted: number; updated: number }> {
-  const db = getDb()
-  const rows = await db.insert(objects).values(batch as never).onConflictDoUpdate({
-    target: objects.apId,
-    set: {
-      type: EXCLUDED('type'),
-      content: EXCLUDED('content'),
-      contentText: EXCLUDED('content_text'),
-      summary: EXCLUDED('summary'),
-      url: EXCLUDED('url'),
-      inReplyTo: EXCLUDED('in_reply_to'),
-      publishedAt: EXCLUDED('published_at'),
-      updatedAtAp: EXCLUDED('updated_at_ap'),
-      attachments: EXCLUDED('attachments'),
-      tags: EXCLUDED('tags'),
-      sensitive: EXCLUDED('sensitive'),
-      language: EXCLUDED('language'),
-      raw: EXCLUDED('raw'),
-      updatedAt: new Date(),
-    },
-  }).returning({ created: sql<boolean>`(xmax = 0)` })
-  const inserted = rows.filter((r) => r.created).length
-  return { inserted, updated: rows.length - inserted }
-}
-
 export async function importPlanned(plan: PlannedAccount, opts: ImportOptions = {}): Promise<AccountReport> {
   const { actor } = plan
   const report: AccountReport = {
@@ -355,34 +303,15 @@ export async function importPlanned(plan: PlannedAccount, opts: ImportOptions = 
   await upsertActor(actor)
   report.actorWritten = true
 
-  const batchSize = Math.max(1, opts.batchSize ?? DEFAULT_BATCH_SIZE)
   const rows = plan.tweets.map((t) => ({ id: t.apId.split('/').pop() ?? t.apId, row: objectRow(actor.apId, t) }))
-
-  for (let i = 0; i < rows.length; i += batchSize) {
-    const chunk = rows.slice(i, i + batchSize)
-    try {
-      const r = await upsertBatch(chunk.map((c) => c.row))
-      report.inserted += r.inserted
-      report.updated += r.updated
-    } catch (batchError) {
-      // One bad row must not cost the other 499, nor abort a 28,000-row import thousands in.
-      // A chunk is one statement, so a failure rolled all of it back and nothing from it
-      // landed — which is what makes retrying row by row safe, and isolates the offender.
-      logger.warn(
-        { account: actor.username, batchStart: i, reason: dbReason(batchError) },
-        'Twitter archive batch rejected; retrying row by row to isolate it',
-      )
-      for (const c of chunk) {
-        try {
-          const r = await upsertBatch([c.row])
-          report.inserted += r.inserted
-          report.updated += r.updated
-        } catch (rowError) {
-          report.failed.push({ tweetId: c.id, reason: dbReason(rowError) })
-        }
-      }
-    }
-  }
+  const written = await upsertObjectRows(rows, {
+    batchSize: opts.batchSize ?? DEFAULT_BATCH_SIZE,
+    label: 'Twitter archive',
+    context: { account: actor.username },
+  })
+  report.inserted = written.inserted
+  report.updated = written.updated
+  report.failed = written.failed.map((f) => ({ tweetId: f.id, reason: f.reason }))
 
   logger.info(
     { account: actor.username, inserted: report.inserted, updated: report.updated, failed: report.failed.length },
