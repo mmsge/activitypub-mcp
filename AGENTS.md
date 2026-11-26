@@ -150,6 +150,11 @@ Rules not to "simplify" back:
   are shared with the Twitter importer in `src/jobs/archive-objects.ts`.
 - **Views live in `raw.tiktokArchive.post.views`.** AS2 has no property for them; likes,
   shares and replies are `totalItems` collections. `metricExpr` and `engagementOf` must agree.
+- **A count sort breaks ties newest first in BOTH directions**, and `metricOrderBy` and
+  `metricKeysetCondition` read that from one constant. `sort_order` reverses the count only.
+  Giving the tie-break the sort's direction looks tidier and makes `asc` and `desc` disagree
+  about which of two equal posts comes first; letting ORDER BY and the cursor's WHERE drift
+  apart pages past or repeats a post at a tie, and never errors.
 
 ## Scrobble races
 
