@@ -1,5 +1,6 @@
 import { config, getOwnerInstanceHost } from '../config.js'
 import { logger } from './logger.js'
+import { isArchiveDomain } from './archive-actors.js'
 
 /**
  * Live engagement reads for get_engagement: resolve a status reference to its
@@ -110,6 +111,15 @@ export function parseStatusRef(raw: string, ownerInstanceHost: string): StatusRe
   }
 
   const origin = url.hostname.toLowerCase()
+  // An imported archive has no server to ask, and dialling twitter.com or tiktok.com is
+  // exactly what ADR 0067 and 0078 rule out. Its counts as of the export are stored with
+  // the post, and get_actor_posts serves them as `engagement`.
+  if (isArchiveDomain(origin)) {
+    return {
+      error: 'unresolved_origin',
+      message: `${input} is a post in an imported archive, with no server to ask. Its counts as of the export are in get_actor_posts' engagement.`,
+    }
+  }
   const segments = url.pathname.split('/').filter(Boolean)
   const statusId = segments[segments.length - 1] ?? ''
   if (!statusId) {

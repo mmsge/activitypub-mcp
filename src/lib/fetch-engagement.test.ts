@@ -16,6 +16,18 @@ const asRef = (v: ReturnType<typeof parseStatusRef>): StatusRef => {
 }
 
 describe('parseStatusRef', () => {
+  it('refuses an archive post instead of dialling its host', () => {
+    for (const url of [
+      'https://www.tiktok.com/@markusrote/video/7052580526875495686',
+      'https://www.tiktok.com/@markusrote#arkiv-20220505T120000Z',
+      'https://twitter.com/MThorr/status/1234567890',
+    ]) {
+      const r = parseStatusRef(url, OWNER)
+      expect('error' in r && r.error).toBe('unresolved_origin')
+      expect('message' in r && r.message).toMatch(/imported archive/)
+    }
+  })
+
   it('parses a Mastodon web permalink and synthesizes the AP candidate', () => {
     const ref = asRef(parseStatusRef('https://skvip.lol/@markus/116850934803868399', OWNER))
     expect(ref.origin).toBe('skvip.lol')
