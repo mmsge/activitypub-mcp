@@ -1,6 +1,7 @@
 /** @jsxImportSource hono/jsx */
 import { describe, it, expect } from 'vitest'
-import { ImportKindPage, ImportListPage, ImportResultPage, StorygraphImportResultPage, TripImportResultPage, TripTrackImportResultPage, lastRunText } from './import.js'
+import { ImportKindPage, ImportListPage, ImportResultPage, StorygraphImportResultPage, TiktokImportResultPage, TripImportResultPage, TripTrackImportResultPage, lastRunText } from './import.js'
+import { planTiktokArchive, type TiktokImportReport } from '../../jobs/import-tiktok-archive.js'
 import { importKind } from '../import-kinds.js'
 import type { TripTrackImportReport } from '../../jobs/import-trip-tracks.js'
 import type { StorygraphImportReport } from '../../jobs/import-storygraph-reads.js'
@@ -194,6 +195,57 @@ describe('GPX import', () => {
     const html = String(TripTrackImportResultPage({ report: gpxReport() }))
     expect(html).not.toContain('>Ruter utan tur</div>')
     expect(html).not.toContain('ikkje kunne lesast')
+  })
+})
+
+describe('TikTok archive import', () => {
+  const tiktokFile = (posts: unknown[]) => ({
+    format: 'tiktok-archive/1',
+    account: { username: 'markusrote', displayName: 'Markus Rote' },
+    generatedAt: '2026-11-26T20:00:00Z',
+    posts,
+  })
+  const post = (postedAt: string, id: string | null) => ({
+    postedAt, kind: 'video', id, url: null, description: null, views: null, likes: 1, comments: null,
+    shares: null, durationSeconds: null, sound: null, location: null, whoCanView: 'Everyone', onProfile: id != null,
+  })
+  const report = (over: Partial<TiktokImportReport> = {}): TiktokImportReport => ({
+    handle: '@markusrote@tiktok.com', actorWritten: true, inserted: 2, updated: 0, failed: [], ...over,
+  })
+
+  it('previews under Fediverse, from a file built on the Mac', () => {
+    const kind = importKind('tiktok')!
+    expect(kind.category).toBe('fediverse')
+    const html = String(ImportKindPage({ kind }))
+    expect(html).toContain('action="/admin/import/tiktok/preview"')
+    expect(html).toContain('build-tiktok-archive')
+  })
+
+  it('counts the posts, names the span and the posts with no link', () => {
+    const plan = planTiktokArchive(tiktokFile([post('2020-11-09T17:02:11Z', '6893000000000000001'), post('2022-05-05T12:00:00Z', null)]))
+    const html = String(TiktokImportResultPage({ plan, report: report() }))
+    expect(html).toContain('2 nye og 0 oppdaterte innlegg')
+    expect(html).toContain('@markusrote@tiktok.com')
+    expect(html).toContain('2020')
+    expect(html).toContain('utan lenkje, ikkje lenger på profilen')
+    expect(html).not.toContain('Kunne ikkje lesast')
+  })
+
+  it('lists the posts it could not read and the rows the database refused', () => {
+    const plan = planTiktokArchive(tiktokFile([post('2020-11-09T17:02:11Z', '6893000000000000001'), { ...post('2021-01-01T00:00:00Z', null), kind: 'reel' }]))
+    const html = String(TiktokImportResultPage({ plan, report: report({ failed: [{ id: '6893000000000000001', reason: 'value too long' }] }) }))
+    expect(html).toContain('Kunne ikkje lesast')
+    expect(html).toContain('innlegg 1: 2021-01-01T00:00:00Z')
+    expect(html).toContain('Avviste av databasen')
+    expect(html).toContain('value too long')
+  })
+
+  it('confirms the stashed upload from the preview', () => {
+    const plan = planTiktokArchive(tiktokFile([post('2020-11-09T17:02:11Z', '6893000000000000001')]))
+    const html = String(TiktokImportResultPage({ plan, report: report(), preview: { token: 'tok', kind: 'tiktok' } }))
+    expect(html).toContain('Ingenting er lagra enno. Dette vil skje:')
+    expect(html).toContain('action="/admin/import/tiktok"')
+    expect(html).toContain('blir lagt til')
   })
 })
 

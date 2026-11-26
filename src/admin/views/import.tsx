@@ -12,6 +12,7 @@ import type { ApplyPruneResult } from '../prune-trips.js'
 import type { StorygraphImportReport } from '../../jobs/import-storygraph-reads.js'
 import type { StorygraphReadRange } from '../../lib/parse-storygraph-csv.js'
 import type { TripTrackImportReport } from '../../jobs/import-trip-tracks.js'
+import type { TiktokImportReport, TiktokPlan } from '../../jobs/import-tiktok-archive.js'
 import { getBookwyrmActors } from '../../config.js'
 
 // Import, rebuilt from the mobile handoff (ADR 0073, phase 3): a list grouped by
@@ -494,6 +495,46 @@ export const TripTrackImportResultPage: FC<{ report: TripTrackImportReport; prev
     )}
   </Done>
 )
+
+/**
+ * The TikTok archive: how many posts, the first and last date, and every post it could not
+ * read or the database refused. A post with no link is not a problem: the export knows it
+ * and TikTok no longer shows it, so it is counted on its own. See ADR 0078.
+ */
+export const TiktokImportResultPage: FC<{ plan: TiktokPlan; report: TiktokImportReport; preview?: PreviewInfo }> = ({ plan, report, preview }) => {
+  const s = plan.stats
+  const refused = plan.problems.length + report.failed.length
+  return (
+    <Done kindId="tiktok" preview={preview}
+      banner={`${nf(report.inserted)} nye og ${nf(report.updated)} oppdaterte innlegg`}
+      note={<>{report.handle}, {nnDate(s.first)} – {nnDate(s.last)}</>}
+      tone={refused ? 'yellow' : 'green'}>
+      <Stats items={[
+        { n: nf(s.inFile), label: 'innlegg i fila' },
+        { n: nf(report.inserted), label: preview ? 'blir lagt til' : 'lagt til', tone: 'green' },
+        { n: nf(report.updated), label: preview ? 'blir oppdaterte' : 'oppdaterte', tone: 'blue' },
+        { n: nf(s.videos), label: 'videoar' },
+        { n: nf(s.photos), label: 'fotoinnlegg' },
+        { n: nf(s.offProfile), label: 'utan lenkje, ikkje lenger på profilen' },
+        { n: nf(refused), label: 'ikkje importerte', tone: refused ? 'red' : undefined },
+      ]} />
+      {plan.problems.length > 0 && (
+        <Section title="Kunne ikkje lesast" id="problems">
+          {byReason(plan.problems).map(([reason, list]) => (
+            <Row title={reason} metric={nf(list.length)} raw={list.slice(0, 10).map((p) => `innlegg ${p.index}: ${p.postedAt ?? '?'}`).join('\n')} />
+          ))}
+        </Section>
+      )}
+      {report.failed.length > 0 && (
+        <Section title="Avviste av databasen" id="failed">
+          {byReason(report.failed).map(([reason, list]) => (
+            <Row title={reason} metric={nf(list.length)} raw={list.slice(0, 10).map((f) => f.id).join('\n')} />
+          ))}
+        </Section>
+      )}
+    </Done>
+  )
+}
 
 const range = (r: StorygraphReadRange): string => `${r.started ?? '?'} → ${r.finished ?? '?'}`
 

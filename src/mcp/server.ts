@@ -52,7 +52,7 @@ export function createMcpServer(): McpServer {
 
   server.tool(
     'get_actor_posts',
-    "Get posts from a specific ActivityPub actor. Defaults to newest-first; set sort_order='asc' with limit=1 to fetch the actor's earliest post in one call, and follow the next_cursor token for deep traversal.",
+    "Get posts from a specific ActivityPub actor, including the imported archives (@MThorr@twitter.com, @mvrkws@twitter.com, @markusrote@tiktok.com). Defaults to newest-first; set sort_order='asc' with limit=1 to fetch the actor's earliest post in one call, and follow the next_cursor token for deep traversal. sort_by orders by an engagement count instead of the date: 'views', 'likes', 'shares' or 'replies' (comments), highest first by default, posts without the count last — e.g. actor_handle '@markusrote@tiktok.com', since '2025-01-01', until '2026-01-01', sort_by 'views', limit 1 for the most viewed TikTok of 2025. Every post carries `engagement` {views, likes, shares, replies}: the counts stored WITH the post (an archive's as of its export; a federated post's as of when it arrived, often null), not live — use get_engagement for live Mastodon counts. Views exist only on TikTok posts. `url` is the post's own page (a TikTok post opens on tiktok.com) and is null for a TikTok post the profile no longer shows. TikTok videos are type 'Video', photo posts 'Image'.",
     getActorPostsSchema.shape,
     async (input) => {
       const result = await getActorPosts(input as any)

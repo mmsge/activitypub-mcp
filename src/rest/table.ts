@@ -104,7 +104,7 @@ export const endpoints: RestEndpoint[] = [
   {
     path: '/actor-posts',
     name: 'get_actor_posts',
-    description: "Get posts from a specific ActivityPub actor. Defaults to newest-first; set sort_order=asc with limit=1 for the earliest post, and follow next_cursor for deep traversal.",
+    description: "Get posts from a specific ActivityPub actor, including the imported Twitter and TikTok archives. Defaults to newest-first; set sort_order=asc with limit=1 for the earliest post, and follow next_cursor for deep traversal. sort_by=views|likes|shares|replies orders by that engagement count, posts without it last. Every post carries `engagement` {views, likes, shares, replies} as stored with the post, not live.",
     schema: getActorPostsSchema,
     handler: publicOnly(getActorPosts),
     numbers: ['limit'],

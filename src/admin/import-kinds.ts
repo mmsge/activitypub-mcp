@@ -131,6 +131,21 @@ export const IMPORT_KINDS: ImportKind[] = [
     primary: 'Importer',
   },
   {
+    id: 'tiktok',
+    category: 'fediverse',
+    verb: 'Import',
+    label: 'TikTok-arkiv',
+    sub: 'JSON frå build-tiktok-archive',
+    fileField: 'file',
+    accept: '.json,application/json',
+    help: [
+      'Lag fila på Mac-en med npm run build-tiktok-archive -- ~/Jottacloud/TikTok. Skriptet les dataeksporten og metadataen frå yt-dlp og skriv tiktok-archive.json. Det er den fila du lastar opp her, ikkje eksporten frå TikTok.',
+      'Kvart innlegg blir lagra under kontoen i fila, til dømes @markusrote@tiktok.com, med lenkje til videoen. Eit innlegg som ikkje lenger ligg på profilen, får dato, likerklikk og lyd, men inga lenkje. Same fil på nytt oppdaterer dei same radene. Ingenting blir henta frå tiktok.com, og ingen filer blir lagra (ADR 0078).',
+    ],
+    primary: 'Førehandsvis',
+    preview: true,
+  },
+  {
     id: 'crawl',
     category: 'fediverse',
     verb: 'Hent',

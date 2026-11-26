@@ -76,3 +76,30 @@ describe('fetchActor for an archive URL', () => {
     expect(net).not.toHaveBeenCalled()
   })
 })
+
+describe('a TikTok archive actor', () => {
+  const tiktok = {
+    ...stored,
+    apId: 'https://www.tiktok.com/@markusrote',
+    handle: '@markusrote@tiktok.com',
+    username: 'markusrote',
+    domain: 'tiktok.com',
+    software: 'tiktok',
+    displayName: 'Markus Rote',
+  }
+
+  it('resolves its handle from the table, never over the network', async () => {
+    answers.push([tiktok])
+    const actor = await resolveActorByHandle('@MarkusRote@tiktok.com')
+    expect(actor?.apId).toBe('https://www.tiktok.com/@markusrote')
+    expect(net).not.toHaveBeenCalled()
+  })
+
+  // The ap_id is on www.tiktok.com and the handle on tiktok.com: both must be known.
+  it('returns the stored actor for its www ap_id at any age', async () => {
+    answers.push([tiktok])
+    const actor = await fetchActor('https://www.tiktok.com/@markusrote')
+    expect(actor.displayName).toBe('Markus Rote')
+    expect(net).not.toHaveBeenCalled()
+  })
+})

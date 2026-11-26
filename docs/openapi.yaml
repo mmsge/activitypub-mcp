@@ -125,9 +125,16 @@ paths:
       tags: [REST API]
       summary: Get posts from an actor
       description: |
-        Posts from a specific ActivityPub actor. Defaults to newest-first; set
-        `sort_order=asc` with `limit=1` for the earliest post, and follow
+        Posts from a specific ActivityPub actor, including the imported Twitter
+        and TikTok archives (`@markusrote@tiktok.com`). Defaults to newest-first;
+        set `sort_order=asc` with `limit=1` for the earliest post, and follow
         `next_cursor` for deep traversal.
+
+        `sort_by` orders by an engagement count instead of the date. Posts
+        without that count come last in either direction. Every post carries
+        `engagement`, the counts stored with the post: an archive's as of its
+        export, a federated post's as of when it arrived. They are not live.
+        See ADR 0078.
 
         **Public posts only.** This endpoint serves posts the origin server
         marked public; followers-only, unlisted and unaddressed posts are
@@ -157,6 +164,17 @@ paths:
             optional), e.g. `togselfie`. Filtered in SQL so `limit` counts
             matching posts and pagination stays correct.
           schema: { type: string }
+        - name: sort_by
+          in: query
+          description: |
+            What to order by. `published` (default) is the post date. `views`,
+            `likes`, `shares` or `replies` order by that count, posts without it
+            last, ties by date. A cursor only works with the `sort_by` it came
+            from.
+          schema:
+            type: string
+            enum: [published, views, likes, shares, replies]
+            default: published
         - $ref: "#/components/parameters/SortOrder"
         - $ref: "#/components/parameters/Cursor"
       responses:
@@ -4977,6 +4995,13 @@ components:
             Only posts carrying this hashtag (case-insensitive, leading `#`
             optional), e.g. `togselfie`. Filtered in SQL so `limit` counts
             matching posts.
+        sort_by:
+          type: string
+          enum: [published, views, likes, shares, replies]
+          default: published
+          description: |
+            What to order by. `published` (default) is the post date; a count
+            orders by that count, posts without it last, ties by date.
         sort_order: { type: string, enum: [asc, desc], default: desc }
         cursor: { type: string }
 
@@ -4993,12 +5018,27 @@ components:
         published_at: { type: [string, "null"], format: date-time }
         attachments: { type: [array, "null"], items: { type: object } }
         tags: { type: [array, "null"], items: { type: object } }
+        engagement: { $ref: "#/components/schemas/PostEngagement" }
+
+    PostEngagement:
+      type: object
+      description: |
+        The counts stored with the post, null where it carries none. An
+        archive's are as of its export; a federated post's are as of when it
+        arrived. Views exist only on TikTok posts.
+      properties:
+        views: { type: [number, "null"] }
+        likes: { type: [number, "null"] }
+        shares: { type: [number, "null"] }
+        replies: { type: [number, "null"] }
 
     ActorPostsResponse:
       type: object
       properties:
         count: { type: integer }
         next_cursor: { type: [string, "null"] }
+        sort_by:
+          { type: string, enum: [published, views, likes, shares, replies] }
         sort_order: { type: string, enum: [asc, desc] }
         filters:
           type: object
