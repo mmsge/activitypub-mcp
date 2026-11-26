@@ -122,6 +122,35 @@ Rules not to "simplify" back:
 - **The archive's email, phone, IPs, DMs, likes and follower lists are not imported.**
 - **`ARCHIVE_MEDIA_DIR` is never swept** (unlike the image cache): those files are the archive.
 
+## TikTok is an archive actor too
+
+`@markusrote@tiktok.com` is the TikTok account, imported the Twitter way (ADR 0078): one
+actor, one `objects` row per post, `Video` (or `Image` for a photo post) at its own page.
+`npm run build-tiktok-archive -- ~/Jottacloud/TikTok` runs **on the Mac** and writes
+`tiktok-archive.json`; upload that at **Admin → Import → TikTok-arkiv** or run
+`npm run import-tiktok-archive -- <file>` in the container. `get_actor_posts` takes
+`sort_by` (`views`, `likes`, `shares`, `replies`) and returns `engagement` per post.
+
+Rules not to "simplify" back:
+
+- **Never dial tiktok.com.** `tiktok.com` and `www.tiktok.com` are both in `ARCHIVE_DOMAINS`:
+  the handle is on one and every page, the actor's `ap_id` included, on the other. Dropping
+  either sends WebFinger or the actor refresh to TikTok. `get_engagement` refuses archive
+  hosts for the same reason.
+- **Never store the export's CDN links.** `Link` is a signed address that expires in ten
+  days. The build counts how many it holds (several means a photo post) and copies none.
+- **Never serve a `url` that does not open.** The 64 posts with no yt-dlp metadata have a
+  synthetic `ap_id` (`…/@markusrote#arkiv-<UTC second>`) and `url` null. Not the profile,
+  not a search.
+- **The join is the exact second.** The export has no id; `Date` as UTC equals yt-dlp's
+  `timestamp` to the second. No tolerance window, and a shared second pairs nothing.
+- **The export stays on the Mac and only the posts list is read.** DMs, searches and watch
+  history are in the same file. The build reads `Post.Posts.VideoList` and named fields.
+- **The importer does not go through `ingestObject`**, and stores no files. The row helpers
+  are shared with the Twitter importer in `src/jobs/archive-objects.ts`.
+- **Views live in `raw.tiktokArchive.post.views`.** AS2 has no property for them; likes,
+  shares and replies are `totalItems` collections. `metricExpr` and `engagementOf` must agree.
+
 ## Scrobble races
 
 Two things in the listening history race head-to-head, and a **side is an entity**: an
