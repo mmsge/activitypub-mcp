@@ -9,6 +9,7 @@ import {
   metricExpr,
   metricKeysetCondition,
   metricOrderBy,
+  SORT_METRICS,
 } from './actor-posts.js'
 import { encodeCursor, InvalidCursorError } from './pagination.js'
 
@@ -60,25 +61,49 @@ describe('sort_by', () => {
     const views = dialect.sqlToQuery(metricExpr('views')).sql
     expect(views).toContain(`jsonb_typeof("objects"."raw"->'tiktokArchive'->'post'->'views') = 'number'`)
     expect(views).toContain(`("objects"."raw"->'tiktokArchive'->'post'->>'views')::numeric`)
-    expect(dialect.sqlToQuery(metricExpr('replies')).sql).toContain(`"objects"."raw"->'replies'->>'totalItems'`)
+    for (const metric of ['likes', 'shares', 'replies'] as const) {
+      const q = dialect.sqlToQuery(metricExpr(metric)).sql
+      expect(q).toContain(`jsonb_typeof("objects"."raw"->'${metric}'->'totalItems') = 'number'`)
+      expect(q).toContain(`("objects"."raw"->'${metric}'->>'totalItems')::numeric`)
+    }
   })
 
-  it('puts posts without the count last in both directions, then the date, then the id', () => {
+  it('every metric the schema accepts is also a key of `engagement`, so a caller can see what it sorted by', () => {
+    expect([...SORT_METRICS]).toEqual(['views', 'likes', 'shares', 'replies'])
+    expect(Object.keys(engagementOf(null))).toEqual([...SORT_METRICS])
+    for (const metric of SORT_METRICS) {
+      expect(getActorPostsSchema.parse({ actor_handle: '@a@b', sort_by: metric }).sort_by).toBe(metric)
+    }
+  })
+
+  it('puts posts without the count last in both directions, then the date newest first, then the id', () => {
     const desc = dialect.sqlToQuery(metricOrderBy(metricExpr('views'), 'desc')).sql
     expect(desc).toMatch(/END\) DESC NULLS LAST, "objects"\."published_at" DESC NULLS LAST, "objects"\."id" DESC$/)
+    // "asc" reverses the count only: two equal posts, and the no-count tail, still read newest first.
     const asc = dialect.sqlToQuery(metricOrderBy(metricExpr('views'), 'asc')).sql
-    expect(asc).toMatch(/END\) ASC NULLS LAST, "objects"\."published_at" ASC NULLS LAST, "objects"\."id" ASC$/)
+    expect(asc).toMatch(/END\) ASC NULLS LAST, "objects"\."published_at" DESC NULLS LAST, "objects"\."id" DESC$/)
   })
 
-  it('continues past the cursor row: a lower count, the same count later, or no count at all', () => {
+  it('continues past the cursor row: a lower count, the same count but older, or no count at all', () => {
     const cursor = { p: '2025-03-14T19:30:00.000Z', id: '00000000-0000-0000-0000-000000000001', m: '990000' }
     const { sql, params } = dialect.sqlToQuery(metricKeysetCondition(metricExpr('views'), cursor, 'desc'))
     expect(sql).toContain('< $1::numeric OR (')
     expect(sql).toMatch(/IS NULL\)$/)
-    expect(params[0]).toBe('990000')
+    expect(params).toEqual(['990000', '990000', cursor.p, cursor.p, cursor.id])
+    // Inside a tie the date keyset runs newest first: strictly older, or the same instant with a lower id.
+    expect(sql).toContain(`"objects"."published_at" < $3::timestamptz OR ("objects"."published_at" = $4::timestamptz AND "objects"."id" < $5::uuid)`)
     // In the trailing section with no count, only the date keyset is left.
     const tail = dialect.sqlToQuery(metricKeysetCondition(metricExpr('views'), { ...cursor, m: null }, 'desc')).sql
     expect(tail).toMatch(/^\(\(CASE .* END\) IS NULL AND/)
+  })
+
+  it('under asc the count comparison flips and the tie-break does not, matching the ORDER BY', () => {
+    const cursor = { p: '2025-03-14T19:30:00.000Z', id: '00000000-0000-0000-0000-000000000001', m: '12' }
+    const { sql } = dialect.sqlToQuery(metricKeysetCondition(metricExpr('likes'), cursor, 'asc'))
+    expect(sql).toContain('> $1::numeric OR (')
+    expect(sql).toContain(`"objects"."published_at" < $3::timestamptz OR ("objects"."published_at" = $4::timestamptz AND "objects"."id" < $5::uuid)`)
+    const tail = dialect.sqlToQuery(metricKeysetCondition(metricExpr('likes'), { ...cursor, m: null }, 'asc')).sql
+    expect(tail).toContain(`IS NULL AND ("objects"."published_at" < $1::timestamptz`)
   })
 
   it('round-trips a count cursor and refuses it under another sort', () => {

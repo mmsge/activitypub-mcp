@@ -131,10 +131,13 @@ paths:
         `next_cursor` for deep traversal.
 
         `sort_by` orders by an engagement count instead of the date. Posts
-        without that count come last in either direction. Every post carries
-        `engagement`, the counts stored with the post: an archive's as of its
-        export, a federated post's as of when it arrived. They are not live.
-        See ADR 0078.
+        without that count come last in either direction, and ties on a count
+        are newest first in either direction. Every post carries `engagement`,
+        the counts stored with the post: an archive's as of its export, a
+        federated post's as of when it arrived. They are not live. Which counts
+        exist depends on the source: TikTok posts carry all four, the Twitter
+        archives likes and shares, Mastodon posts likes and shares as of
+        arrival; views and replies exist only on TikTok posts. See ADR 0078.
 
         **Public posts only.** This endpoint serves posts the origin server
         marked public; followers-only, unlisted and unaddressed posts are
@@ -169,8 +172,8 @@ paths:
           description: |
             What to order by. `published` (default) is the post date. `views`,
             `likes`, `shares` or `replies` order by that count, posts without it
-            last, ties by date. A cursor only works with the `sort_by` it came
-            from.
+            last, ties newest first. A cursor only works with the `sort_by` it
+            came from.
           schema:
             type: string
             enum: [published, views, likes, shares, replies]

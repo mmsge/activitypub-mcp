@@ -28,7 +28,7 @@ export const getActorPostsSchema = z.object({
   tag: z.string().optional()
     .describe('Only posts carrying this hashtag (case-insensitive, leading # optional), e.g. "togselfie". Filtered in SQL so `limit` counts matching posts.'),
   sort_by: z.enum(['published', ...SORT_METRICS]).default('published')
-    .describe('What to order by. "published" (default) is the post date. "views", "likes", "shares" or "replies" order by that engagement count as stored with the post (see `engagement` on each post); posts without the count come last in either direction, and ties fall back to the post date. Pair with since/until and limit:1 for "most viewed in 2025".'),
+    .describe('What to order by. "published" (default) is the post date. "views", "likes", "shares" or "replies" order by that engagement count as stored with the post (see `engagement` on each post); posts without the count come last in either direction, and ties on a count are newest first in either direction, so the order is stable. Pair with since/until and limit:1 for "most viewed in 2025".'),
   sort_order: z.enum(['asc', 'desc']).default('desc')
     .describe('Direction. "desc" (default) is newest-first, or highest count first with a sort_by count; "asc" is oldest-first or lowest first — pair with limit:1 to fetch the actor\'s earliest post in one call.'),
   cursor: z.string().optional()
@@ -79,6 +79,14 @@ export function engagementOf(raw: unknown): Engagement {
 type MetricCursor = { p: string | null; id: string; m: string | null }
 
 /**
+ * Ties on a count, and the trailing posts without one, are newest first whatever
+ * `sort_order` says. The direction only reverses the count: "lowest first" still reads
+ * the latest of two equal posts first, the way "highest first" does, and a post with no
+ * count is in the same place in both listings.
+ */
+const TIE_ORDER: SortOrder = 'desc'
+
+/**
  * A cursor for a count sort carries the sort and the last row's count, so the next page
  * starts after (count, published_at, id). The date sort keeps the cursor it always had,
  * so a cursor issued before sort_by existed still works.
@@ -104,12 +112,13 @@ export function decodePostsCursor(token: string, sortBy: SortBy): MetricCursor {
 }
 
 /**
- * Rows strictly past the cursor under ORDER BY count, published_at, id, every key NULLS
- * LAST. A row with a count is followed by every row without one; inside one count, the
- * date keyset decides.
+ * Rows strictly past the cursor under ORDER BY count <order> NULLS LAST, published_at
+ * DESC NULLS LAST, id DESC. A row with a count is followed by every row without one;
+ * inside one count, the date keyset decides, newest first (TIE_ORDER). The two helpers
+ * must agree on that or paging skips or repeats rows at a tie.
  */
 export function metricKeysetCondition(expr: SQL, cursor: MetricCursor, order: SortOrder): SQL {
-  const rest = keysetCondition(objects.publishedAt, objects.id, { p: cursor.p, id: cursor.id }, order)
+  const rest = keysetCondition(objects.publishedAt, objects.id, { p: cursor.p, id: cursor.id }, TIE_ORDER)
   if (cursor.m === null) return sql`(${expr} IS NULL AND ${rest})`
   const past = order === 'asc' ? sql`${expr} > ${cursor.m}::numeric` : sql`${expr} < ${cursor.m}::numeric`
   return sql`(${past} OR (${expr} = ${cursor.m}::numeric AND ${rest}) OR ${expr} IS NULL)`
@@ -117,7 +126,7 @@ export function metricKeysetCondition(expr: SQL, cursor: MetricCursor, order: So
 
 export function metricOrderBy(expr: SQL, order: SortOrder): SQL {
   const dir = order === 'asc' ? sql`ASC` : sql`DESC`
-  return sql`${expr} ${dir} NULLS LAST, ${keysetOrderBy(objects.publishedAt, objects.id, order)}`
+  return sql`${expr} ${dir} NULLS LAST, ${keysetOrderBy(objects.publishedAt, objects.id, TIE_ORDER)}`
 }
 
 /**

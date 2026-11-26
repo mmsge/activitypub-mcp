@@ -86,9 +86,13 @@ actor and `objects` rows. Every reading tool takes an `actor_handle` and reads `
 9. **`get_actor_posts` sorts by a count.** `sort_by` takes `published` (the default, as
    before), `views`, `likes`, `shares` or `replies`, read from the stored object by one SQL
    expression per count with a `jsonb_typeof` guard. Posts without the count come last in
-   either direction. Paging is a keyset on (count, `published_at`, id); a count cursor carries
-   its sort and is refused under another, and the date cursor is unchanged. Every post gets
-   `engagement` {views, likes, shares, replies}. It works for the Twitter archives too.
+   either direction, and ties on a count are newest first in either direction: `sort_order`
+   reverses the count only, so two equal posts read in the same order whichever way the
+   counts run. Paging is a keyset on (count, `published_at` DESC, id DESC); a count cursor
+   carries its sort and is refused under another, and the date cursor is unchanged. Every
+   post gets `engagement` {views, likes, shares, replies}. It works for the Twitter archives
+   too, which carry likes and shares and nothing else; Mastodon posts carry likes and shares
+   as of arrival and never views or replies.
 
 The public stream is unaffected: it is an allowlist (`STREAM_SOURCES`) whose platforms are
 ActivityPub software, and `@…@tiktok.com` is not on it, exactly as for Twitter.
