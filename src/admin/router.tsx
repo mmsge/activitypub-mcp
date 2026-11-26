@@ -21,6 +21,7 @@ import {
   YoutubeImportResultPage,
   StorygraphImportResultPage,
   TripTrackImportResultPage,
+  TiktokImportResultPage,
 } from './views/import.js'
 import { mediaRouter } from './media-router.js'
 import { importKind } from './import-kinds.js'
@@ -36,6 +37,7 @@ import { importStorygraphReads } from '../jobs/import-storygraph-reads.js'
 import { importYoutubeWatches } from '../jobs/import-youtube-watches.js'
 import { parseViaductGpx } from '../lib/parse-viaduct-gpx.js'
 import { importTripTracks } from '../jobs/import-trip-tracks.js'
+import { importTiktokArchive, planTiktokArchive } from '../jobs/import-tiktok-archive.js'
 import {
   parseMastodonArchive,
   crawlOutbox,
@@ -674,6 +676,44 @@ const youtubeImport = async (c: Context) => {
 }
 app.post('/import/youtube', bodyLimit({ maxSize: 64 * 1024 * 1024 }), youtubeImport)
 
+// TikTok archive → @<username>@tiktok.com and one post per video or photo post. The file
+// is built on the Mac by `npm run build-tiktok-archive`; TikTok's own export never reaches
+// this server. Nothing here dials tiktok.com or stores a file, so every effect is in this
+// database and it previews. Rendered rather than redirected: the posts it could not read
+// are the report. See ADR 0078.
+const tiktokImport = async (c: Context) => {
+    const body = await importBody(c, 'tiktok')
+    if (!body) return fail(c, 'tiktok', EXPIRED)
+    const file = body['file']
+    if (!file || typeof file === 'string') {
+      return fail(c, 'tiktok', "Inga fil lasta opp")
+    }
+    let text: string
+    try {
+      text = await (file as File).text()
+    } catch {
+      return fail(c, 'tiktok', "Kunne ikkje lese fila")
+    }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(text)
+    } catch (e) {
+      return fail(c, 'tiktok', `Ikkje gyldig JSON: ${e instanceof Error ? e.message : String(e)}`)
+    }
+    let plan
+    try {
+      plan = planTiktokArchive(parsed)
+    } catch (e) {
+      return fail(c, 'tiktok', e instanceof Error ? e.message : String(e))
+    }
+
+    const report = await importTiktokArchive(plan)
+    await recordImportRun('tiktok', { ok: true, summary: `${report.inserted} nye, ${report.updated} oppdaterte innlegg` })
+    return c.html(<TiktokImportResultPage plan={plan} report={report} preview={previewOf(c)} />)
+}
+app.post('/import/tiktok', bodyLimit({ maxSize: 25 * 1024 * 1024 }), tiktokImport)
+
 app.post('/import/crawl', async (c) => {
   const body = await c.req.parseBody()
   const handle = (body['handle'] as string | undefined)?.trim()
@@ -818,6 +858,7 @@ const PREVIEWABLE: Record<string, (c: Context) => Promise<Response>> = {
   storygraph: storygraphImport,
   linkedin: linkedinImport,
   youtube: youtubeImport,
+  tiktok: tiktokImport,
 }
 
 // The preview: the same handler, inside a transaction that is always rolled back, so the

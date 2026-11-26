@@ -115,6 +115,7 @@ export const CATEGORIES: Category[] = [
     ],
     imports: [
       { verb: 'Import', label: 'Mastodon-arkiv', sub: 'outbox.json frå arkivet', anchor: 'archive' },
+      { verb: 'Import', label: 'TikTok-arkiv', sub: 'JSON frå build-tiktok-archive', anchor: 'tiktok' },
       { verb: 'Hent', label: 'Hent utboks', sub: 'Les ein aktør si utboks over ActivityPub', anchor: 'crawl' },
       { verb: 'Køyr', label: 'Prosesser nakne objekt', sub: 'Vedlikehald', anchor: 'reprocess' },
     ],
