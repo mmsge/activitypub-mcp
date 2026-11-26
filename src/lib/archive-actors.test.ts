@@ -9,6 +9,16 @@ describe('isArchiveDomain', () => {
     expect(isArchiveDomain('https://twitter.com/MThorr/status/1')).toBe(true)
   })
 
+  it('knows TikTok on both its hosts: the handle on tiktok.com, every page on www', () => {
+    expect(isArchiveDomain('tiktok.com')).toBe(true)
+    expect(isArchiveDomain('www.tiktok.com')).toBe(true)
+    expect(isArchiveDomain('https://www.tiktok.com/@markusrote')).toBe(true)
+    expect(isArchiveDomain('https://www.tiktok.com/@markusrote/video/7052580526875495686')).toBe(true)
+    expect(isArchiveDomain('https://www.tiktok.com/@markusrote#arkiv-20220505T120000Z')).toBe(true)
+    // Other TikTok hosts are not where an archived post lives.
+    expect(isArchiveDomain('https://vm.tiktok.com/x')).toBe(false)
+  })
+
   it('leaves every real server alone', () => {
     expect(isArchiveDomain('skvip.lol')).toBe(false)
     expect(isArchiveDomain('https://skvip.lol/users/markus')).toBe(false)
